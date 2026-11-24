@@ -360,6 +360,7 @@ struct Session::Impl {
                     if (e.vel) t.sampler->noteOn(e.note, e.vel); else t.sampler->noteOff(e.note);
                 }
                 if (cur < n) t.sampler->render(bus.data() + 2 * cur, n - cur);
+                while (auto unused = t.sampler->takeUnusedProcessed()) job([unused = std::move(unused)] {});
                 float vp[kVoiceMax], vl[kVoiceMax]; const int vn = t.sampler->voicePositions(vp, kVoiceMax, vl);
                 for (int i = 0; i < vn; i++) { a_voicePos[ti][i].store(vp[i]); a_voiceLvl[ti][i].store(vl[i]); }
                 a_voiceN[ti].store(vn);

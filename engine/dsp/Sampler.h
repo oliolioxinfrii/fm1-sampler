@@ -38,6 +38,7 @@ public:
     void setRange(float a, float b);   // 0..1 of the original sample
     // the offline stretched / pitched copy of the range [a, b] (null: play the original)
     void setProcessed(std::shared_ptr<const SampleBuf> p, float a, float b);
+    std::shared_ptr<const SampleBuf> takeUnusedProcessed();
     void setBend(float semitones) { bend_ = semitones; }
     void setRoot(float note) { root_ = note; }   // the note at which the sample sounds as recorded (60 = C4; auto-tune sets the detected pitch)
     // the parameters of the modes that replace speed / pitch on the sample page
@@ -58,17 +59,21 @@ private:
     struct Voice {
         bool on = false, gate = false; int note = 0, slice = 0; float vel = 1.f; uint32_t born = 0;
         double pos = 0, rate = 1.0, ws = 0, we = 0;   // window of the played buffer, frames
-        const SampleBuf* buf = nullptr;
+        std::shared_ptr<const SampleBuf> buf;
+        int mode = MELODIC;
+        float baseSemis = 0.f, sourceStart = 0.f, sourceEnd = 1.f;
         Adsr env; Grain grain[12]; double spawn = 0; int paulIdx = -1;
     };
-    void resolveWindow(Voice& v, const SampleBuf*& buf, double& ws, double& we) const;
-    float orginalPosOf(const Voice& v) const;
+    void resolveWindow(Voice& v) const;
+    float originalPosOf(const Voice& v, double pos) const;
     void renderVoice(Voice& v, float* out, int n);
     void reslice();
     float rnd() { rng_ = rng_ * 1664525u + 1013904223u; return (rng_ >> 8) / 16777216.f; }
 
     int sr_;
     std::shared_ptr<const SampleBuf> orig_, proc_;
+    // Keep replaced buffers alive until the session can free them on its worker.
+    std::vector<std::shared_ptr<const SampleBuf>> retired_;
     float procA_ = 0, procB_ = 1, rangeA_ = 0, rangeB_ = 1, bend_ = 0, atk_ = 0.01f, dec_ = 0.3f, sus_ = 0.8f, rel_ = 0.3f, root_ = 60.f;
     int mode_ = MELODIC; std::vector<int> slices_; std::string label_; std::vector<float> peaks_;
     Voice voices_[kVoices]; std::vector<std::unique_ptr<PaulStream>> paul_; bool paulBusy_[kVoices] = {};
