@@ -36,9 +36,12 @@ int main(int argc, char** argv) {
         for (auto& o : ui.ops()) { fprintf(f, "%s[%d,%g,%g,%g,%g,%g,%g,%u,\"%s\"]", first ? "" : ",", (int)o.type, o.f[0], o.f[1], o.f[2], o.f[3], o.f[4], o.f[5], o.color, esc(o.text).c_str()); first = false; }
         fprintf(f, "]}");
     };
-    const float rx = W - 252, tw = (252 - 8 - 16) / 5.f;
-    auto tab = [&](int i) { tapAt(rx + (i % 5) * (tw + 4) + tw / 2, 44 + 8 + (i / 5) * 32 + 14); };
+    const float rx = W - 252, tw = (252 - 8 - 20) / 6.f;
+    auto tab = [&](int i) { tapAt(rx + (i % 6) * (tw + 4) + tw / 2, 44 + 8 + (i / 6) * 32 + 14); };
+    theme::apply(true);
     ui.frame(now); dump("deck");
+    theme::apply(false); dump("deck_dark");
+    theme::apply(true);
     app.selectTrack(1); run(0.3); ui.frame(now); dump("deck_track2"); app.selectTrack(0);
     { static const SamplerApp::Page pgs[] = {SamplerApp::P_FX, SamplerApp::P_ENV, SamplerApp::P_LFO, SamplerApp::P_ARP, SamplerApp::P_SEQ, SamplerApp::P_MIX, SamplerApp::P_KEY, SamplerApp::P_SAVE, SamplerApp::P_LEN};
       static const char* nm[] = {"pg_fx", "pg_env", "pg_lfo", "pg_arp", "pg_seq", "pg_mix", "pg_key", "pg_save", "pg_len"};
@@ -62,6 +65,8 @@ int main(int argc, char** argv) {
     ui.openProject(true); ui.frame(now); dump("deck_project"); ui.openProject(false);
     ui.setEditor(true);
     ui.frame(now); dump("sample");
+    theme::apply(false); dump("sample_dark");
+    theme::apply(true);
     tab(1); ui.frame(now); dump("fx");
     tab(2); ui.frame(now); dump("env");
     tab(3); ui.frame(now); dump("lfo");
@@ -69,6 +74,7 @@ int main(int argc, char** argv) {
     tab(7); ui.frame(now); dump("key");
     tab(8); ui.frame(now); dump("loop");
     tab(9); ui.frame(now); dump("len");
+    tab(10); ui.frame(now); dump("tempo");
     tab(0);
     app.playNote(60, true); app.playNote(67, true); run(0.5); ui.frame(now); dump("voices"); ui.setEditor(false); ui.frame(now); dump("deck_voices"); ui.setEditor(true); app.playNote(60, false); app.playNote(67, false); run(0.3);
     tapAt(60, 100); run(1.0); ui.frame(now); dump("track2");

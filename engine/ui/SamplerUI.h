@@ -24,6 +24,9 @@ private:
     struct Hit { Rect r; std::function<void(float, float)> down, move; std::function<void()> up; };
     void rrect(Rect r, float rad, uint32_t c);
     void stroke(Rect r, float rad, uint32_t c, float w = 1);
+    void bevel(Rect r, uint32_t fill, bool inset = false);
+    void scope(Rect r, bool grid = true);
+    void strip(Rect r, uint32_t color, const std::string& label, float size = 11);
     void text(float x, float cy, float size, uint32_t c, const std::string& s, int align = 0, bool bold = false);
     void line(float x1, float y1, float x2, float y2, uint32_t c, float w = 1);
     void circle(float cx, float cy, float r, uint32_t c);
@@ -33,7 +36,7 @@ private:
     void hit(Rect r, std::function<void(float, float)> down, std::function<void(float, float)> move = nullptr, std::function<void()> up = nullptr);
     void tap(Rect r, std::function<void()> f);
     std::string fit(const std::string& s, float width, float size) const;
-    void button(Rect r, const std::string& label, bool on, std::function<void()> f, float size = 11, bool accent = false);
+    void button(Rect r, const std::string& label, bool on, std::function<void()> f, float size = 11, bool accent = false, uint32_t color = 0);
 
     void topBar(Rect r);
     void deck(Rect r);
