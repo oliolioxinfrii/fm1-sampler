@@ -25,8 +25,9 @@ int main() {
         require(reference.load(path.string()) && edited.load(path.string()), "load test sample");
         auto processed = std::make_shared<SampleBuf>();
         processed->frames = sr; processed->sr = sr; processed->d.assign(2 * sr, 0.4f);
-        reference.setProcessed(processed, 0.f, 1.f);
+        reference.setProcessed(std::make_shared<SampleBuf>(*processed), 0.f, 1.f);
         edited.setProcessed(processed, 0.f, 1.f);
+        processed.reset();
         reference.setMode(Sampler::LOOPED); edited.setMode(Sampler::LOOPED);
         reference.noteOn(60, 100); edited.noteOn(60, 100);
         std::vector<float> a(2*n), b(2*n);
@@ -46,9 +47,6 @@ int main() {
         reference.noteOff(60); edited.noteOff(60);
         for (int i = 0; i < 100; ++i) equalBlock();
         require(!edited.hasVoices(), "old looped voice did not release");
-        reference.allOff(); reference.setProcessed(nullptr, 0.f, 1.f);
-        auto referenceRetired = reference.takeUnusedProcessed();
-        referenceRetired.reset(); processed.reset();
         require(bool(edited.takeUnusedProcessed()), "unused processed buffer not reclaimed");
 
         edited.noteOn(60, 100);
