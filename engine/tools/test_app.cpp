@@ -135,18 +135,36 @@ int main() {
       const float p1 = app.status().clipPos[0]; run(0.3); CHECK(std::fabs(app.status().clipPos[0] - p1) > 0.02f && app.status().playing, "after the finger lifts the loop plays on (%.3f -> %.3f)", p1, app.status().clipPos[0]);
       app.transportPlay(); run(1.2); const float ps = app.status().clipPos[0]; app.scrub(0, 0.6f); run(0.3); app.scrub(2, 0); run(0.8);
       CHECK(!app.status().playing && std::fabs(app.status().clipPos[0] - 0.6f) < 0.06f, "scrubbing a stopped tape moves it, it stays stopped afterwards (%.3f -> %.3f)", ps, app.status().clipPos[0]);
-      // Rotate the large cassette reel across the splice in both directions.
-      s.seek(0.04f); run(0.2);
+      // The lower tangent runs right, the upper tangent left; the splice
+      // is at the large wheel's lower tangent. Both share one path coordinate.
+      s.seek(0.25f); run(0.2);
       SamplerUI ui(app); ui.setSize(860, 400, 0, 0); ui.frame(now);
-      ui.touch(0, 130, 149, now); run(0.1);
-      ui.touch(1, 93, 186, now); run(0.8);
+      auto dragTape = [&](float x0, float y0, float x1, float y1) {
+          ui.touch(0, x0, y0, now); run(0.1);
+          ui.touch(1, x1, y1, now); run(0.8);
+          ui.touch(2, x1, y1, now); run(0.4);
+          return app.status().clipPos[0];
+      };
+      const float lower = dragTape(130, 195, 180, 194);
+      CHECK(lower > 0.32f && lower < 0.37f, "lower ribbon right advances (%.3f)", lower);
+      const float upper = dragTape(190, 124, 140, 112);
+      CHECK(upper > lower + 0.07f && upper < lower + 0.13f, "upper ribbon left advances (%.3f)", upper);
+      const float back = dragTape(140, 112, 190, 124);
+      CHECK(std::fabs(back - lower) < 0.025f, "upper ribbon right reverses (%.3f)", back);
+      const float center = dragTape(93, 149, 130, 149);
+      CHECK(std::fabs(center - back) < 0.005f, "reel interior does not grab the ribbon (%.3f)", center);
+      s.seek(0.04f); run(0.2);
+      ui.touch(0, 120, 195, now); run(0.1);
+      ui.touch(1, 94, 195, now); run(0.3);
+      ui.touch(1, 61, 183, now); run(0.8);
       const float reverse = app.status().clipPos[0];
-      CHECK(reverse > 0.85f && reverse < 0.98f, "reel crosses the splice backwards (%.3f)", reverse);
-      ui.touch(1, 130, 149, now); run(0.8);
+      CHECK(reverse > 0.85f && reverse < 0.97f, "ribbon crosses the splice backwards (%.3f)", reverse);
+      ui.touch(1, 94, 195, now); run(0.3);
+      ui.touch(1, 120, 195, now); run(0.8);
       const float forward = app.status().clipPos[0];
-      CHECK(std::fabs(forward - 0.04f) < 0.03f, "reel crosses the splice forwards (%.3f)", forward);
-      ui.touch(2, 130, 149, now); run(0.8);
-      CHECK(!app.status().playing && std::fabs(app.status().clipPos[0] - forward) < 0.02f, "reel release preserves stopped transport");
+      CHECK(std::fabs(forward - 0.04f) < 0.025f, "ribbon crosses the splice forwards (%.3f)", forward);
+      ui.touch(2, 120, 195, now); run(0.8);
+      CHECK(!app.status().playing && std::fabs(app.status().clipPos[0] - forward) < 0.02f, "ribbon release preserves stopped transport");
       app.loopClear(); run(0.3); }
     {   // the first take can be drawn while it is recorded
       app.selectTrack(0); app.loopClear(); run(0.3); app.loopRecord(); run(0.1); app.playNote(60, true); run(0.8); app.playNote(60, false); run(0.3);

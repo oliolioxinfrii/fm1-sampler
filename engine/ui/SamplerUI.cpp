@@ -449,29 +449,61 @@ void SamplerUI::cassette(Rect wd) {
     reel(posts[0].x, posts[0].y, posts[0].r, -turn * 2 * kPi * t0); reel(posts[1].x, posts[1].y, posts[1].r, -turn * 2 * kPi * t1);
     float x, y; at(turn * per, x, y); circle(x, y, 6, recNow ? kPaper : kOrange);
     if (!hasLoop || recNow) return;
-    // Drag the ribbon horizontally, or rotate either reel. Both gestures
-    // move the shared read head relative to its position when grabbed.
-    hit(wd, [this](float px, float) {
-        dragV_ = px;
-        app_.session().scrubBegin(0.f, true);
-    }, [this, per](float px, float) {
-        app_.session().scrubBy(-(px - dragV_) / per);
-        dragV_ = px;
-    }, [this] { app_.session().scrubEnd(); });
-    for (int i = 0; i < 2; ++i) {
-        const Post p = posts[i];
-        const int turns = i == 0 ? t0 : t1;
-        hit({p.x - p.r, p.y - p.r, 2 * p.r, 2 * p.r}, [this, p](float px, float py) {
-            dragV_ = std::atan2(py - p.y, px - p.x);
-            app_.session().scrubBegin(0.f, true);
-        }, [this, p, turns](float px, float py) {
-            if (std::hypot(px - p.x, py - p.y) < 0.15f * p.r) return;
-            const float angle = std::atan2(py - p.y, px - p.x);
-            const float delta = std::remainder(angle - dragV_, 2 * kPi);
-            dragV_ = angle;
-            app_.session().scrubBy(-delta / (2 * kPi * turns));
-        }, [this] { app_.session().scrubEnd(); });
-    }
+    // Project touches onto the same directed path used for the splice marker.
+    // The nearest point on each arc or tangent gives an arc-length coordinate.
+    auto project = [segs, per](float px, float py, float& fraction) {
+        float best = 1e30f, offset = 0;
+        for (const Seg& g : segs) {
+            float u = 0;
+            if (g.arc) {
+                const float a = std::atan2(py - g.cy, px - g.cx);
+                const float sign = g.da < 0 ? -1.f : 1.f;
+                float sweep = std::fmod(sign * (a - g.a0), 2 * kPi);
+                if (sweep < 0) sweep += 2 * kPi;
+                if (sweep <= std::fabs(g.da)) u = sweep / std::fabs(g.da);
+                else {
+                    const float a1 = g.a0 + g.da;
+                    const float d0 = std::hypot(px - g.cx - g.r * std::cos(g.a0), py - g.cy - g.r * std::sin(g.a0));
+                    const float d1 = std::hypot(px - g.cx - g.r * std::cos(a1), py - g.cy - g.r * std::sin(a1));
+                    u = d0 <= d1 ? 0.f : 1.f;
+                }
+            } else {
+                const float dx = g.x1 - g.x0, dy = g.y1 - g.y0;
+                u = clamp01(((px - g.x0) * dx + (py - g.y0) * dy) / (g.len * g.len));
+            }
+            const float a = g.a0 + u * g.da;
+            const float x = g.arc ? g.cx + g.r * std::cos(a) : g.x0 + u * (g.x1 - g.x0);
+            const float y = g.arc ? g.cy + g.r * std::sin(a) : g.y0 + u * (g.y1 - g.y0);
+            const float distance = std::hypot(px - x, py - y);
+            if (distance < best) {
+                best = distance;
+                fraction = (offset + u * g.len) / per;
+            }
+            offset += g.len;
+        }
+        return best;
+    };
+    // Only presses near the ribbon grab the tape. Leaving its wider tracking
+    // band pauses the gesture; returning reanchors it without a seek.
+    constexpr float touchWidth = 18.f, trackingWidth = 24.f;
+    hit(wd, [this, project, touchWidth](float px, float py) {
+        tapeGrabbed_ = project(px, py, tapeLast_) <= touchWidth;
+        tapeTracking_ = tapeGrabbed_;
+        if (tapeGrabbed_) app_.session().scrubBegin(0.f, true);
+    }, [this, project, trackingWidth](float px, float py) {
+        if (!tapeGrabbed_) return;
+        float fraction = 0;
+        if (project(px, py, fraction) > trackingWidth) {
+            tapeTracking_ = false;
+            return;
+        }
+        if (tapeTracking_) app_.session().scrubBy(std::remainder(fraction - tapeLast_, 1.f));
+        tapeLast_ = fraction;
+        tapeTracking_ = true;
+    }, [this] {
+        if (tapeGrabbed_) app_.session().scrubEnd();
+        tapeGrabbed_ = tapeTracking_ = false;
+    });
 }
 
 float SamplerUI::loopPos() const {
