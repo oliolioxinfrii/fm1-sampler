@@ -298,11 +298,11 @@ void SamplerUI::pageView(Rect r) {
             if (left > 0.5f) rrect({x, cy - left, pitch * 0.62f, 2 * left}, 0, trackTrace(t));
         }
         if (sc) {
-            for (float x = w.x; x < w.x + w.w; x += 10) rrect({x, cy - f(thrLin) - 0.7f, 5, 1.4f}, 0, TRACE_AMBER);   // the threshold
+            for (float x = w.x; x < w.x + w.w; x += 10) rrect({x, cy - f(thrLin) - 0.7f, std::min(5.f, w.x + w.w - x), 1.4f}, 0, TRACE_AMBER);   // the threshold
             for (int i = 0; i + 1 < kHist; i++) {
                 const int k0 = (hPos_ + i) % kHist, k1 = (hPos_ + i + 1) % kHist;
                 const uint32_t c = hSrc_[k0] > thrLin || hSrc_[k1] > thrLin ? TRACE_AMBER : WELL_DIM;
-                line(w.x + i * pitch, cy - f(hSrc_[k0]), w.x + (i + 1) * pitch, cy - f(hSrc_[k1]), c, 2.2f);
+                line(w.x + 1.2f + i * (w.w - 2.4f) / (kHist - 1), cy - f(hSrc_[k0]), w.x + 1.2f + (i + 1) * (w.w - 2.4f) / (kHist - 1), cy - f(hSrc_[k1]), c, 2.2f);
             }
             const float gdb = 20.f * std::log10(std::max(0.01f, st_.scGain[t]));
             if (gdb < -0.5f) text(w.x + w.w - 4, w.y + 6, 11, TRACE_AMBER, num("%.0f DB", gdb), 2, true);
@@ -576,7 +576,7 @@ float SamplerUI::loopPos() const {
 void SamplerUI::timeline(Rect r) {
     scope(r, false);
     const int t = app_.track();
-    const float tx = r.x + 3, tw = r.w - 6, rh = 18, wy = r.y + rh + 4, wh = r.h - rh - 6;
+    const float tx = r.x + 3, tw = r.w - 6, rh = 18, wy = r.y + rh + 4, wh = r.h - rh - 8;
     const bool hasLoop = app_.loopExists() && st_.loopSamples > 0;
     const float sr = (float)app_.session().sampleRate(), loopSec = hasLoop ? (float)(st_.loopSamples / sr) : 0.f;
     if (!hasLoop) {
@@ -601,7 +601,7 @@ void SamplerUI::timeline(Rect r) {
             rrect({tx + a * bw, cy - std::max(0.5f, v * (wh / 2 - 3)), std::max(1.f, bw * 0.62f), std::max(1.f, v * (wh - 6))}, 0, TRACE_RED);
         }
         const float hx = tx + clamp01(n * 0.01f / secs) * tw;
-        rrect({hx - 1, r.y + 2, 2.2f, r.h - 2}, 0, TRACE_RED);
+        rrect({hx - 1, r.y + 2, 2.2f, r.h - 4}, 0, TRACE_RED);
         text(tx + tw - 4, r.y + 8, 9, TRACE_RED, "REC " + num("%.1f", st_.freeSeconds) + " S", 2, true);
         return;
     }
@@ -620,7 +620,7 @@ void SamplerUI::timeline(Rect r) {
         for (int i = 0; i < n; i++) { const float v = std::min(1.f, pk[i] / mx); if (v > 0.01f) rrect({tx + i * bw, cy - v * (wh / 2 - 3), std::max(1.f, bw * 0.62f), std::max(1.f, v * (wh - 6))}, 0, rec ? TRACE_RED : tx + i * bw < hx0 ? TRACE_GREEN : trackTrace(t)); }
     } else text(tx + tw / 2, wy + wh / 2, 10, WELL_DIM, "TRACK " + std::to_string(t + 1) + " HAS NO LOOP", 1, true);
     const float hx = tx + clamp01(loopPos()) * tw;
-    rrect({hx - 1, r.y + 2, 2.2f, r.h - 2}, 0, TRACE_AMBER);
+    rrect({hx - 1, r.y + 2, 2.2f, r.h - 4}, 0, TRACE_AMBER);
     hit({tx, r.y, tw, r.h}, [this, tx, tw](float x, float) { app_.scrub(0, clamp01((x - tx) / tw)); }, [this, tx, tw](float x, float) { app_.scrub(1, clamp01((x - tx) / tw)); }, [this] { app_.scrub(2, 0); });
 }
 
@@ -645,7 +645,7 @@ void SamplerUI::icon(int kind, float cx, float cy, uint32_t c) {
     case 2: circle(cx, cy, 10, c); break;                                                                 // record
     case 3: line(cx - 9.3f, cy - 9.3f, cx + 9.3f, cy + 9.3f, c, 3.4f); line(cx + 9.3f, cy - 9.3f, cx - 9.3f, cy + 9.3f, c, 3.4f); break;   // clear
     case 4: {   // theme: a ring with the right half filled
-        circle(cx, cy, 9.5f, c); circle(cx, cy, 6.8f, kBg);
+        circle(cx, cy, 9.5f, c); circle(cx, cy, 6.8f, SURFACE);
         for (int i = 0; i < 12; i++) { const float a0 = -kPi / 2 + kPi * i / 12, a1 = -kPi / 2 + kPi * (i + 1) / 12; tri(cx, cy, cx + 7.6f * std::cos(a0), cy + 7.6f * std::sin(a0), cx + 7.6f * std::cos(a1), cy + 7.6f * std::sin(a1), c); }
         break; }
     case 5: {   // microphone
@@ -689,7 +689,7 @@ void SamplerUI::deck(Rect r) {
         const std::string info = hasLoop ? std::to_string(st_.loopBars) + "B  " + num("%.0f", st_.bpm) + " BPM  " + cnt : st_.freeRecording ? std::string(cnt) : "NO LOOP";
         text(M + 2, 67, 11, !ts.empty() ? TRACE_GREEN : TRACE_AMBER, fit(!ts.empty() ? ts : info, 280, 11), 0, true);
     }
-    scope({M - 4, 86, 292, 133}, false);
+    scope({M - 4, 86, 292, 133});
     cassette({M - 4, 86, 292, 150});
     // transport: play, stop, record / overdub, clear the loop of this track; the active one is orange and underlined
     const float ty = 248;
