@@ -1,9 +1,25 @@
 #include "Paul.h"
 #include <cmath>
+#include <array>
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 extern "C" {
 #include "kiss_fftr.h"
+}
+
+namespace {
+const std::array<kiss_fft_cpx, 4096>& phases() {
+    static const auto table = [] {
+        std::array<kiss_fft_cpx, 4096> t{};
+        for (size_t i = 0; i < t.size(); ++i) {
+            const float a = 6.283185307f * i / t.size();
+            t[i].r = std::cos(a); t[i].i = std::sin(a);
+        }
+        return t;
+    }();
+    return table;
+}
 }
 
 struct PaulStream::Fft {
@@ -13,6 +29,7 @@ struct PaulStream::Fft {
 };
 
 PaulStream::PaulStream() : fft_(new Fft), fifo_((size_t)N * 16 * 2, 0.f), ola_((size_t)HOP * 2, 0.f), win_((size_t)N) {
+    (void)phases(); // initialize outside the audio callback
     for (int i = 0; i < N; i++) win_[(size_t)i] = std::sin(3.14159265f * (i + 0.5f) / N);   // sine window: its square sums to 1 at 50 % overlap
 }
 PaulStream::~PaulStream() = default;
@@ -28,18 +45,21 @@ void PaulStream::makeHop() {
     const size_t cap = fifo_.size() / 2;
     float tin[N]; kiss_fft_cpx spec[N / 2 + 1];
     float hopOut[2][HOP];
+    const auto& phase = phases();
     for (int c = 0; c < 2; c++) {
+        double p = srcPos_;
         for (int i = 0; i < N; i++) {
-            double p = srcPos_ + i; while (p >= to_) p -= (to_ - from_);
             const int i0 = std::min(frames_ - 1, (int)p);
             tin[i] = src_[(size_t)i0 * 2 + (size_t)c] * win_[(size_t)i];
+            p += 1.0;
+            if (p >= to_) p = from_ + std::fmod(p - from_, to_ - from_);
         }
         kiss_fftr(fft_->fwd, tin, spec);
         for (int k = 0; k <= N / 2; k++) {
             const float mag = std::sqrt(spec[k].r * spec[k].r + spec[k].i * spec[k].i);
             rng_ = rng_ * 1664525u + 1013904223u;
-            const float ph = (rng_ >> 8) * (6.2831853f / 16777216.f);
-            spec[k].r = mag * std::cos(ph); spec[k].i = mag * std::sin(ph);
+            const auto& ph = phase[rng_ >> 20];
+            spec[k].r = mag * ph.r; spec[k].i = mag * ph.i;
         }
         spec[0].i = 0; spec[N / 2].i = 0;
         kiss_fftri(fft_->inv, spec, tin);
@@ -58,5 +78,9 @@ void PaulStream::next(double rate, float& l, float& r) {
     const size_t a = (fifoW_ - avail_ + i0) % cap, b = (a + 1) % cap;
     l = fifo_[a * 2] + (fifo_[b * 2] - fifo_[a * 2]) * f; r = fifo_[a * 2 + 1] + (fifo_[b * 2 + 1] - fifo_[a * 2 + 1]) * f;
     readPos_ += rate;
-    if (readPos_ >= 2048) { const size_t drop = (size_t)readPos_; avail_ -= drop; readPos_ -= (double)drop; }   // keep the read pointer near the start of the data
+    if (readPos_ >= HOP) {
+        // A high playback rate can advance beyond the generated frames.
+        const size_t drop = std::min(avail_, (size_t)readPos_);
+        avail_ -= drop; readPos_ -= (double)drop;
+    }
 }

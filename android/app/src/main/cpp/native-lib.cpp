@@ -80,7 +80,7 @@ struct Engine : public oboe::AudioStreamDataCallback, public oboe::AudioStreamEr
         if (r != oboe::Result::OK) return -1;
         stream = std::move(next);
         streamRaw = stream.get();
-        stream->setBufferSizeInFrames(stream->getFramesPerBurst() * 2);
+        stream->setBufferSizeInFrames(stream->getFramesPerBurst() * 8);
         r = stream->requestStart();
         LOG("stream started: rate %d burst %d buffer %d sharing %d perf %d dev %d", stream->getSampleRate(), stream->getFramesPerBurst(),
             stream->getBufferSizeInFrames(), (int)stream->getSharingMode(), (int)stream->getPerformanceMode(), stream->getDeviceId());
@@ -136,6 +136,7 @@ FN(jint, startInput)(JNIEnv*, jclass, jlong h, jint dev) { return E(h)->startInp
 FN(void, stopAudio)(JNIEnv*, jclass, jlong h) { E(h)->stop(); }
 // 1 once when the system closed the output stream under us (the device list changed)
 FN(jboolean, audioDead)(JNIEnv*, jclass, jlong h) { return E(h)->streamDead.exchange(false); }
+FN(jint, audioOverruns)(JNIEnv*, jclass, jlong h) { return (jint)E(h)->session.audioOverruns(); }
 FN(jint, xruns)(JNIEnv*, jclass, jlong h) {
     auto& e = *E(h);
     std::lock_guard<std::mutex> lk(e.streamMtx);

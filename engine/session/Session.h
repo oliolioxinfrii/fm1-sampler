@@ -118,6 +118,7 @@ public:
     std::vector<float> samplePeaksOf(int track, int bins) const;   // waveform of the track's sample (empty if none)
     std::string trackLabel(int track) const;                       // file name of the track's sample without extension
     int sampleRate() const;
+    uint32_t audioOverruns() const;
     Status status() const;
 
     struct Impl;

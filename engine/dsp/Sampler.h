@@ -62,6 +62,7 @@ private:
         std::shared_ptr<const SampleBuf> buf;
         int mode = MELODIC;
         float baseSemis = 0.f, sourceStart = 0.f, sourceEnd = 1.f;
+        float lastL = 0.f, lastR = 0.f;
         Adsr env; Grain grain[12]; double spawn = 0; int paulIdx = -1;
     };
     void resolveWindow(Voice& v) const;
@@ -78,5 +79,7 @@ private:
     int mode_ = MELODIC; std::vector<int> slices_; std::string label_; std::vector<float> peaks_;
     Voice voices_[kVoices]; std::vector<std::unique_ptr<PaulStream>> paul_; bool paulBusy_[kVoices] = {};
     std::vector<Onset> onsets_; float sliceThr_ = 0.22f, kitSemis_ = 0.f, grainLen_ = 0.12f, grainScatter_ = 1.f, paulStretch_ = 8.f, paulWidth_ = 1.f; int grainN_ = 7; double sliceEnd_ = 0;
+    float stealL_ = 0.f, stealR_ = 0.f;
+    int stealLeft_ = 0;
     uint32_t bornCounter_ = 0, rng_ = 7;
 };

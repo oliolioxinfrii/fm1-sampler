@@ -103,6 +103,11 @@ void Sampler::noteOn(int note, int vel) {
     if (vi < 0) for (int i = 0; i < kVoices; i++) if (!voices_[i].on) { vi = i; break; }
     if (vi < 0) { oldest = 0xffffffffu; for (int i = 0; i < kVoices; i++) if (voices_[i].born < oldest) { oldest = voices_[i].born; vi = i; } }
     Voice& v = voices_[vi];
+    if (v.on) {
+        // Fade the outgoing contribution instead of cutting it at a nonzero sample.
+        stealL_ += v.lastL; stealR_ += v.lastR;
+        stealLeft_ = std::max(1, sr_ / 200);
+    }
     v = Voice();
     v.on = true; v.gate = true; v.note = note; v.vel = clampf(vel / 127.f, 0.f, 1.f); v.born = ++bornCounter_;
     v.slice = ((note - 60) % 16 + 16) % 16;
@@ -118,7 +123,7 @@ void Sampler::noteOn(int note, int vel) {
 void Sampler::noteOff(int note) {
     for (auto& v : voices_) if (v.on && v.gate && v.note == note && v.mode != ONESHOT) { v.gate = false; v.env.gateOff(); }
 }
-void Sampler::allOff() { for (auto& v : voices_) v = Voice(); }
+void Sampler::allOff() { for (auto& v : voices_) v = Voice(); stealL_ = stealR_ = 0.f; stealLeft_ = 0; }
 bool Sampler::hasVoices() const { for (auto& v : voices_) if (v.on) return true; return false; }
 
 void Sampler::render(float* out, int n) {
@@ -126,6 +131,11 @@ void Sampler::render(float* out, int n) {
     for (auto& v : voices_) if (v.on) {
         renderVoice(v, out, n);
         if (!v.on) v.buf.reset();
+    }
+    for (int i = 0; i < n && stealLeft_ > 0; ++i) {
+        out[2 * i] += stealL_; out[2 * i + 1] += stealR_;
+        const float fade = (float)(stealLeft_ - 1) / stealLeft_;
+        stealL_ *= fade; stealR_ *= fade; --stealLeft_;
     }
 }
 
@@ -191,7 +201,8 @@ void Sampler::renderVoice(Voice& v, float* out, int n) {
                 v.pos += rate;
             }
         }
-        out[2 * i] += l * e * gain; out[2 * i + 1] += r * e * gain;
+        v.lastL = l * e * gain; v.lastR = r * e * gain;
+        out[2 * i] += v.lastL; out[2 * i + 1] += v.lastR;
     }
 }
 

@@ -72,7 +72,8 @@ public class Backend {
             @Override public void onAudioDevicesRemoved(AudioDeviceInfo[] a) { try { restartAudioIfUsbChanged(); } catch (Throwable t) { Log.w(TAG, "audio remove: " + t); } }
         }, main);
         ticker = new Thread(() -> {
-            long t0 = SystemClock.uptimeMillis();
+            long t0 = SystemClock.uptimeMillis(), lastStats = 0;
+            int lastXruns = -2, lastOverruns = -1;
             while (running) {
                 try {
                     MidiInputPort port = toFm1;
@@ -81,6 +82,15 @@ public class Backend {
                     Native.uiLink(engine, toFm1 != null, usbAudioId != 0);
                     if (Native.wantFile(engine)) { Runnable r = onFileRequest; if (r != null) main.post(r); }
                     if (Native.audioDead(engine)) main.post(() -> scheduleAudioRestart(true));
+                    long now = SystemClock.uptimeMillis();
+                    if (now - lastStats >= 2000) {
+                        lastStats = now;
+                        int xruns = Native.xruns(engine), overruns = Native.audioOverruns(engine);
+                        if (xruns != lastXruns || overruns != lastOverruns) {
+                            Log.i(TAG, "audio diagnostics: xruns=" + xruns + " processing overruns=" + overruns);
+                            lastXruns = xruns; lastOverruns = overruns;
+                        }
+                    }
                 } catch (Throwable t) { Log.w(TAG, "tick: " + t); }
                 try { Thread.sleep(16); } catch (InterruptedException ignored) { }
             }

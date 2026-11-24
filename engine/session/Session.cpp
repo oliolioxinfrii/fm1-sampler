@@ -91,6 +91,7 @@ struct Session::Impl {
     std::atomic<double> a_pos{0};
     std::atomic<bool> a_playing{false}, a_free{false}, a_freeArmed{false}, a_pending{false};
     std::atomic<float> a_master{0.f}, a_freeSec{0.f}, a_sampleSec{0.f}, a_inPeak{0.f}, a_bpm{120.f};
+    std::atomic<uint32_t> overruns{0};
     std::atomic<uint32_t> a_cpu{0}, a_clip_mask{0}, a_cliprec_mask{0};
     std::atomic<int> a_bars{4}, a_sampleState{0}, a_sampleTrack{0}, a_sampleVersion{0}, a_sampleFails{0};
     std::atomic<int32_t> a_loop{0};
@@ -494,6 +495,7 @@ void Session::process(float* out, const float* in, int frames) {
     for (int i = 0; i < kTracks; i++) { cm |= (uint32_t)d->tracks[(size_t)i]->clipHas << i; rm |= (uint32_t)d->tracks[(size_t)i]->clipRec << i; }
     d->a_clip_mask = cm; d->a_cliprec_mask = rm;
     const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count(), budget = frames * 1e6 / d->sr;
+    if (us > budget) ++d->overruns;
     d->a_cpu = (d->a_cpu.load() * 7 + (uint32_t)(1000.0 * us / budget)) / 8;
 }
 
@@ -736,3 +738,5 @@ Session::Status Session::status() const {
     s.sampleVersion = d->a_sampleVersion; s.sampleFails = d->a_sampleFails; s.samplePending = d->a_pending;
     return s;
 }
+
+uint32_t Session::audioOverruns() const { return d->overruns.load(); }
