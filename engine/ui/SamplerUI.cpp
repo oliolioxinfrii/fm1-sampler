@@ -15,13 +15,13 @@ void syncColors() { kBg = theme::BG; kPaper = theme::TEXT; kOrange = theme::AMBE
 namespace {
 float clamp01(float v) { return std::min(1.f, std::max(0.f, v)); }
 std::string num(const char* f, double v) { char b[48]; snprintf(b, sizeof b, f, v); return b; }
-const SamplerApp::Page kTabs[] = {SamplerApp::P_HOME, SamplerApp::P_FX, SamplerApp::P_ENV, SamplerApp::P_LFO, SamplerApp::P_ARP, SamplerApp::P_SEQ, SamplerApp::P_MIX, SamplerApp::P_KEY, SamplerApp::P_SAVE, SamplerApp::P_LEN, SamplerApp::P_TEMPO};
-const char* kTabName[] = {"SAMPLE", "FX", "ENV", "LFO", "ARP", "TAPE", "MIX", "KEY", "LOOP", "LEN", "BPM"};
-const char* kShortTab[] = {"S", "FX", "E", "L", "A", "T", "M", "K", "R", "N", "B"};
+const SamplerApp::Page kTabs[] = {SamplerApp::P_HOME, SamplerApp::P_ECHO, SamplerApp::P_FX, SamplerApp::P_ENV, SamplerApp::P_LFO, SamplerApp::P_ARP, SamplerApp::P_SEQ, SamplerApp::P_MIX, SamplerApp::P_KEY, SamplerApp::P_SAVE, SamplerApp::P_LEN, SamplerApp::P_TEMPO};
+const char* kTabName[] = {"SAMPLE", "ECHO", "FX", "ENV", "LFO", "ARP", "TAPE", "MIX", "KEY", "LOOP", "LEN", "BPM"};
+const char* kShortTab[] = {"S", "G", "FX", "E", "L", "A", "T", "M", "K", "R", "N", "B"};
 uint32_t pageColor(SamplerApp::Page p, bool trace = false) {
     using P = SamplerApp;
     switch (p) {
-    case P::P_FX: case P::P_LFO: return trace ? TRACE_VIOLET : VIOLET;
+    case P::P_FX: case P::P_LFO: case P::P_ECHO: return trace ? TRACE_VIOLET : VIOLET;
     case P::P_ENV: case P::P_ARP: case P::P_KEY: return trace ? TRACE_GREEN : GREEN;
     case P::P_SEQ: case P::P_LEN: case P::P_TEMPO: return trace ? TRACE_AMBER : AMBER;
     case P::P_SAVE: return trace ? TRACE_RED : RED;
@@ -231,6 +231,22 @@ void SamplerUI::pageView(Rect r) {
     };
     std::string head;
     switch (pg) {
+    case P::P_ECHO: {
+        head = std::string("ECHOFIELD / ") + P::echoModeName(ts.echo.mode);
+        const auto pk = app_.peaks(t, 64);
+        const float bw = w.w / 64.f;
+        for (int i = 0; i < int(pk.size()); ++i) {
+            const float f = (i + 0.5f) / 64.f, h = clamp01(pk[i]) * (w.h - 6);
+            rrect({w.x + i * bw, cy - h / 2, std::max(1.f, bw - 1), std::max(1.f, h)}, 0,
+                  f >= ts.start && f <= ts.end ? TRACE_GREEN : GRID);
+        }
+        const float center = w.x + 2 + clamp01(ts.start + ts.echo.position * (ts.end - ts.start)) * (w.w - 4);
+        vbar(center, w.y + 2, w.y + w.h - 2, TRACE_AMBER, 1.5f);
+        for (int i = 0; i < st_.voiceN[t]; ++i) {
+            const float x = w.x + 2 + clamp01(st_.voicePos[t][i]) * (w.w - 4), h = 4 + clamp01(st_.voiceLvl[t][i]) * (w.h - 8);
+            vbar(x, cy - h / 2, cy + h / 2, TRACE_VIOLET, 2.f);
+        }
+        break; }
     case P::P_FX: {   // reverb = a room, a wire cube: its size is the size, the dim rays from the source to the walls are the wet part; delay = an echo: a circle and its repeats, spacing = time, shrinking = feedback
         head = "REVERB + DELAY";
         const float labelY = w.y + w.h - 7;
@@ -381,7 +397,7 @@ void SamplerUI::pageView(Rect r) {
     endClip();
     const int nv = st_.voiceN[t];
     strip({r.x, r.y, r.w, 18}, pageColor(pg), fit(head, r.w - (nv > 0 ? 90 : 12), 11), 11);
-    if (nv > 0) text(r.x + r.w - 4, r.y + 9, 10, contrastInk(pageColor(pg)), std::to_string(nv) + (nv == 1 ? " VOICE" : " VOICES"), 2, true);
+    if (nv > 0) text(r.x + r.w - 4, r.y + 9, 10, contrastInk(pageColor(pg)), std::to_string(nv) + (pg == P::P_ECHO ? (nv == 1 ? " GRAIN" : " GRAINS") : (nv == 1 ? " VOICE" : " VOICES")), 2, true);
 }
 
 // The sample of the selected track: its waveform (the playback window bright), the playback mode, and a line for every sounding voice.
@@ -768,10 +784,10 @@ void SamplerUI::deck(Rect r) {
     strip({x0, py - 12, w0 - SamplerApp::kPages * tabW - 4, 24}, pageColor(app_.page()), SamplerApp::pageName(app_.page()), T_BODY);
     for (int i = 0; i < SamplerApp::kPages; i++) {   // the pages as notches: tap one to go there (the FM-1 buttons do the same)
         Rect nr{zr - (SamplerApp::kPages - i) * tabW, py - 14, tabW, 28};
-        const bool on = kTabs[i] == app_.page(); const uint32_t col = pageColor(kTabs[i]);
+        const bool on = kTabs[i] == app_.page(); const uint32_t col = app_.pageAvailable(kTabs[i]) ? pageColor(kTabs[i]) : DIM;
         bevel({nr.x + 1, py - 10, tabW - 2, 20}, on ? col : SURFACE, on);
         text(nr.x + tabW / 2, py, 8, on ? contrastInk(col) : col, kShortTab[i], 1, true);
-        tap(nr, [this, i] { app_.gotoPage(kTabs[i]); });
+        if (app_.pageAvailable(kTabs[i])) tap(nr, [this, i] { app_.gotoPage(kTabs[i]); });
     }
     for (int i = 0; i < 4; i++) knob(x0 + (i + 0.5f) * w0 / 4, 212, app_.page(), i);
     timeline({M, 288, W_ - 2 * M, H_ - 288 - 8});
@@ -923,7 +939,7 @@ void SamplerUI::pagePanel(Rect r) {
     const float tw = (r.w - 5 * 4) / 6;
     for (int i = 0; i < SamplerApp::kPages; i++) {
         Rect c{r.x + (i % 6) * (tw + 4), r.y + (i / 6) * 32, tw, 28};
-        button(c, kTabName[i], app_.page() == kTabs[i], [this, i] { app_.gotoPage(kTabs[i]); }, 9.5f, true, pageColor(kTabs[i]));
+        button(c, kTabName[i], app_.page() == kTabs[i], [this, i] { app_.gotoPage(kTabs[i]); }, 9.5f, true, app_.pageAvailable(kTabs[i]) ? pageColor(kTabs[i]) : DIM);
     }
     auto k = app_.knobs();
     const float top = r.y + 72, rh = (r.h - 72) / 4;

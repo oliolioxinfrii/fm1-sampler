@@ -65,7 +65,18 @@ int main() {
       btn(SamplerApp::HOME); CHECK(app.page() == SamplerApp::P_HOME && !app.editor(), "short HOME selects sample page only"); }
     // algorithms on track 1
     for (int a = 0; a < 6; a++) { app.setAlgo(a); run(0.3); double r = play(60, 1.0); CHECK(r > 0.003, "algorithm %s sounds (rms %.4f)", SamplerApp::algoName(a), r); }
-    app.setAlgo(0);
+    app.setAlgo(4);
+    app.gotoPage(SamplerApp::P_HOME);
+    btn(SamplerApp::HOME); CHECK(app.page() == SamplerApp::P_ECHO, "granular HOME cycles to ECHOFIELD");
+    auto ek = app.knobs();
+    CHECK(ek[0].name == "TEXTURE" && ek[1].name == "SCATTER" && ek[2].name == "DRIFT" && ek[3].name == "EVOLVE", "ECHOFIELD performance controls");
+    ek[0].set(0.23f); ek[1].set(0.62f); ek[2].set(0.17f); ek[3].set(0.81f);
+    app.setAlgo(0); CHECK(app.page() == SamplerApp::P_HOME, "leaving granular closes ECHOFIELD page");
+    app.setAlgo(4); btn(SamplerApp::HOME); run(0.6);
+    CHECK(app.page() == SamplerApp::P_ECHO && pageLed(SamplerApp::HOME), "ECHOFIELD keeps HOME LED");
+    CHECK(app.knobs()[0].norm == 0.23f && app.knobs()[1].norm == 0.62f && app.knobs()[2].norm == 0.17f && app.knobs()[3].norm == 0.81f, "granular settings survive algorithm cycle");
+    app.selectTrack(1); CHECK(app.page() == SamplerApp::P_HOME && app.state(1).echo.texture == 0.72f, "granular settings are per track");
+    app.selectTrack(0); app.setAlgo(0);
     // LFO on each target
     btn(SamplerApp::LFO);
     for (int tg = 0; tg < 4; tg++) { auto k = app.knobs(); while (app.state(0).lfoTarget < tg) k[2].step(1); enc(3, 40); run(0.2); double r = play(60, 1.2); CHECK(r > 0.002, "LFO target %d sounds (rms %.4f), lfo value %.2f", tg, r, app.status().lfoValue[0]); }
@@ -89,7 +100,7 @@ int main() {
     enc(2, 10); run(0.2);
     btn(SamplerApp::REC); run(0.1); app.playNote(55, true); run(0.3); app.playNote(55, false); run(2.0); btn(SamplerApp::REC); run(0.2);
     CHECK(!app.status().track_clip_rec[0], "overdub ended");
-    { app.selectTrack(0); app.setAlgo(4); run(0.3); app.playNote(60, true); run(0.8); CHECK(app.status().voiceN[0] > 3, "granular: every grain is reported (%d)", app.status().voiceN[0]); app.playNote(60, false); run(0.5); app.setAlgo(0); run(0.2); }
+    { app.selectTrack(0); app.setAlgo(4); run(0.3); app.playNote(60, true); run(0.8); CHECK(app.status().voiceN[0] > 0, "granular: active grains are reported (%d)", app.status().voiceN[0]); app.playNote(60, false); run(0.5); app.setAlgo(0); run(0.2); }
     { const double L = app.status().loopSamples; btn(SamplerApp::SEL); enc(2, 1); run(0.3);
       CHECK(app.status().loopSamples == 2 * L, "LENGTH page: loop doubled (%.0f -> %.0f)", L, app.status().loopSamples);
       m = all.size(); run(2.5); CHECK(rmsFrom(m) > 0.003, "doubled loop plays (rms %.4f)", rmsFrom(m));

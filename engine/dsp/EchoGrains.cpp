@@ -5,6 +5,7 @@
 #include "EchoGrains.h"
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 
 namespace {
 constexpr float pi = 3.14159265358979f, twopi = 2 * pi;
@@ -60,6 +61,8 @@ void EchoGrains::seed(uint32_t value) {
 
 void EchoGrains::control(const EchoParams& p, float dt, double regionSeconds) {
     const float alpha = initial_ ? 1.f : 1.f - std::exp(-dt / 0.04f);
+    const int previousMode = sm_.mode;
+    const float previousPosition = sm_.position;
     sm_.mode = std::clamp(p.mode, 0, int(EchoParams::ModeCount) - 1);
     sm_.position = mix(sm_.position, unit(p.position), alpha);
     sm_.texture = mix(sm_.texture, unit(p.texture), alpha);
@@ -110,7 +113,8 @@ void EchoGrains::control(const EchoParams& p, float dt, double regionSeconds) {
             target = std::max(target, 0.02f);
         }
         tapeSpeed_ = mix(tapeSpeed_, target, std::min(1.f, dt * 6.f));
-        if (initial_) tapeHead_ = pos;
+        if (initial_ || previousMode != EchoParams::Tape) tapeHead_ = pos;
+        else tapeHead_ = wrap(tapeHead_ + pos - previousPosition);
         tapeHead_ = wrap(tapeHead_ + tapeSpeed_ * dt / float(std::max(0.005, regionSeconds)));
         c_.tape = true; c_.tapeSpeed = tapeSpeed_;
         c_.size = 0.18f * (1.f + T); c_.density = 4.f / c_.size;
@@ -253,8 +257,8 @@ void EchoGrains::next(const EchoParams& params, const float* pcm, int frames, in
         }
         const int i = std::clamp(int(g.pos), 0, frames - 2);
         const float f = float(g.pos - i);
-        float x = mix(pcm[2 * size_t(i)], pcm[2 * size_t(i + 1)], f);
-        float y = mix(pcm[2 * size_t(i) + 1], pcm[2 * size_t(i + 1) + 1], f);
+        float x = mix(pcm[2 * std::size_t(i)], pcm[2 * std::size_t(i + 1)], f);
+        float y = mix(pcm[2 * std::size_t(i) + 1], pcm[2 * std::size_t(i + 1) + 1], f);
         if (g.tone) {
             g.zL += (x - g.zL) * g.a; g.zR += (y - g.zR) * g.a;
             x = g.tone == 1 ? g.zL : x - g.zL; y = g.tone == 1 ? g.zR : y - g.zR;

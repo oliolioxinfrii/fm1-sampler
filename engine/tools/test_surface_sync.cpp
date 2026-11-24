@@ -48,12 +48,14 @@ int main() {
         run(3000);
         const uint16_t inactive = menu[SamplerApp::P_FX];
         require(menu[SamplerApp::P_HOME] != inactive, "initial page marker missing");
+        app.setAlgo(4);
         for (int page = 0; page < SamplerApp::kPages; ++page) {
             app.gotoPage(static_cast<SamplerApp::Page>(page));
             run(3000);
             for (int i = 0; i < SamplerApp::kPages; ++i)
-                require((menu[i] != inactive) == (i == page), "page marker did not follow menu");
+                require((menu[i] != inactive) == (SamplerApp::menuPage(i) == page), "page marker did not follow menu");
         }
+        app.setAlgo(0);
         app.gotoPage(SamplerApp::P_HOME);
         run(3000);
         int before = clears;

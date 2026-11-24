@@ -77,7 +77,7 @@ std::shared_ptr<const SampleBuf> Sampler::takeUnusedProcessed() {
 
 void Sampler::resolveWindow(Voice& v) const {
     auto& buf = v.buf; auto& ws = v.ws; auto& we = v.we;
-    if (v.mode == KIT || !proc_) {
+    if (v.mode == KIT || v.mode == GRAIN || !proc_) {
         buf = orig_;
         if (v.mode == KIT) {
             const int n = (int)slices_.size(), i = v.slice % n;
@@ -118,6 +118,7 @@ void Sampler::noteOn(int note, int vel) {
     v.env.set(atk_, dec_, sus_, rel_, (float)sr_);
     if (mode_ == ONESHOT) v.env.set(0.002f, 0.01f, 1.f, 0.01f, (float)sr_);
     v.env.gateOn();
+    if (mode_ == GRAIN) v.echo.seed(0x1234567u ^ (v.born * 0x9e3779b9u) ^ (uint32_t(note) << 16));
     if (mode_ == PAUL) { v.paulIdx = vi; paul_[(size_t)vi]->start(v.buf->d.data(), v.buf->frames, v.ws, v.we, paulStretch_); }
 }
 void Sampler::noteOff(int note) {
@@ -128,9 +129,14 @@ bool Sampler::hasVoices() const { for (auto& v : voices_) if (v.on) return true;
 
 void Sampler::render(float* out, int n) {
     if (!orig_) return;
+    int trackGrains = 0;
+    for (const auto& v : voices_) if (v.on && v.mode == GRAIN) trackGrains += v.echo.count();
     for (auto& v : voices_) if (v.on) {
-        renderVoice(v, out, n);
-        if (!v.on) v.buf.reset();
+        renderVoice(v, out, n, trackGrains);
+        if (!v.on) {
+            if (v.mode == GRAIN) trackGrains -= v.echo.count();
+            v.buf.reset();
+        }
     }
     for (int i = 0; i < n && stealLeft_ > 0; ++i) {
         out[2 * i] += stealL_; out[2 * i + 1] += stealR_;
@@ -139,7 +145,7 @@ void Sampler::render(float* out, int n) {
     }
 }
 
-void Sampler::renderVoice(Voice& v, float* out, int n) {
+void Sampler::renderVoice(Voice& v, float* out, int n, int& trackGrains) {
     const float* d = v.buf->d.data(); const int frames = v.buf->frames;
     const double srcRate = (double)v.buf->sr / sr_;
     const double pitch = std::pow(2.0, (v.baseSemis + bend_) / 12.0);
@@ -160,31 +166,8 @@ void Sampler::renderVoice(Voice& v, float* out, int n) {
             if (paulWidth_ != 1.f) { const float m = 0.5f * (l + r), sd = 0.5f * (l - r) * paulWidth_; l = m + sd; r = m - sd; }
             v.pos = ps.sourcePos();
         } else if (v.mode == GRAIN) {
-            v.spawn -= 1.0;
-            v.pos += (v.we - v.ws) / (4.0 * sr_); if (v.pos >= v.we) v.pos = v.ws;
-            if (v.spawn <= 0.0) {
-                for (auto& g : v.grain) if (!g.on) {
-                    g.on = true; g.age = 0; g.len = (int)(sr_ * grainLen_ * (0.5f + rnd()));
-                    const float k = rnd(); const double mult = k < 0.15 ? 0.5 : k < 0.3 ? 2.0 : 1.0;
-                    g.inc = rate * mult * (1.0 + (rnd() - 0.5) * 0.004) * (rnd() < 0.2f ? -1.0 : 1.0);
-                    // the cursor sweeps the window in about four seconds; scatter is how far around it a grain may start (1 = anywhere in the window)
-                    const double win = std::max(1.0, v.we - v.ws), room = std::max(1.0, win - g.len * std::fabs(g.inc));
-                    double p = v.pos + (rnd() - 0.5) * grainScatter_ * win;
-                    p = std::min(v.we - g.len * std::fabs(g.inc) - 1, std::max(v.ws, p));
-                    g.pos = g.inc > 0 ? p : std::min(v.we - 1, p + g.len * std::fabs(g.inc));
-                    (void)room;
-                    break;
-                }
-                v.spawn = sr_ * (double)grainLen_ / grainN_ * (0.6 + 0.8 * rnd());
-            }
-            for (auto& g : v.grain) {
-                if (!g.on) continue;
-                if (g.age >= g.len || g.pos < 1 || g.pos >= frames - 2) { g.on = false; continue; }
-                const float w = 0.5f - 0.5f * std::cos(2.f * kPi * (g.age + 0.5f) / g.len);
-                float gl, gr; readAt(g.pos, gl, gr); l += gl * w; r += gr * w;
-                g.pos += g.inc; g.age++;
-            }
-            l *= 0.5f; r *= 0.5f;
+            v.echo.next(echoParams_, d, frames, v.buf->sr, sr_, v.ws, v.we,
+                        v.baseSemis + bend_, trackGrains, l, r);
         } else {
             double p = v.pos;
             if (v.mode == LOOPED) {
@@ -216,9 +199,11 @@ int Sampler::voicePositions(float* out, int maxN, float* level) const {
     for (auto& v : voices_) {
         if (!v.on || n >= maxN) continue;
         if (v.mode == GRAIN) {
-            for (auto& g : v.grain) if (g.on && n < maxN) {
-                if (level) level[n] = v.env.level * std::sin(3.14159265f * std::min(1.f, (float)g.age / (float)std::max(1, g.len)));
-                out[n++] = originalPosOf(v, g.pos);
+            double pos[EchoGrains::kGrains]; float amp[EchoGrains::kGrains];
+            const int count = v.echo.positions(pos, amp, std::min(maxN - n, EchoGrains::kGrains));
+            for (int i = 0; i < count; ++i) {
+                if (level) level[n] = v.env.level * v.vel * amp[i];
+                out[n++] = originalPosOf(v, pos[i]);
             }
         } else { if (level) level[n] = v.env.level * v.vel; out[n++] = originalPosOf(v, v.pos); }
     }

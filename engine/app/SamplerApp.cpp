@@ -21,7 +21,7 @@ void setPalette(bool) {
 uint32_t pageAccent(SamplerApp::Page p) {
     using P = SamplerApp;
     switch (p) {
-    case P::P_FX: case P::P_LFO: return theme::VIOLET;
+    case P::P_FX: case P::P_LFO: case P::P_ECHO: return theme::VIOLET;
     case P::P_ENV: case P::P_ARP: case P::P_KEY: return theme::GREEN;
     case P::P_SEQ: case P::P_LEN: case P::P_TEMPO: return theme::AMBER;
     case P::P_SAVE: return theme::RED;
@@ -29,7 +29,8 @@ uint32_t pageAccent(SamplerApp::Page p) {
     default: return theme::ACCENT;
     }
 }
-const char* kPage[] = {"SAMPLE", "FX", "ENVELOPE", "LFO", "ARP", "TAPE", "MIXER", "KEY", "LOOP", "LENGTH", "TEMPO"};
+const char* kPage[] = {"SAMPLE", "FX", "ENVELOPE", "LFO", "ARP", "TAPE", "MIXER", "KEY", "LOOP", "LENGTH", "TEMPO", "ECHOFIELD"};
+const char* kEchoMode[] = {"CLOUD", "DUST", "TAPE", "BLOOM", "PULSE", "DRIFT"};
 const char* kAlgo[] = {"MELODIC", "ONE-SHOT", "LOOPED", "KIT/SLICE", "GRANULAR", "PAULSTRETCH"};
 const char* kScaleName[] = {"CHROM", "MIX", "MAJ", "MIN", "HMIN", "PHRYG", "MIN+", "OFF"};
 const char* kNote[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
@@ -53,7 +54,6 @@ int scaleIndex(int pc, int scale) { for (int i = 0; i < kScaleN[scale]; i++) if 
 int degreeNote(int d, int scale, int root) { const int n = kScaleN[scale], o = d >= 0 ? d / n : -((-d + n - 1) / n); return root + 12 * o + kScaleStep[scale][d - o * n]; }   // degree 0 = the root of octave 0
 float speedOf(float n) { return 0.25f * std::pow(16.f, n); }          // 0.25..4
 float micThrOf(float v) { return 0.005f * std::pow(100.f, v); }       // -46..-6 dBFS
-int grainCount(float n) { return 1 + (int)std::lround(n * 11); }               // 1..12 grains at once
 float paulFactor(float n) { return 2.f * std::pow(32.f, n); }                     // slow-down 2x .. 64x
 float scThrDb(float n) { return -40.f * (1.f - n); }                              // 0 .. -40 dB
 float scRatioOf(float n) { return 1.f + 19.f * n * n; }                          // 1:1 .. 20:1
@@ -63,6 +63,7 @@ float lfoHz(float n) { return 0.1f * std::pow(200.f, n); }            // 0.1..20
 
 const char* SamplerApp::pageName(Page p) { return kPage[p]; }
 bool SamplerApp::inScale(int scale, int pc) { return scale < 7 ? scaleIndex(((pc % 12) + 12) % 12, scale) >= 0 : ((pc % 12) + 12) % 12 == 0; }
+const char* SamplerApp::echoModeName(int i) { return kEchoMode[std::clamp(i, 0, int(EchoParams::ModeCount) - 1)]; }
 const char* SamplerApp::algoName(int i) { return kAlgo[std::min(5, std::max(0, i))]; }
 const char* SamplerApp::scaleName(int i) { return kScaleName[std::min(7, std::max(0, i))]; }
 const char* SamplerApp::noteName(int r) { return kNote[((r % 12) + 12) % 12]; }
@@ -71,6 +72,7 @@ SamplerApp::SamplerApp(Session& s, Send send) : s_(s), send_(std::move(send)) {
     cells_.resize(400); rects_.assign(400, ~0ull); setPalette(theme::light);
     for (int& h : heldNote_) h = -1;
     for (int i = 0; i < kTracks; i++) { ts_[i].vol = 0.8f; }
+    loadEcho();
     refreshLibrary();
     applyFx();
     s_.setRetLevel(1, 0.7f);
@@ -116,6 +118,7 @@ void SamplerApp::loadEntry(int i) {
     TrackState& t = ts_[track_];
     t.entry = i; t.start = 0.f; t.end = 1.f;
     if (e.kit) t.algo = 3; else if (t.algo == 3) t.algo = 0;
+    if (!pageAvailable(page_)) page_ = P_HOME;
     previewAfterLoad_ = true;
     s_.loadSamplePath(e.path, e.kit, track_);
 }
@@ -155,7 +158,7 @@ void SamplerApp::applyHome(int t, bool commit) {
     s_.setSampleRange(t, x.start, x.end);
     const float semis = std::round((x.pitch - 0.5f) * 48.f);
     if (x.algo == 3) { s_.setStretch(t, 1.f, 0.f, commit); s_.setSliceThreshold(t, x.kitThr); s_.setKitPitch(t, semis); }   // KIT: threshold instead of speed, the pitch moves every slice
-    else if (x.algo == 4) { s_.setStretch(t, 1.f, 0.f, commit); s_.setGrain(t, grainCount(x.grains), x.scatter); }
+    else if (x.algo == 4) { s_.setStretch(t, 1.f, 0.f, commit); s_.setEchoParams(t, x.echo); }
     else if (x.algo == 5) { s_.setStretch(t, 1.f, 0.f, commit); s_.setPaul(t, paulFactor(x.paulStretch), x.paulWidth * 2.f); }
     else s_.setStretch(t, speedOf(x.speed), semis, commit);
 }
@@ -179,7 +182,51 @@ void SamplerApp::applyFx() {
     s_.setDelay(0.05f + delayTime_ * 1.45f, delayFb_ * 0.95f);
 }
 void SamplerApp::queueCommit(int t) { commitAt_ = nowMs_ + 350; commitTrack_ = t; }   // the offline stretch / pitch runs once the knob rests
-void SamplerApp::setAlgo(int a) { ts_[track_].algo = ((a % 6) + 6) % 6; applyAlgo(track_); applyHome(track_, true); }
+void SamplerApp::setAlgo(int a) {
+    ts_[track_].algo = ((a % 6) + 6) % 6;
+    if (!pageAvailable(page_)) page_ = P_HOME;
+    applyAlgo(track_); applyHome(track_, true);
+}
+void SamplerApp::editEcho(int t) {
+    s_.setEchoParams(t, ts_[t].echo);
+    echoSaveAt_ = nowMs_ + 350;
+}
+void SamplerApp::loadEcho() {
+    const auto dir = s_.dataDir();
+    if (dir.empty()) return;
+    FILE* f = fopen((dir + "/echofield-params").c_str(), "r");
+    if (!f) return;
+    int version;
+    if (fscanf(f, "%d", &version) == 1 && version == 1) {
+        for (auto& t : ts_) {
+            EchoParams p;
+            if (fscanf(f, "%d %f %f %f %f %f", &p.mode, &p.position, &p.texture, &p.scatter, &p.drift, &p.evolve) != 6) break;
+            if (p.mode >= 0 && p.mode < EchoParams::ModeCount &&
+                std::isfinite(p.position) && std::isfinite(p.texture) && std::isfinite(p.scatter) &&
+                std::isfinite(p.drift) && std::isfinite(p.evolve)) {
+                p.position = cl(p.position); p.texture = cl(p.texture); p.scatter = cl(p.scatter);
+                p.drift = cl(p.drift); p.evolve = cl(p.evolve); t.echo = p;
+            }
+        }
+    }
+    fclose(f);
+}
+void SamplerApp::saveEcho() {
+    const auto dir = s_.dataDir();
+    if (dir.empty()) return;
+    const std::string path = dir + "/echofield-params", tmp = path + ".tmp";
+    FILE* f = fopen(tmp.c_str(), "w");
+    if (!f) { say("ECHOFIELD SETTINGS NOT SAVED"); return; }
+    bool ok = fprintf(f, "1\n") > 0;
+    for (const auto& t : ts_) {
+        const auto& p = t.echo;
+        ok &= fprintf(f, "%d %.9g %.9g %.9g %.9g %.9g\n", p.mode, p.position, p.texture, p.scatter, p.drift, p.evolve) > 0;
+    }
+    const int closed = fclose(f);
+    if (!ok || closed || rename(tmp.c_str(), path.c_str())) {
+        remove(tmp.c_str()); say("ECHOFIELD SETTINGS NOT SAVED");
+    }
+}
 void SamplerApp::setVolume(int t, float v) { ts_[t].vol = cl(v); applyMix(t); }
 void SamplerApp::setPan01(int t, float v) { ts_[t].pan = cl(v); applyMix(t); }
 void SamplerApp::setSend(int t, int w, float v) { (w ? ts_[t].sendD : ts_[t].sendR) = cl(v); applyMix(t); }
@@ -192,9 +239,10 @@ void SamplerApp::selectTrack(int t) {
     if (t == track_) return;
     if (st_.track_clip_rec[track_]) s_.clipRecord(track_, false);   // an overdub belongs to the track it was started on
     track_ = t;
+    if (!pageAvailable(page_)) page_ = P_HOME;
     if (ts_[t].entry >= 0) libCursor_ = ts_[t].entry;   // PRESETS starts from the sample this track plays
 }
-void SamplerApp::gotoPage(Page p) { page_ = p; }
+void SamplerApp::gotoPage(Page p) { if (p >= P_HOME && p < kPages && pageAvailable(p)) page_ = p; }
 
 SamplerApp::Knob SamplerApp::cont(const char* name, float* v, std::function<std::string(float)> f, std::function<void()> apply, float stepSize, bool commit) {
     Knob k; k.name = name; k.valid = true; k.norm = *v; k.value = f(*v);
@@ -226,9 +274,9 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
         if (x.algo == 3) {   // KIT: the threshold the sample is cut at, the pitch of every slice
             k[2] = cont("THRESHOLD", &x.kitThr, [](float v) { return pct(v); }, [=] { applyHome(t); }, 0.01f);
             k[3] = cont("PITCH", &x.pitch, [](float v) { return fmt("%+.0f ST", std::round((v - 0.5f) * 48.f)); }, [=] { applyHome(t); }, 1.f / 48.f);
-        } else if (x.algo == 4) {   // GRAIN: how many grains sound together and how far around the cursor they scatter
-            k[2] = cont("GRAINS", &x.grains, [](float v) { return std::to_string(grainCount(v)); }, [=] { applyHome(t); }, 1.f / 11.f);
-            k[3] = cont("SCATTER", &x.scatter, [](float v) { return pct(v); }, [=] { applyHome(t); }, 0.02f);
+        } else if (x.algo == 4) {
+            k[2] = choice("MODE", &x.echo.mode, std::vector<std::string>(kEchoMode, kEchoMode + EchoParams::ModeCount), [=] { editEcho(t); });
+            k[3] = cont("POSITION", &x.echo.position, [](float v) { return fmt("%.1f%%", v * 100); }, [=] { editEcho(t); }, 0.005f);
         } else if (x.algo == 5) {   // PAULSTRETCH: how much slower, how wide
             k[2] = cont("STRETCH", &x.paulStretch, [](float v) { return fmt("%.0fX", paulFactor(v)); }, [=] { applyHome(t); }, 0.02f);
             k[3] = cont("WIDTH", &x.paulWidth, [](float v) { return pct(v * 2.f); }, [=] { applyHome(t); }, 0.02f);
@@ -236,6 +284,13 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
             k[2] = cont("SPEED", &x.speed, [](float v) { return fmt("%.2fX", speedOf(v)); }, [=] { applyHome(t); }, 0.01f, true);
             k[3] = cont("PITCH", &x.pitch, [](float v) { return fmt("%+.0f ST", std::round((v - 0.5f) * 48.f)); }, [=] { applyHome(t); }, 1.f / 48.f, true);
         }
+        break;
+    case P_ECHO:
+        if (x.algo != 4) break;
+        k[0] = cont("TEXTURE", &x.echo.texture, [](float v) { return pct(v); }, [=] { editEcho(t); }, 0.01f);
+        k[1] = cont("SCATTER", &x.echo.scatter, [](float v) { return pct(v); }, [=] { editEcho(t); }, 0.01f);
+        k[2] = cont("DRIFT", &x.echo.drift, [](float v) { return pct(v); }, [=] { editEcho(t); }, 0.01f);
+        k[3] = cont("EVOLVE", &x.echo.evolve, [](float v) { return pct(v); }, [=] { editEcho(t); }, 0.01f);
         break;
     case P_FX:   // two global send effects; the sends are per track (the selected one), size and time are global
         k[0] = cont("REVERB SEND", &x.sendR, [](float v) { return pct(v); }, [=] { applyMix(t); });
@@ -482,7 +537,7 @@ void SamplerApp::button(int b, bool down) {
     if (down) held_ |= 1u << b; else held_ &= ~(1u << b);
     if (b == HOME) {
         if (down && !wasHeld) { homeAt_ = nowMs_; homeLong_ = false; }
-        else if (!down && wasHeld && !homeLong_) page_ = P_HOME;
+        else if (!down && wasHeld && !homeLong_) page_ = page_ == P_HOME && algo() == 4 ? P_ECHO : P_HOME;
         return;
     }
     if (b == GLO) {
@@ -537,6 +592,7 @@ void SamplerApp::resetSurface() {
 }
 void SamplerApp::tick(uint32_t now) {
     nowMs_ = now;
+    if (echoSaveAt_ && now >= echoSaveAt_) { echoSaveAt_ = 0; saveEcho(); }
     if ((held_ & (1u << HOME)) && !homeLong_ && now - homeAt_ >= 600) {
         editor_ = !editor_; homeLong_ = true;
     }
@@ -640,7 +696,7 @@ void SamplerApp::heal() {   // a lost frame leaves a hole nothing would redraw: 
 void SamplerApp::leds() {
     uint64_t m = 0;
     const bool blinkFast = (nowMs_ / 250) & 1, blinkSlow = (nowMs_ / 500) & 1;
-    static const int pageBtn[] = {HOME, FX, ENV, LFO, ARP, SEQ, EDIT, GLO, SAVE, SEL, SEL};
+    static const int pageBtn[] = {HOME, FX, ENV, LFO, ARP, SEQ, EDIT, GLO, SAVE, SEL, SEL, HOME};
     m |= 1ull << pageBtn[page_];
     if (st_.playing) m |= 1ull << PLAY;
     if (st_.freeRecording || st_.track_clip_rec[track_] || mic_ == 2) { if (blinkFast) m |= 1ull << REC; }
@@ -668,7 +724,7 @@ void SamplerApp::leds() {
 void SamplerApp::draw(uint32_t now) {
     static int lastLight = -1; if ((int)theme::light != lastLight) { lastLight = theme::light; setPalette(theme::light); needClear_ = true; }
     static int lastHero = -1;
-    const int heroKind = mic_ == 1 || mic_ == 2 ? 6 : page_ == P_ENV ? 1 : page_ == P_LFO ? 2 : page_ == P_MIX ? 3 : page_ == P_KEY ? 4 : (page_ == P_LEN || page_ == P_TEMPO) ? 5 : 0;
+    const int heroKind = mic_ == 1 || mic_ == 2 ? 6 : page_ == P_ENV ? 1 : page_ == P_LFO ? 2 : page_ == P_MIX ? 3 : page_ == P_KEY ? 4 : (page_ == P_LEN || page_ == P_TEMPO) ? 5 : (page_ == P_ECHO || (page_ == P_HOME && algo() == 4)) ? 7 : 0;
     if (heroKind != lastHero) { lastHero = heroKind; needClear_ = true; }
     if (needClear_) { fwDirty_ = true; clear(BLACK); std::fill(cells_.begin(), cells_.end(), SurfaceCell()); std::fill(rects_.begin(), rects_.end(), ~0ull); }
     if (needClear_) {
@@ -709,8 +765,10 @@ void SamplerApp::draw(uint32_t now) {
     const uint32_t pc = pageAccent(page_);
     drawText(20, 12, 36, 2, rgb565(theme::contrastInk(pc)), rgb565(pc), kPage[page_], 9);
     // Page markers track menu selection, independently of the track badge.
-    for (int i = 0; i < kPages; i++)
-        rect(8 + i, 116 + i * 10, 40, 8, 10, i == page_ ? rgb565(pc) : BAR);
+    for (int i = 0; i < kPages; i++) {
+        const Page p = menuPage(i);
+        rect(8 + i, 116 + i * 10, 40, 8, 10, p == page_ ? rgb565(pc) : pageAvailable(p) ? BAR : PANEL);
+    }
     hero(now, k);
     // the loop: a thin bar with the position, under it the state (mic / toast / audition, else the sample mode and the loop)
     std::string line;
@@ -718,7 +776,7 @@ void SamplerApp::draw(uint32_t now) {
     else if (mic_ == 2) line = fmt("MIC: RECORDING %.1fS", st_.sampleSeconds);
     else if (!toast().empty()) line = toast();
     else if (auditionAt_) { const Entry& e = lib_[(size_t)libCursor_]; line = ">" + e.label + "  " + e.group; }
-    else line = std::string(kAlgo[ts_[track_].algo]) + "  " + loopText();
+    else line = (algo() == 4 ? std::string("GRANULAR/") + echoModeName(ts_[track_].echo.mode) : std::string(kAlgo[ts_[track_].algo])) + "  " + loopText();
     const bool hot = !toast().empty() || mic_ || auditionAt_ || st_.freeRecording || recNow || st_.freeArmed;
     const bool hasLoopBar = loopAny_ && st_.loopSamples > 0;
     const int px = std::min(215, std::max(0, (int)(cl(st_.track_has_clip[track_] ? st_.clipPos[track_] : (hasLoopBar ? st_.pos / st_.loopSamples : 0)) * 215)));
@@ -756,7 +814,7 @@ void SamplerApp::draw(uint32_t now) {
         rect(70 + i, cx + std::min(101, bw), cy + 37, std::max(1, 102 - bw), 5, bw == 102 ? kc : BAR);
     }
     const char* hint = mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_LEN ? "K1 X2 OR /2  SEL AGAIN FOR TEMPO" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_TEMPO ? "K1 BARS  K2 BPM  K3 MODE" : page_ == P_KEY ? "KEYS FOLLOW THE KEY  CHANGE ANY TIME"
-                     : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
+                     : page_ == P_ECHO ? "HOME: SAMPLE  TEXTURE SCATTER DRIFT EVOLVE" : page_ == P_HOME && algo() == 4 ? "HOME AGAIN: ECHOFIELD  K3 MODE K4 POS" : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
     drawText(90, 12, 228, 1, DIM, BLACK, hint, 38);
     needClear_ = false;
 }
@@ -811,6 +869,23 @@ void SamplerApp::hero(uint32_t now, const Knobs& k) {
         drawText(100, x0, y0 + 3, 3, TRACE, WELL, b, 9);
         snprintf(b, sizeof b, "OCT %+d  %s", scale_.octave, scale_.mode ? "CHORD" : "KEY");
         drawText(101, x0, y0 + 28, 2, INK, WELL, b, 18);
+    } else if (page_ == P_ECHO || (page_ == P_HOME && algo() == 4)) {
+        // Actual grain positions and envelopes on the sample's waveform.
+        auto pk = peaks(track_, 54);
+        float grains[54] = {};
+        for (int j = 0; j < st_.voiceN[track_]; ++j) {
+            const int bin = std::clamp(int(st_.voicePos[track_][j] * 54), 0, 53);
+            grains[bin] = std::max(grains[bin], st_.voiceLvl[track_][j]);
+        }
+        const int center = std::clamp(int((x.start + x.echo.position * (x.end - x.start)) * 54), 0, 53);
+        for (int i = 0; i < 54; ++i) {
+            const float pos = (i + 0.5f) / 54.f;
+            const bool in = pos >= x.start && pos <= x.end;
+            const float v = i < (int)pk.size() ? pk[i] : 0.f;
+            const int h = int(std::max(std::min(1.f, v), grains[i]) * H);
+            column(i, x0 + i * 4, 3, i == center ? H : h,
+                   i == center ? TIME : grains[i] > 0 ? rgb565(theme::TRACE_VIOLET) : in ? TRACE : GRID, false);
+        }
     } else {   // the waveform with the playback window
         auto pk = peaks(track_, 54);
         for (int i = 0; i < 54; i++) {

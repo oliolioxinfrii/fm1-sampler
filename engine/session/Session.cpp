@@ -41,7 +41,7 @@ struct Session::Impl {
         std::vector<Note> pending;   // notes of this block (without the arpeggiator)
         // offline stretch / pitch
         float speed = 1.f, semis = 0.f, rangeA = 0.f, rangeB = 1.f; uint32_t gen = 0;
-        float sliceThr = 0.22f, kitSemis = 0.f, grainScatter = 1.f, paulStretch = 8.f, paulWidth = 1.f; int grainN = 7; std::vector<float> slices;   // mode parameters; slices for the UI (under infoMtx)
+        float sliceThr = 0.22f, kitSemis = 0.f, paulStretch = 8.f, paulWidth = 1.f; EchoParams echo; std::vector<float> slices;   // mode parameters; slices for the UI (under infoMtx)
         // the audio loop of this track
         std::vector<float> clip;     // interleaved stereo, loopSamples frames
         bool clipHas = false, clipRec = false;
@@ -210,7 +210,7 @@ struct Session::Impl {
     // audio thread: hand the mode parameters of a track to its sampler and publish the slices for the UI
     void applyModeParams(Track& t) {
         if (!t.sampler) return;
-        t.sampler->setSliceThreshold(t.sliceThr); t.sampler->setKitPitch(t.kitSemis); t.sampler->setGrain(t.grainN, t.grainScatter); t.sampler->setPaul(t.paulStretch, t.paulWidth);
+        t.sampler->setSliceThreshold(t.sliceThr); t.sampler->setKitPitch(t.kitSemis); t.sampler->setEchoParams(t.echo); t.sampler->setPaul(t.paulStretch, t.paulWidth);
         auto f = t.sampler->sliceFractions();
         std::lock_guard<std::mutex> l(t.infoMtx); t.slices = std::move(f);
     }
@@ -608,7 +608,7 @@ void Session::setSampleRange(int t, float a, float b) {
 }
 void Session::setSliceThreshold(int t, float v) { if (t >= 0 && t < kTracks) d->post([=] { auto& tr = *d->tracks[(size_t)t]; tr.sliceThr = clampf(v, 0.f, 1.f); d->applyModeParams(tr); }); }
 void Session::setKitPitch(int t, float s) { if (t >= 0 && t < kTracks) d->post([=] { auto& tr = *d->tracks[(size_t)t]; tr.kitSemis = s; d->applyModeParams(tr); }); }
-void Session::setGrain(int t, int n, float sc) { if (t >= 0 && t < kTracks) d->post([=] { auto& tr = *d->tracks[(size_t)t]; tr.grainN = n; tr.grainScatter = sc; d->applyModeParams(tr); }); }
+void Session::setEchoParams(int t, const EchoParams& p) { if (t >= 0 && t < kTracks) d->post([=] { auto& tr = *d->tracks[(size_t)t]; tr.echo = p; if (tr.sampler) tr.sampler->setEchoParams(p); }); }
 void Session::setPaul(int t, float st, float w) { if (t >= 0 && t < kTracks) d->post([=] { auto& tr = *d->tracks[(size_t)t]; tr.paulStretch = st; tr.paulWidth = w; d->applyModeParams(tr); }); }
 std::vector<float> Session::sliceFractions(int t) const {
     if (t < 0 || t >= kTracks) return {};

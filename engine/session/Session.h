@@ -4,6 +4,7 @@
 // Threads: the audio thread calls process(). Everything else may be called from any other thread; changes reach the audio thread
 // through a command queue drained at the start of each block. status() and the peak views are lock-free.
 #pragma once
+#include "../dsp/EchoGrains.h"
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -63,7 +64,7 @@ public:
     void setSidechain(int track, int sourceTrack, float thresholdDb, float ratio);   // the track is ducked by the level of another one (source < 0: off)
     void setSliceThreshold(int track, float thr01);                           // KIT: the threshold the slices are cut at
     void setKitPitch(int track, float semitones);                              // KIT: transposition of every slice
-    void setGrain(int track, int count, float scatter);                        // GRAIN: grains sounding together and how far around the cursor they start (0..1)
+    void setEchoParams(int track, const EchoParams& params);                   // GRAIN: ECHOFIELD mode and performance controls
     void setPaul(int track, float stretch, float width);                       // PAUL: slow-down factor and stereo width
     std::vector<float> sliceFractions(int track) const;                        // KIT: slice starts (0..1 of the sample) and the end of the last one
     void setStretch(int track, float speed, float semitones, bool commit);     // commit: the knob rested, (re)build the stretched copy offline

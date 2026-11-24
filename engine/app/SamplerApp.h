@@ -22,7 +22,7 @@ public:
     using Send = std::function<void(const uint8_t*, size_t)>;
     static constexpr int kTracks = 8;
     enum Button { OCT_DOWN, OCT_UP, FX, SEL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC };
-    enum Page { P_HOME, P_FX, P_ENV, P_LFO, P_ARP, P_SEQ, P_MIX, P_KEY, P_SAVE, P_LEN, P_TEMPO, kPages };
+    enum Page { P_HOME, P_FX, P_ENV, P_LFO, P_ARP, P_SEQ, P_MIX, P_KEY, P_SAVE, P_LEN, P_TEMPO, P_ECHO, kPages };
     struct Knob {
         std::string name, value;
         float norm = 0;
@@ -54,6 +54,9 @@ public:
     Knobs knobs();
     Knobs knobs(Page p);
     static const char* algoName(int i);
+    static const char* echoModeName(int i);
+    bool pageAvailable(Page p) const { return p != P_ECHO || algo() == 4; }
+    static Page menuPage(int slot) { return slot == 0 ? P_HOME : slot == 1 ? P_ECHO : static_cast<Page>(slot - 1); }
     int algo() const { return ts_[track_].algo; }
     void setAlgo(int a);
     const std::vector<Entry>& library() const { return lib_; }
@@ -93,7 +96,8 @@ public:
         float a = 0.1f, d = 0.35f, s = 0.8f, r = 0.63246f;   // release 5 r^2 = 2.0 s
         float lfoRate = 0.3f, lfoDepth = 0.f; int lfoTarget = 0, lfoShape = 0;
         float start = 0.f, end = 1.f, speed = 0.5f, pitch = 0.5f;
-        float kitThr = 0.22f, grains = 0.55f, scatter = 1.f, paulStretch = 0.4f, paulWidth = 0.5f;   // K3 / K4 of the sample page in KIT / GRAIN / PAUL mode
+        float kitThr = 0.22f, paulStretch = 0.4f, paulWidth = 0.5f;
+        EchoParams echo;
         int arpRate = 0, arpPatt = 0, arpOct = 0; float arpLen = 0.7f;
         
         float vol = 0.8f, pan = 0.5f, sendR = 0.3f, sendD = 0.2f;
@@ -135,6 +139,9 @@ private:
     void applyAll(int t);
     void applyAlgo(int t); void applyEnv(int t); void applyLfo(int t); void applyHome(int t, bool commit = false); void applyArp(int t); void applyRoot(int t); void applySeq(int t); void applyMix(int t);
     void applyFx();
+    void editEcho(int t);
+    void loadEcho();
+    void saveEcho();
     void queueCommit(int t);
     Knob cont(const char* name, float* v, std::function<std::string(float)> fmt, std::function<void()> apply, float stepSize = 0.02f, bool commit = false);
     Knob choice(const char* name, int* v, std::vector<std::string> opts, std::function<void()> apply);
@@ -150,7 +157,7 @@ private:
     float reverbSize_ = 0.7f, reverbDw_ = 0.35f, delayTime_ = 0.4f, delayFb_ = 0.45f;
     int loopSrc_ = 1;
     float exciter_ = 0.f, lofi_ = 0.f, wobble_ = 0.f, loopSpeed_ = 2.f / 3.f, micThr_ = 0.452f;   // loop speed is global
-    uint32_t repaintAt_ = 0;
+    uint32_t repaintAt_ = 0, echoSaveAt_ = 0;
     // library
     std::vector<Entry> lib_;
     int libCursor_ = 0, loadedCursor_ = -1;

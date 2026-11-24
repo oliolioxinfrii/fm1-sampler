@@ -3,11 +3,12 @@
 //   ONESHOT  pitched by the note, always plays the whole window (note off is ignored)
 //   LOOPED   pitched by the note, ADSR, the window loops while the key is held
 //   KIT      the sample is cut at its hits into 16 slices; a note plays one slice unpitched (pad = note - 60)
-//   GRAIN    a cloud of short overlapping grains picked at random inside the window
+//   GRAIN    ECHOFIELD's six granular modes with per-note stereo PCM grains
 //   PAUL     the window smeared into an endless pad (spectral time stretch)
 #pragma once
 #include "Adsr.h"
 #include "Common.h"
+#include "EchoGrains.h"
 #include "Paul.h"
 #include "Slicer.h"
 #include <memory>
@@ -44,7 +45,7 @@ public:
     // the parameters of the modes that replace speed / pitch on the sample page
     void setSliceThreshold(float thr01) { sliceThr_ = thr01; reslice(); }   // KIT: how sharp a rise must be to start a slice (0 many slices .. 1 few)
     void setKitPitch(float semis) { kitSemis_ = semis; }                    // KIT: every slice is transposed by this
-    void setGrain(int count, float scatter) { grainN_ = std::min(12, std::max(1, count)); grainScatter_ = std::min(1.f, std::max(0.f, scatter)); }   // GRAIN: grains sounding together, how far around the cursor they start
+    void setEchoParams(const EchoParams& p) { echoParams_ = p; }
     void setPaul(float stretch, float width) { paulStretch_ = std::min(100.f, std::max(1.5f, stretch)); paulWidth_ = std::min(2.f, std::max(0.f, width)); }   // PAUL: slow-down factor, stereo width (1 = as is)
     std::vector<float> sliceFractions() const;   // KIT: where the slices start (0..1 of the sample) and, last, where the last one ends
     void noteOn(int note, int vel);
@@ -55,7 +56,6 @@ public:
     bool hasVoices() const;
 
 private:
-    struct Grain { bool on = false; double pos = 0, inc = 0; int age = 0, len = 1; };
     struct Voice {
         bool on = false, gate = false; int note = 0, slice = 0; float vel = 1.f; uint32_t born = 0;
         double pos = 0, rate = 1.0, ws = 0, we = 0;   // window of the played buffer, frames
@@ -63,13 +63,12 @@ private:
         int mode = MELODIC;
         float baseSemis = 0.f, sourceStart = 0.f, sourceEnd = 1.f;
         float lastL = 0.f, lastR = 0.f;
-        Adsr env; Grain grain[12]; double spawn = 0; int paulIdx = -1;
+        Adsr env; EchoGrains echo; int paulIdx = -1;
     };
     void resolveWindow(Voice& v) const;
     float originalPosOf(const Voice& v, double pos) const;
-    void renderVoice(Voice& v, float* out, int n);
+    void renderVoice(Voice& v, float* out, int n, int& trackGrains);
     void reslice();
-    float rnd() { rng_ = rng_ * 1664525u + 1013904223u; return (rng_ >> 8) / 16777216.f; }
 
     int sr_;
     std::shared_ptr<const SampleBuf> orig_, proc_;
@@ -78,8 +77,9 @@ private:
     float procA_ = 0, procB_ = 1, rangeA_ = 0, rangeB_ = 1, bend_ = 0, atk_ = 0.01f, dec_ = 0.3f, sus_ = 0.8f, rel_ = 0.3f, root_ = 60.f;
     int mode_ = MELODIC; std::vector<int> slices_; std::string label_; std::vector<float> peaks_;
     Voice voices_[kVoices]; std::vector<std::unique_ptr<PaulStream>> paul_; bool paulBusy_[kVoices] = {};
-    std::vector<Onset> onsets_; float sliceThr_ = 0.22f, kitSemis_ = 0.f, grainLen_ = 0.12f, grainScatter_ = 1.f, paulStretch_ = 8.f, paulWidth_ = 1.f; int grainN_ = 7; double sliceEnd_ = 0;
+    std::vector<Onset> onsets_; float sliceThr_ = 0.22f, kitSemis_ = 0.f, paulStretch_ = 8.f, paulWidth_ = 1.f; double sliceEnd_ = 0;
+    EchoParams echoParams_;
     float stealL_ = 0.f, stealR_ = 0.f;
     int stealLeft_ = 0;
-    uint32_t bornCounter_ = 0, rng_ = 7;
+    uint32_t bornCounter_ = 0;
 };
