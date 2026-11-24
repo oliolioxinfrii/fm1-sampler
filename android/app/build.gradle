@@ -4,11 +4,17 @@ android {
     compileSdk 34
     defaultConfig { applicationId 'com.ferluht.fm1sampler'; minSdk 23; targetSdk 30; versionCode 37; versionName "0.37" }
     signingConfigs { debug { enableV1Signing = true; enableV2Signing = true } }
+    buildTypes {
+        debug {
+            applicationIdSuffix ".experimental"
+            versionNameSuffix "-experimental.1"
+        }
+    }
     buildFeatures { prefab true }
     defaultConfig { externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_shared'; cppFlags '' } }; ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' } }
     externalNativeBuild { cmake { path 'src/main/cpp/CMakeLists.txt'; version '3.22.1' } }
-    ndkVersion '27.2.12479018'
+    ndkVersion '28.2.13676358'
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
 
-dependencies { implementation 'com.google.oboe:oboe:1.9.0' }
+dependencies { implementation 'com.google.oboe:oboe:1.9.3' }
