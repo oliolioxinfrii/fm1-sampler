@@ -90,6 +90,8 @@ public:
     void scrubBy(float delta);            // signed displacement in loop lengths
     void scrubEnd();                      // the finger lifts: the tape returns to the transport speed, or comes to a stop
     void seek(float fraction);            // move the playhead to a place of the loop (0..1): all loops share it
+    void setLoopBars(int bars, bool relative = false);
+    void setLoopBpm(float bpm, bool relative = false);
     void setLoopSpeed(float speed);       // 0.25..2, tape speed of all loops together; 1 = locked to the transport
     void setLoopSource(int src);          // what the loop records: 0 microphone, 1 the track's sound
     bool saveClip(int track);             // the loop of `track` as sample_*.wav in the data dir

@@ -63,7 +63,7 @@ struct Session::Impl {
     double scrubPos = 0, scrubV = 0, scrubTarget = 0;
     float bpm = 120.f; int loopBars = 4;
     double pos = 0; int32_t loopSamples = 0;
-    std::atomic<float> tapeSpeed{1.f}; double tapePos = 0;   // ONE tape pointer for every loop clip, so they never drift apart
+    std::atomic<float> tapeSpeed{1.f}; double tempoRate = 1.0, tapePos = 0;   // ONE tape pointer for every loop clip, so they never drift apart
 
     // free take
     bool freeRec = false, freeArmed = false; int freeTrack = 0; std::vector<float> freeBuf;
@@ -138,7 +138,7 @@ struct Session::Impl {
     // ---- free take ----
     void freeStart(int track) {
         for (auto& t : tracks) { releaseAll(*t); t->clip.clear(); t->clip.shrink_to_fit(); t->clipHas = false; t->clipRec = false; }
-        loopSamples = 0; a_loop = 0;
+        loopSamples = 0; a_loop = 0; tempoRate = 1.0;
         freeArmed = true; a_freeArmed = true; freeRec = false; freeTrack = track;
         freeBuf.clear(); freeBuf.reserve((size_t)sr * 2 * 30);
         freeN = 0; freeAcc = 0; freeCnt = 0;
@@ -157,7 +157,7 @@ struct Session::Impl {
         while (nb > 300.f && n > 1) { n--; nb = (float)(n * 240.0 * sr / len); }
         while (nb < 30.f && n < 32) { n++; nb = (float)(n * 240.0 * sr / len); }
         bpm = std::min(300.f, std::max(30.f, nb)); a_bpm = bpm; loopBars = n; a_bars = n;
-        loopSamples = (int32_t)std::lround(len); a_loop = loopSamples;
+        loopSamples = (int32_t)std::lround(len); a_loop = loopSamples; tempoRate = 1.0;
         Track& ft = *tracks[freeTrack];
         if (!freeBuf.empty()) { freeBuf.resize((size_t)loopSamples * 2, 0.f); ft.clip = std::move(freeBuf); ft.clipHas = true; }
         freeBuf = {};
@@ -165,7 +165,17 @@ struct Session::Impl {
     }
     void clearIfEmpty() {
         for (auto& t : tracks) if (t->clipHas) return;
-        loopSamples = 0; a_loop = 0; pos = 0; tapePos = 0;
+        loopSamples = 0; a_loop = 0; pos = 0; tapePos = 0; tempoRate = 1.0;
+    }
+
+    bool canEditTempo() const {
+        if (loopSamples <= 0 || freeRec || freeArmed) return false;
+        for (const auto& t : tracks) if (t->clipRec) return false;
+        return true;
+    }
+    void publishTempo() {
+        bpm = (float)(240.0 * loopBars * sr * tempoRate / loopSamples);
+        a_bpm = bpm; a_bars = loopBars;
     }
 
     // ---- samples ----
@@ -287,10 +297,10 @@ struct Session::Impl {
             if (freeRec && loopSrc == 0) freeBuf.insert(freeBuf.end(), in, in + n * 2);
             if (sampling || armedWait) captureMono(in, n);
         }
-        const int32_t p0 = (int32_t)pos;
+        const int32_t p0 = (int32_t)(loopSamples > 0 && !freeRec ? tapePos : pos);
         const bool tl = playing && !freeRec && loopSamples > 0;
         updateLoopPeaks();
-        const double spd = tapeSpeed.load();
+        const double spd = tapeSpeed.load() * tempoRate;
         if (!playing) { rate = 1.0; stopping = false; }
         bool ramp = false; double rateSum = n, tapeEnd = tapePos;
         const bool scrubbing = (scrubActive || scrubTail) && loopSamples > 0 && !freeRec;
@@ -334,9 +344,9 @@ struct Session::Impl {
             }
             tapeEnd = acc;
         }
-        const bool locked = !ramp && std::fabs(spd - 1.0) < 0.01;
+        const bool locked = !ramp && std::fabs(spd - 1.0) < 1e-6;
         const double tb = loopSamples > 0 ? (locked ? (double)(p0 % loopSamples) : tapePos) : 0.0;
-        if (loopSamples > 0) tapePos = ramp ? tapeEnd : !tl ? (double)(p0 % loopSamples) : locked ? (double)((p0 + n) % loopSamples) : std::fmod(tb + n * spd, (double)loopSamples);
+        if (loopSamples > 0) tapePos = ramp ? tapeEnd : !tl ? tapePos : locked ? (double)((p0 + n) % loopSamples) : std::fmod(tb + n * spd, (double)loopSamples);
         bool anyEvents;
         std::vector<Arp::Ev> evs;
         for (int ti = 0; ti < kTracks; ti++) {
@@ -469,7 +479,7 @@ struct Session::Impl {
             if (freeRec) a_freeSec = (float)(pos / sr);
             else if (loopSamples > 0 && pos >= loopSamples) pos -= loopSamples;
         }
-        if (scrubbing) { pos = tapeEnd; }
+        if (scrubbing || tl) pos = tapePos;
         if (stopping && !scrubbing && (rate <= 0.0 || !tl)) { playing = false; stopping = false; rate = 1.0; for (auto& t : tracks) releaseAll(*t); }
         if (sampling) a_sampleSec = (float)sampleBuf.size() / sr;
     }
@@ -591,7 +601,7 @@ void Session::loopDouble() {
             else { t->clip.clear(); t->clipHas = false; }
         }
         d->loopSamples = L * 2; d->a_loop = d->loopSamples;
-        d->loopBars = std::min(32, d->loopBars * 2); d->a_bars = d->loopBars;
+        d->loopBars = std::min(32, d->loopBars * 2); d->publishTempo();
     });
 }
 void Session::loopHalve() {
@@ -600,7 +610,7 @@ void Session::loopHalve() {
         if (L <= 0 || h < d->sr / 4) return;
         for (auto& t : d->tracks) if (t->clipHas && t->clip.size() == (size_t)L * 2) t->clip.resize((size_t)h * 2);
         d->loopSamples = h; d->a_loop = h;
-        d->loopBars = std::max(1, d->loopBars / 2); d->a_bars = d->loopBars;
+        d->loopBars = std::max(1, d->loopBars / 2); d->publishTempo();
         if (d->pos >= h) d->pos = std::fmod(d->pos, (double)h);
         if (d->tapePos >= h) d->tapePos = std::fmod(d->tapePos, (double)h);
     });
@@ -608,7 +618,7 @@ void Session::loopHalve() {
 void Session::scrubBegin(float f, bool relative) {
     d->post([this, f, relative] {
         if (d->loopSamples <= 0 || d->freeRec) return;
-        if (!d->scrubActive && !d->scrubTail) { d->scrubPos = d->tapePos; d->scrubV = d->playing && !d->stopping ? d->rate * d->tapeSpeed.load() : 0.0; }
+        if (!d->scrubActive && !d->scrubTail) { d->scrubPos = d->tapePos; d->scrubV = d->playing && !d->stopping ? d->rate * d->tapeSpeed.load() * d->tempoRate : 0.0; }
         if (d->stopping) { d->playing = false; d->stopping = false; }
         d->scrubActive = true; d->scrubTail = false; d->scrubRelative = relative;
         d->scrubTarget = relative ? d->scrubPos : clampf(f, 0.f, 0.9999f) * d->loopSamples;
@@ -627,6 +637,22 @@ void Session::seek(float f) {
         if (d->loopSamples <= 0 || d->freeRec) return;
         const double p = clampf(f, 0.f, 0.9999f) * d->loopSamples;
         d->pos = p; d->tapePos = p;
+    });
+}
+void Session::setLoopBars(int bars, bool relative) {
+    d->post([this, bars, relative] {
+        if (!d->canEditTempo()) return;
+        d->loopBars = std::max(1, std::min(32, relative ? d->loopBars + bars : bars));
+        d->publishTempo();
+    });
+}
+void Session::setLoopBpm(float bpm, bool relative) {
+    if (!std::isfinite(bpm)) return;
+    d->post([this, bpm, relative] {
+        if (!d->canEditTempo()) return;
+        const double target = std::max(30.f, std::min(300.f, relative ? d->bpm + bpm : bpm));
+        d->tempoRate = std::max(0.25, std::min(4.0, target * d->loopSamples / (240.0 * d->loopBars * d->sr)));
+        d->publishTempo();
     });
 }
 void Session::setLoopSpeed(float v) { d->tapeSpeed.store(clampf(v, 0.25f, 2.f)); }

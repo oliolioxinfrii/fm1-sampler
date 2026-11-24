@@ -15,7 +15,7 @@ public:
     void setLink(bool midi, bool usbAudio) { linkMidi_ = midi; linkAudio_ = usbAudio; }
     void frame(uint32_t nowMs);
     void openProject(bool on) { projectOpen_ = on; }
-    void setEditor(bool on) { editor_ = on; }   // false: the cassette deck, true: sample / page editor
+    void setEditor(bool on) { app_.setEditor(on); }   // false: the cassette deck, true: sample / page editor
     const std::vector<UiOp>& ops() const { return ops_; }
     void touch(int action /*0 down 1 move 2 up*/, float x, float y, uint32_t nowMs);
 
@@ -61,7 +61,7 @@ private:
     bool haveActive_ = false;
     uint32_t now_ = 0;
     Session::Status st_{};
-    bool linkMidi_ = false, linkAudio_ = false, sheetOpen_ = false, editor_ = false, projectOpen_ = false;
+    bool linkMidi_ = false, linkAudio_ = false, sheetOpen_ = false, projectOpen_ = false;
     float sheetScroll_ = 0, sheetLastY_ = 0, sheetMoved_ = 0;
     Rect sheetList_{0, 0, 0, 0};
     uint32_t clearArmed_ = 0;

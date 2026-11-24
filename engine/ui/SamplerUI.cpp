@@ -15,8 +15,8 @@ void syncColors() { kBg = theme::BG; kPaper = theme::TEXT; kOrange = theme::ACCE
 namespace {
 float clamp01(float v) { return std::min(1.f, std::max(0.f, v)); }
 std::string num(const char* f, double v) { char b[48]; snprintf(b, sizeof b, f, v); return b; }
-const SamplerApp::Page kTabs[] = {SamplerApp::P_HOME, SamplerApp::P_FX, SamplerApp::P_ENV, SamplerApp::P_LFO, SamplerApp::P_ARP, SamplerApp::P_SEQ, SamplerApp::P_MIX, SamplerApp::P_KEY, SamplerApp::P_SAVE, SamplerApp::P_LEN};
-const char* kTabName[] = {"SAMPLE", "FX", "ENV", "LFO", "ARP", "TAPE", "MIX", "KEY", "LOOP", "LEN"};
+const SamplerApp::Page kTabs[] = {SamplerApp::P_HOME, SamplerApp::P_FX, SamplerApp::P_ENV, SamplerApp::P_LFO, SamplerApp::P_ARP, SamplerApp::P_SEQ, SamplerApp::P_MIX, SamplerApp::P_KEY, SamplerApp::P_SAVE, SamplerApp::P_LEN, SamplerApp::P_TEMPO};
+const char* kTabName[] = {"SAMPLE", "FX", "ENV", "LFO", "ARP", "TAPE", "MIX", "KEY", "LOOP", "LEN", "BPM"};
 }  // namespace
 
 SamplerUI::SamplerUI(SamplerApp& app) : app_(app) {
@@ -74,7 +74,7 @@ void SamplerUI::frame(uint32_t now) {
     ops_.clear(); hits_.clear();
     rrect({0, 0, W_, H_}, 0, BG);
     const float tb = 44, left = 176, right = 252;
-    if (!editor_) {   // the cassette deck fills the screen; the old sample / page editor stays one tap away (EDIT)
+    if (!app_.editor()) {   // the cassette deck fills the screen; the old sample / page editor stays one tap away (EDIT)
         deck({0, 0, W_, H_});
         if (sheetOpen_) librarySheet();
         if (projectOpen_) projectSheet();
@@ -112,7 +112,7 @@ void SamplerUI::topBar(Rect r) {
     x += 62;
     button({x, 6, 56, r.h - 12}, "CLEAR", false, [this] { app_.loopClear(); }, 11);
     x += 62;
-    button({x, 6, 56, r.h - 12}, "DECK", false, [this] { editor_ = false; }, 11);
+    button({x, 6, 56, r.h - 12}, "DECK", false, [this] { app_.setEditor(false); }, 11);
     x += 70;
     text(x, cy - 6, 12, st_.freeRecording || recOn || armed ? ACCENT : TEXT, app_.loopText(), 0, true);
     text(x, cy + 11, 9.5f, DIM, std::string("LOOP SOURCE: ") + (app_.knobs(SamplerApp::P_SAVE)[1].value), 0, false);
@@ -279,6 +279,7 @@ void SamplerUI::pageView(Rect r) {
         vbar(x0 + ww * thr, cy - 26, cy + 26, kOrange, 2.7f);
         text(x0, w.y + w.h - 8, 9, kDim, "TRIGGER LEVEL " + num("%.0f DB", 20 * std::log10(app_.micThreshold())), 0, true);
         break; }
+    case P::P_TEMPO:
     case P::P_LEN: {   // the loop as bars: one block per bar with its beats, the orange playhead
         const int bars = std::max(1, st_.loopBars), shown = std::min(bars, 16);
         head = bars > 0 && st_.loopSamples > 0 ? std::to_string(bars) + (bars == 1 ? " BAR  " : " BARS  ") + num("%.0f BPM", st_.bpm) : "NO LOOP";
@@ -639,8 +640,8 @@ void SamplerUI::deck(Rect r) {
     sampleView({x0, 14, w0, 118});
     const float py = 163;
     text(x0, py, 15, kOrange, SamplerApp::pageName(app_.page()), 0, true);
-    for (int i = 0; i < 10; i++) {   // the pages as notches: tap one to go there (the FM-1 buttons do the same)
-        Rect nr{zr - (10 - i) * 19.f, py - 14, 19, 28};
+    for (int i = 0; i < SamplerApp::kPages; i++) {   // the pages as notches: tap one to go there (the FM-1 buttons do the same)
+        Rect nr{zr - (SamplerApp::kPages - i) * 19.f, py - 14, 19, 28};
         rrect({nr.x + 2, py - 2, 15, 4}, 0, kTabs[i] == app_.page() ? kOrange : kLine);
         tap(nr, [this, i] { app_.gotoPage(kTabs[i]); });
     }
@@ -774,9 +775,9 @@ void SamplerUI::sampleArea(Rect r) {
 }
 
 void SamplerUI::pagePanel(Rect r) {
-    const float tw = (r.w - 4 * 4) / 5;
-    for (int i = 0; i < 10; i++) {
-        Rect c{r.x + (i % 5) * (tw + 4), r.y + (i / 5) * 32, tw, 28};
+    const float tw = (r.w - 5 * 4) / 6;
+    for (int i = 0; i < SamplerApp::kPages; i++) {
+        Rect c{r.x + (i % 6) * (tw + 4), r.y + (i / 6) * 32, tw, 28};
         button(c, kTabName[i], app_.page() == kTabs[i], [this, i] { app_.gotoPage(kTabs[i]); }, 9.5f);
     }
     auto k = app_.knobs();
@@ -864,7 +865,7 @@ void SamplerUI::projectSheet() {
     row(armed ? "TAP AGAIN: CLEAR ALL LOOPS" : "CLEAR ALL LOOPS", "the looper is clean again, loop length is free", any, armed, [this, armed] {
         if (armed) { app_.loopClear(); clearArmed_ = 0; } else clearArmed_ = now_ + 3000;
     });
-    row("OPEN THE EDITOR", "the older sample / page editor", true, false, [this] { editor_ = true; projectOpen_ = false; });
+    row("OPEN THE EDITOR", "the older sample / page editor", true, false, [this] { app_.setEditor(true); projectOpen_ = false; });
     row("LOOP LENGTH x2", "the loop doubled, its content repeated", any, false, [this] { app_.lenAction(true); });
     row("LOOP LENGTH /2", "half as long, the second half is dropped", any, false, [this] { app_.lenAction(false); });
     row(std::string("LOOP SOURCE: ") + app_.knobs(SamplerApp::P_SAVE)[1].value, "what a take records: the track's sound or the microphone", true, false,

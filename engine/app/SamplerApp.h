@@ -22,7 +22,7 @@ public:
     using Send = std::function<void(const uint8_t*, size_t)>;
     static constexpr int kTracks = 8;
     enum Button { OCT_DOWN, OCT_UP, FX, SEL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC };
-    enum Page { P_HOME, P_FX, P_ENV, P_LFO, P_ARP, P_SEQ, P_MIX, P_KEY, P_SAVE, P_LEN, kPages };
+    enum Page { P_HOME, P_FX, P_ENV, P_LFO, P_ARP, P_SEQ, P_MIX, P_KEY, P_SAVE, P_LEN, P_TEMPO, kPages };
     struct Knob {
         std::string name, value;
         float norm = 0;
@@ -43,6 +43,8 @@ public:
 
     // ---- state for the phone UI (all of it can also be edited from there) ----
     Page page() const { return page_; }
+    bool editor() const { return editor_; }
+    void setEditor(bool on) { editor_ = on; }
     void gotoPage(Page p);
     static const char* pageName(Page p);
     int track() const { return track_; }
@@ -138,6 +140,8 @@ private:
     Session& s_;
     Send send_;
     Page page_ = P_HOME;
+    bool editor_ = false, homeLong_ = false;
+    uint32_t homeAt_ = 0;
     int track_ = 0;
     std::array<TrackState, kTracks> ts_;
     // global effects

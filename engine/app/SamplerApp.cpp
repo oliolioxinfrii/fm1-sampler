@@ -14,7 +14,7 @@ void setPalette(bool light) {
     if (light) { BLACK = rgb(241, 239, 233); PAPER = rgb(17, 17, 17); DIM = rgb(154, 150, 140); BAR = rgb(214, 211, 201); ACCENT = rgb(255, 90, 10); }
     else { BLACK = rgb(0, 0, 0); PAPER = rgb(255, 255, 255); DIM = rgb(106, 106, 106); BAR = rgb(42, 42, 42); ACCENT = rgb(255, 106, 31); }
 }
-const char* kPage[] = {"SAMPLE", "FX", "ENVELOPE", "LFO", "ARP", "TAPE", "MIXER", "KEY", "LOOP", "LENGTH"};
+const char* kPage[] = {"SAMPLE", "FX", "ENVELOPE", "LFO", "ARP", "TAPE", "MIXER", "KEY", "LOOP", "LENGTH", "TEMPO"};
 const char* kAlgo[] = {"MELODIC", "ONE-SHOT", "LOOPED", "KIT/SLICE", "GRANULAR", "PAULSTRETCH"};
 const char* kScaleName[] = {"CHROM", "MIX", "MAJ", "MIN", "HMIN", "PHRYG", "MIN+", "OFF"};
 const char* kNote[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
@@ -288,8 +288,22 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
         k[3] = cont("MIC THRESHOLD", &micThr_, [](float v) { return fmt("%.0f DB", 20 * std::log10(micThrOf(v))); }, [this] { s_.setMicThreshold(micThrOf(micThr_)); }, 0.02f);
         break;
     }
+    case P_TEMPO: {
+        if (st_.loopSamples <= 0 || recordingNow()) break;
+        Knob bars; bars.name = "BARS"; bars.valid = true; bars.isChoice = true;
+        bars.value = std::to_string(st_.loopBars); bars.norm = (st_.loopBars - 1) / 31.f;
+        bars.step = [this](int d) { s_.setLoopBars(d, true); };
+        bars.set = [this](float v) { s_.setLoopBars(1 + (int)std::lround(cl(v) * 31)); };
+        k[0] = bars;
+        Knob bpm; bpm.name = "BPM"; bpm.valid = true;
+        bpm.value = fmt("%.1f", st_.bpm); bpm.norm = cl((st_.bpm - 30.f) / 270.f);
+        bpm.step = [this](int d) { s_.setLoopBpm((float)d, true); };
+        bpm.set = [this](float v) { s_.setLoopBpm(std::round(30.f + cl(v) * 270.f)); };
+        k[1] = bpm;
+        break;
+    }
     case P_LEN: {
-        const double sec = st_.loopSamples > 0 ? st_.loopSamples / (double)SAMPLERATE : 0.0;
+        const double sec = st_.loopSamples > 0 ? st_.loopSamples / (double)s_.sampleRate() : 0.0;
         const float cur = st_.loopSamples > 0 ? cl((float)(std::log2(std::max(1.0, (double)st_.loopBars)) / 5.0)) : 0.f;
         Knob len; len.name = "LENGTH"; len.valid = true; len.isChoice = true;
         len.value = st_.loopSamples > 0 ? fmt("%.1fS", sec) : "NO LOOP"; len.norm = cur;
@@ -433,22 +447,28 @@ void SamplerApp::onSysex(const uint8_t* m, size_t n) {
     else if (m[6] == 0x42) needClear_ = true;     // the firmware had its own screen up: repaint everything
 }
 void SamplerApp::button(int b, bool down) {
+    if (b < 0 || b > REC) return;
+    const bool wasHeld = (held_ & (1u << b)) != 0;
     lastLed_ = ~0ull;   // the firmware's own LED handling must not win: the active page stays lit, the others go dark
     if (down) held_ |= 1u << b; else held_ &= ~(1u << b);
+    if (b == HOME) {
+        if (down && !wasHeld) { homeAt_ = nowMs_; homeLong_ = false; }
+        else if (!down && wasHeld && !homeLong_) page_ = P_HOME;
+        return;
+    }
     if (b == SAVE) {   // only the LOOP page: saving and clearing loops lives in the phone's PROJECT menu
         if (down) page_ = P_SAVE;
         return;
     }
     if (!down) return;
     switch (b) {
-    case HOME: page_ = P_HOME; break;
     case FX: page_ = P_FX; break;
     case ENV: page_ = P_ENV; break;
     case LFO: page_ = P_LFO; break;
     case ARP: page_ = P_ARP; break;
     case SEQ: page_ = P_SEQ; break;
     case EDIT: page_ = P_MIX; break;
-    case GLO: page_ = P_KEY; break;
+    case GLO: if (!wasHeld) page_ = page_ == P_KEY ? P_TEMPO : P_KEY; break;
     case SEL: page_ = P_LEN; break;
     case PLAY: transportPlay(); break;
     case REC: loopRecord(); break;
@@ -475,9 +495,13 @@ void SamplerApp::resetSurface() {
     repaintAt_ = 0;
     needClear_ = fwDirty_ = true;
     lastLed_ = ~0ull;
+    held_ &= ~(1u << HOME); homeLong_ = false;
 }
 void SamplerApp::tick(uint32_t now) {
     nowMs_ = now;
+    if ((held_ & (1u << HOME)) && !homeLong_ && now - homeAt_ >= 600) {
+        editor_ = !editor_; homeLong_ = true;
+    }
     if (fwDirty_) { fwDirty_ = false; sysex(6, {7, (uint8_t)scale_.root, (uint8_t)(scale_.octave + 3), (uint8_t)scale_.mode}, true); }
     if (repaintAt_ && now >= repaintAt_) { repaintAt_ = 0; needClear_ = true; }
     st_ = s_.status();
@@ -575,7 +599,7 @@ void SamplerApp::heal() {   // a lost frame leaves a hole nothing would redraw: 
 void SamplerApp::leds() {
     uint64_t m = 0;
     const bool blinkFast = (nowMs_ / 250) & 1, blinkSlow = (nowMs_ / 500) & 1;
-    static const int pageBtn[] = {HOME, FX, ENV, LFO, ARP, SEQ, EDIT, GLO, SAVE, SEL};
+    static const int pageBtn[] = {HOME, FX, ENV, LFO, ARP, SEQ, EDIT, GLO, SAVE, SEL, GLO};
     m |= 1ull << pageBtn[page_];
     if (st_.playing) m |= 1ull << PLAY;
     if (st_.freeRecording || st_.track_clip_rec[track_] || mic_ == 2) { if (blinkFast) m |= 1ull << REC; }
@@ -603,7 +627,7 @@ void SamplerApp::leds() {
 void SamplerApp::draw(uint32_t now) {
     static int lastLight = -1; if ((int)theme::light != lastLight) { lastLight = theme::light; setPalette(theme::light); needClear_ = true; }
     static int lastHero = -1;
-    const int heroKind = mic_ == 1 || mic_ == 2 ? 6 : page_ == P_ENV ? 1 : page_ == P_LFO ? 2 : page_ == P_MIX ? 3 : page_ == P_KEY ? 4 : page_ == P_LEN ? 5 : 0;
+    const int heroKind = mic_ == 1 || mic_ == 2 ? 6 : page_ == P_ENV ? 1 : page_ == P_LFO ? 2 : page_ == P_MIX ? 3 : page_ == P_KEY ? 4 : (page_ == P_LEN || page_ == P_TEMPO) ? 5 : 0;
     if (heroKind != lastHero) { lastHero = heroKind; needClear_ = true; }
     if (needClear_) { fwDirty_ = true; clear(BLACK); std::fill(cells_.begin(), cells_.end(), SurfaceCell()); std::fill(rects_.begin(), rects_.end(), ~0ull); }
     char b[96];
@@ -663,7 +687,7 @@ void SamplerApp::draw(uint32_t now) {
         rects_[70 + i] = ~0ull;
         rect(70 + i, cx, cy + 38, bw, 3, ACCENT);
     }
-    const char* hint = mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_LEN ? "TURN K1: X2 OR /2  THE LOOP REPEATS" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_KEY ? "KEYS FOLLOW THE KEY  CHANGE ANY TIME"
+    const char* hint = mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_LEN ? "TURN K1: X2 OR /2  THE LOOP REPEATS" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_TEMPO ? "K1 BARS  K2 BPM  GLO FOR KEY PAGE" : page_ == P_KEY ? "PRESS GLO AGAIN FOR TEMPO"
                      : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
     drawText(90, 12, 228, 1, DIM, BLACK, hint, 38);
     needClear_ = false;
@@ -692,7 +716,7 @@ void SamplerApp::hero(uint32_t now, const Knobs& k) {
             float live[2048]; const int ln = s_.livePeaks(live, 2048), per = std::max(1, (ln + n - 1) / n);
             for (int i = 0; i < n; i++) { float v = 0; for (int j = i * per; j < std::min(ln, (i + 1) * per); j++) v = std::max(v, live[j]); column(i, x0 + i * 4, 3, (int)(std::min(1.f, v * 1.1f) * H) + 1, i * per < ln ? PAPER : BAR, false); }
         }
-    } else if (page_ == P_LEN) {   // the loop length in big letters
+    } else if (page_ == P_LEN || page_ == P_TEMPO) {   // loop length and tempo
         char b[32];
         if (st_.loopSamples > 0) snprintf(b, sizeof b, "%.0f BARS", (double)st_.loopBars); else snprintf(b, sizeof b, "NO LOOP");
         drawText(100, x0, y0 + 8, 3, ACCENT, BLACK, b, 9);

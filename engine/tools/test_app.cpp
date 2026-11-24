@@ -2,6 +2,7 @@
 #include <Session.h>
 #include <SamplerApp.h>
 #include <SamplerUI.h>
+#include <Paul.h>
 #include <Common.h>
 #include <Stretch.h>
 #include <Wav.h>
@@ -37,6 +38,15 @@ int main() {
     run(2.5);
     CHECK(app.hasSample(0) && app.hasSample(1) && app.hasSample(2) && app.hasSample(3), "four default tracks load (%s, %s, %s, %s)", app.sampleLabel(0).c_str(), app.sampleLabel(1).c_str(), app.sampleLabel(2).c_str(), app.sampleLabel(3).c_str());
     CHECK(!app.hasSample(4), "track 5 is empty");
+    { // HOME long press changes the phone view exactly once; GLO cycles pages.
+      uint8_t hd[3] = {0x91, (uint8_t)SamplerApp::HOME, 100}, hu[3] = {0x81, (uint8_t)SamplerApp::HOME, 0};
+      app.onMidi(hd, 3); run(1.0); CHECK(app.editor(), "holding HOME opens the original editor");
+      run(0.8); CHECK(app.editor(), "holding HOME does not toggle repeatedly");
+      app.onMidi(hu, 3); app.onMidi(hd, 3); run(1.0); app.onMidi(hu, 3);
+      CHECK(!app.editor(), "holding HOME again returns to the deck");
+      btn(SamplerApp::GLO); CHECK(app.page() == SamplerApp::P_KEY, "GLO opens key page");
+      btn(SamplerApp::GLO); CHECK(app.page() == SamplerApp::P_TEMPO, "GLO cycles to global tempo");
+      btn(SamplerApp::HOME); CHECK(app.page() == SamplerApp::P_HOME && !app.editor(), "short HOME selects sample page only"); }
     // algorithms on track 1
     for (int a = 0; a < 6; a++) { app.setAlgo(a); run(0.3); double r = play(60, 1.0); CHECK(r > 0.003, "algorithm %s sounds (rms %.4f)", SamplerApp::algoName(a), r); }
     app.setAlgo(0);
@@ -93,6 +103,15 @@ int main() {
       CHECK(app.status().freeRecording, "a take is recording");
       app.transportPlay(); run(0.3);
       CHECK(!app.status().freeRecording && app.loopExists() && app.status().playing, "PLAY/STOP while recording ends the recording and keeps playing");
+      const auto recorded = app.status();
+      btn(SamplerApp::GLO); if (app.page() != SamplerApp::P_TEMPO) btn(SamplerApp::GLO);
+      app.knobs()[0].set(1.f / 31.f); run(0.1);
+      const auto twoBars = app.status();
+      CHECK(twoBars.loopBars == 2 && twoBars.loopSamples == recorded.loopSamples && std::fabs(twoBars.bpm - 480.0 * sr / twoBars.loopSamples) < 0.01, "bar edit reinterprets the original recording");
+      app.knobs()[1].set((120.f - 30.f) / 270.f); run(0.1);
+      CHECK(std::fabs(app.status().bpm - 120.f) < 0.1f && app.status().loopSamples == recorded.loopSamples, "tempo edit preserves recorded frames");
+      s.setLoopBpm(twoBars.bpm); run(0.1); // restore native rate for the following transport tests
+      if (twoBars.bpm > 300.f) { s.setLoopBars(1); run(0.1); s.setLoopBpm(240.f * sr / recorded.loopSamples); run(0.1); }
       size_t m1 = all.size(); run(1.2); const double playing1 = rmsFrom(m1);
       CHECK(playing1 > 0.003, "the loop plays on (rms %.4f)", playing1);
       app.transportPlay(); run(0.05);
@@ -184,6 +203,18 @@ int main() {
     CHECK(app.hasSample(4) && app.sampleLabel(4) == "sample_FromDisk", "import from disk loads into the selected track (%s)", app.sampleLabel(4).c_str());
     // presets audition
     app.selectTrack(4); size_t pm = all.size(); enc(6, 1); run(1.5); CHECK(rmsFrom(pm) > 0.002, "browsing plays the sample (rms %.4f)", rmsFrom(pm));
+    { // High-rate Paulstretch must consume the same sequence as a decimated 1x stream.
+      std::vector<float> src(8192);
+      for (int i = 0; i < 4096; ++i) src[2*i] = src[2*i+1] = 0.4f * std::sin(i * 0.03f);
+      PaulStream fast, reference;
+      fast.start(src.data(), 4096, 0, 4096, 8.f); reference.start(src.data(), 4096, 0, 4096, 8.f);
+      bool same = true;
+      for (int i = 0; i < 4096; ++i) {
+          float l, r, a, b; fast.next(17.0, l, r); reference.next(1.0, a, b);
+          same &= std::isfinite(l) && std::isfinite(r) && std::fabs(l-a) < 1e-6f && std::fabs(r-b) < 1e-6f;
+          for (int j = 1; j < 17; ++j) reference.next(1.0, a, b);
+      }
+      CHECK(same, "Paulstretch high-rate FIFO matches reference"); }
     // DSP units: offline stretch / pitch and the slicer
     {
         const int N = 44100; std::vector<float> sine((size_t)N * 2);
