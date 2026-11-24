@@ -40,7 +40,7 @@ All values 7-bit. n14 = 2 bytes (hi,lo). color = 3 bytes, RGB565 split 2/7/7 bit
 | 7E NOP | ignored, counted (throughput test) |
 
 ## Link recovery
-The phone sends PING every 500 ms. The controller gates panel input until a valid PING and subsequent CLEAR arrive. USB loss gates input immediately when the SDK reports it; three seconds without the heartbeat or a restored display triggers the local reconnect screen. Encoder detents and buttons held across reconnect are discarded. The phone retains its live session; its RECONNECT handler releases held notes and requests a full repaint. No audio is generated locally.
+The phone sends PING every 500 ms. The controller gates panel input until a valid PING and subsequent CLEAR arrive. USB loss gates input immediately when the SDK reports it; three seconds without the heartbeat or a restored display triggers the local reconnect screen. Encoder detents and buttons held across reconnect are discarded; master knob changes made offline are ignored until the knob is moved again. The phone retains its live session; its RECONNECT handler releases held notes and requests a full repaint. No audio is generated locally.
 
 ## Audio
 Phone -> FM-1 USB audio (44.1 kHz, stereo) is mixed to the jack by stock app/audio_output.c. The stock engine stays silent (no notes reach it).

@@ -133,13 +133,13 @@ static int midi3(uint8_t status, uint8_t a, uint8_t b)
     uint8_t m[3] = {status, a, b};
     return fm1_midi_send_port(FM1_MIDI_USB, m, 3);
 }
-static void sysex_reply(const uint8_t *body, unsigned n)
+static int sysex_reply(const uint8_t *body, unsigned n)
 {
     uint8_t m[40] = {0xf0, 0x7d, 'D', 'A', 'W', 1};
-    if (n > sizeof m - 7) return;
+    if (n > sizeof m - 7) return -1;
     memcpy(m + 6, body, n);
     m[6 + n] = 0xf7;
-    (void)fm1_midi_send_port(FM1_MIDI_USB, m, 7 + n);
+    return fm1_midi_send_port(FM1_MIDI_USB, m, 7 + n);
 }
 
 static void put32(uint8_t *p, uint32_t v)
@@ -205,7 +205,7 @@ static uint32_t down_keys;                 /* keys whose Note On was sent */
 static int enc_acc[ENC];
 static int knob_sent = -100;
 static uint32_t battery_at;
-static uint8_t link_state, ever_linked, reconnect_shown, redraw_pending;
+static uint8_t link_state, ever_linked, reconnect_shown, redraw_pending, master_hold;
 static uint32_t last_ping, lost_at, blocked_keys, blocked_buttons, prev_oct;
 static uint16_t shell_bg;
 
@@ -273,7 +273,7 @@ static void screen_cmd(unsigned cmd, const uint8_t *p, unsigned len)
         if (len >= 3) {
             shell_bg = color(p);
             fm1_screen_fill(0, 0, FM1_SCREEN_WIDTH, FM1_SCREEN_HEIGHT, shell_bg);
-            link_state = LINK_ACTIVE; ever_linked = 1; reconnect_shown = 0;
+            link_state = LINK_ACTIVE; ever_linked = 1; reconnect_shown = 0; battery_at = fm1_millis();
         }
         break;
     case CMD_RECT:
@@ -299,8 +299,7 @@ static void screen_cmd(unsigned cmd, const uint8_t *p, unsigned len)
             put32(r + 3, fm1_millis()); put32(r + 8, rx_frames); put32(r + 13, rx_bytes); put32(r + 18, rx_dropped);
             sysex_reply(r, 23);
             if (redraw_pending) {
-                sysex_reply((const uint8_t[]){ever_linked ? EV_RECONNECT : EV_REDRAW}, 1);
-                redraw_pending = 0;
+                if (!sysex_reply((const uint8_t[]){ever_linked ? EV_RECONNECT : EV_REDRAW}, 1)) redraw_pending = 0;
             }
         }
         break;
@@ -335,7 +334,7 @@ void groove_screen_init(void)
     memset(enc_acc, 0, sizeof enc_acc);
     memset(held_count, 0, sizeof held_count);
     knob_sent = -100; battery_at = 0; overlay = overlay_dirty = 0;
-    link_state = LINK_WAIT; ever_linked = reconnect_shown = redraw_pending = 0;
+    link_state = LINK_WAIT; ever_linked = reconnect_shown = redraw_pending = master_hold = 0;
     blocked_keys = blocked_buttons = prev_oct = 0;
     last_ping = lost_at = fm1_millis(); shell_bg = rgb565(0x100e1aU);
     rx_head = rx_tail = 0;
@@ -383,7 +382,7 @@ void groove_screen_control(void)
     }
 
     /* Drain incoming frames before forwarding any panel events. */
-    const unsigned was_active = link_state == LINK_ACTIVE;
+    const unsigned was_active = link_state == LINK_ACTIVE, was_linked = ever_linked;
     for (unsigned i = 0; i < SYSEX_Q && rxq[rx_tail].length; ++i) {
         if (ready) screen_frame(rxq[rx_tail].data, rxq[rx_tail].length);
         barrier();
@@ -392,6 +391,7 @@ void groove_screen_control(void)
     }
     if (link_state != LINK_ACTIVE || !was_active) {
         blocked_keys = c.keys; blocked_buttons = c.buttons; prev_oct = c.buttons;
+        if (was_linked) { master_hold = 1; knob_sent = c.knob & 1023; }
         memset(enc_acc, 0, sizeof enc_acc);
         if (ever_linked && !reconnect_shown && now - lost_at >= LINK_TIMEOUT_MS && link_state != LINK_ACTIVE) {
             link_screen(1); reconnect_shown = 1;
@@ -402,7 +402,10 @@ void groove_screen_control(void)
     blocked_keys &= c.keys; blocked_buttons &= c.buttons;
     c.keys &= ~blocked_keys; c.buttons &= ~blocked_buttons;
     /* The physical master controls the jack only while the phone is linked. */
-    (void)groove_master_update(c.knob);
+    if (!master_hold || c.knob - knob_sent > 3 || knob_sent - c.knob > 3) {
+        master_hold = 0;
+        (void)groove_master_update(c.knob);
+    }
 
     /* SCL held = the on-device scale screen. */
     const unsigned scl = 0;   /* FM1 sampler: the phone owns the tonality; SCL is forwarded as a button (ch2 note 3), no on-device scale screen */
@@ -452,7 +455,7 @@ void groove_screen_control(void)
     }
     /* Knob: 14-bit CC 7 (MSB) / 39 (LSB) on channel 1, with hysteresis. */
     int knob = c.knob & 1023;
-    if (knob - knob_sent > 3 || knob_sent - knob > 3) {
+    if (!master_hold && (knob - knob_sent > 3 || knob_sent - knob > 3)) {
         if (!midi3(0xb0, 7, (uint8_t)(knob >> 3)) && !midi3(0xb0, 39, (uint8_t)((knob & 7) << 4))) knob_sent = knob;
     }
     /* Battery CC 24 and the scale state every 2 s, so a phone that connects later learns both. */

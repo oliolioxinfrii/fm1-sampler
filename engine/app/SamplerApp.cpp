@@ -754,7 +754,7 @@ void SamplerApp::hero(uint32_t now, const Knobs& k) {
     static uint32_t sig[100]; if (needClear_) for (auto& s : sig) s = ~0u;
     auto column = [&](int idx, int x, int w, int h, uint16_t fg, bool fromBottom) {
         h = std::min(H, std::max(1, h));
-        const uint32_t s = (uint32_t)h | (uint32_t)fg << 8 | (uint32_t)w << 24;
+        const uint32_t s = (uint32_t)h | (uint32_t)fg << 8 | (uint32_t)w << 24 | (uint32_t)fromBottom << 31;
         if (sig[idx] == s && !needClear_) return;
         sig[idx] = s;
         rects_[100 + idx] = ~0ull; rects_[200 + idx] = ~0ull;
@@ -765,8 +765,8 @@ void SamplerApp::hero(uint32_t now, const Knobs& k) {
     if (mic_ == 1 || mic_ == 2) {   // microphone: input level against the trigger line (K1 sets it), then the growing take
         const int n = 54; const float thr = std::min(1.f, micThreshold() * 2.f), lv = std::min(1.f, st_.inputPeak * 2.f);
         if (mic_ == 1) {
-            for (int i = 0; i < n; i++) column(i, x0 + i * 4, 3, (int)(lv * H * (i < (int)(lv * n) ? 1.f : 0.f)) + 1, lv > thr ? rgb565(theme::TRACE_RED) : TRACE, false);
-            column(57, x0 + (int)(thr * (n - 1)) * 4, 3, H, rgb565(theme::TRACE_RED), true);
+            const int ti = (int)(thr * (n - 1));
+            for (int i = 0; i < n; i++) column(i, x0 + i * 4, 3, i == ti ? H : (int)(lv * H * (i < (int)(lv * n) ? 1.f : 0.f)) + 1, i == ti || lv > thr ? rgb565(theme::TRACE_RED) : TRACE, i == ti);
         } else {
             float live[2048]; const int ln = s_.livePeaks(live, 2048), per = std::max(1, (ln + n - 1) / n);
             for (int i = 0; i < n; i++) { float v = 0; for (int j = i * per; j < std::min(ln, (i + 1) * per); j++) v = std::max(v, live[j]); column(i, x0 + i * 4, 3, (int)(std::min(1.f, v * 1.1f) * H) + 1, i * per < ln ? TRACE : GRID, false); }
