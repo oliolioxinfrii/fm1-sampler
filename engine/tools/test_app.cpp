@@ -108,10 +108,17 @@ int main() {
       app.knobs()[0].set(1.f / 31.f); run(0.1);
       const auto twoBars = app.status();
       CHECK(twoBars.loopBars == 2 && twoBars.loopSamples == recorded.loopSamples && std::fabs(twoBars.bpm - 480.0 * sr / twoBars.loopSamples) < 0.01, "bar edit reinterprets the original recording");
-      app.knobs()[1].set((120.f - 30.f) / 270.f); run(0.1);
-      CHECK(std::fabs(app.status().bpm - 120.f) < 0.1f && app.status().loopSamples == recorded.loopSamples, "tempo edit preserves recorded frames");
-      s.setLoopBpm(twoBars.bpm); run(0.1); // restore native rate for the following transport tests
-      if (twoBars.bpm > 300.f) { s.setLoopBars(1); run(0.1); s.setLoopBpm(240.f * sr / recorded.loopSamples); run(0.1); }
+      const float requested = 180.f;
+      const double expectedRate = std::max(0.25, std::min(4.0, requested / (double)twoBars.bpm));
+      app.knobs()[1].set((requested - 30.f) / 270.f); run(0.1);
+      const auto edited = app.status();
+      CHECK(std::fabs(edited.bpm - twoBars.bpm * expectedRate) < 0.1f && edited.loopSamples == recorded.loopSamples, "tempo edit preserves recorded frames");
+      run(0.1); const auto later = app.status();
+      const double advanced = std::fmod(later.clipPos[0] - edited.clipPos[0] + 1.0, 1.0);
+      const double expectedAdvance = std::fmod((long)(0.1 * sr) / 256 * 256 * expectedRate / edited.loopSamples, 1.0);
+      CHECK(std::fabs(advanced - expectedAdvance) < 0.02, "tempo edit changes actual tape rate (%.3f vs %.3f)", advanced, expectedAdvance);
+      s.setLoopBars(recorded.loopBars); run(0.1);
+      s.setLoopBpm(240.f * recorded.loopBars * sr / recorded.loopSamples); run(0.1);
       size_t m1 = all.size(); run(1.2); const double playing1 = rmsFrom(m1);
       CHECK(playing1 > 0.003, "the loop plays on (rms %.4f)", playing1);
       app.transportPlay(); run(0.05);

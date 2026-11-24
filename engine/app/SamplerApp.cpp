@@ -495,7 +495,7 @@ void SamplerApp::resetSurface() {
     repaintAt_ = 0;
     needClear_ = fwDirty_ = true;
     lastLed_ = ~0ull;
-    held_ &= ~(1u << HOME); homeLong_ = false;
+    held_ = 0; homeLong_ = false;
 }
 void SamplerApp::tick(uint32_t now) {
     nowMs_ = now;
