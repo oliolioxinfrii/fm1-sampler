@@ -24,11 +24,14 @@ int main() {
         Sampler reference(sr), edited(sr);
         require(reference.load(path.string()) && edited.load(path.string()), "load test sample");
         auto processed = std::make_shared<SampleBuf>();
-        processed->frames = sr; processed->sr = sr; processed->d.assign(2 * sr, 0.4f);
+        processed->frames = sr; processed->sr = sr; processed->d = wav;
         reference.setProcessed(std::make_shared<SampleBuf>(*processed), 0.f, 1.f);
         edited.setProcessed(processed, 0.f, 1.f);
         processed.reset();
         reference.setMode(Sampler::LOOPED); edited.setMode(Sampler::LOOPED);
+        constexpr float release = 0.3f;
+        reference.setEnv(0.01f, 0.3f, 0.8f, release);
+        edited.setEnv(0.01f, 0.3f, 0.8f, release);
         reference.noteOn(60, 100); edited.noteOn(60, 100);
         std::vector<float> a(2*n), b(2*n);
         auto equalBlock = [&] {
@@ -45,7 +48,13 @@ int main() {
         require(edited.hasVoices(), "edit terminated held voice");
         require(!edited.takeUnusedProcessed(), "buffer reclaimed while still referenced");
         reference.noteOff(60); edited.noteOff(60);
-        for (int i = 0; i < 100; ++i) equalBlock();
+        equalBlock();
+        require(edited.hasVoices(), "note-off cut the release short");
+        // Release multiplies the level by exp(-4.6/(release*sr)) per frame.
+        // Starting from level <= 1, this bound reaches the 1e-4 idle threshold.
+        const int releaseBlocks = (int)std::ceil(release * sr * std::log(1e4) / (4.6 * n)) + 1;
+        for (int i = 1; i < releaseBlocks; ++i) equalBlock();
+        require(!reference.hasVoices(), "reference voice did not release");
         require(!edited.hasVoices(), "old looped voice did not release");
         require(bool(edited.takeUnusedProcessed()), "unused processed buffer not reclaimed");
 
