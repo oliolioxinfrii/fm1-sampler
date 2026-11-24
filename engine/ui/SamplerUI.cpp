@@ -15,12 +15,13 @@ void syncColors() { kBg = theme::BG; kPaper = theme::TEXT; kOrange = theme::AMBE
 namespace {
 float clamp01(float v) { return std::min(1.f, std::max(0.f, v)); }
 std::string num(const char* f, double v) { char b[48]; snprintf(b, sizeof b, f, v); return b; }
-const SamplerApp::Page kTabs[] = {SamplerApp::P_HOME, SamplerApp::P_ECHO, SamplerApp::P_FX, SamplerApp::P_ENV, SamplerApp::P_LFO, SamplerApp::P_ARP, SamplerApp::P_SEQ, SamplerApp::P_MIX, SamplerApp::P_KEY, SamplerApp::P_SAVE, SamplerApp::P_LEN, SamplerApp::P_TEMPO};
-const char* kTabName[] = {"SAMPLE", "ECHO", "FX", "ENV", "LFO", "ARP", "TAPE", "MIX", "KEY", "LOOP", "LEN", "BPM"};
-const char* kShortTab[] = {"S", "G", "FX", "E", "L", "A", "T", "M", "K", "R", "N", "B"};
+const SamplerApp::Page kTabs[] = {SamplerApp::P_HOME, SamplerApp::P_ECHO, SamplerApp::P_FX, SamplerApp::P_EFILTER, SamplerApp::P_EDELAY, SamplerApp::P_EREVERB, SamplerApp::P_ETAPE, SamplerApp::P_EMIX, SamplerApp::P_ENV, SamplerApp::P_LFO, SamplerApp::P_ARP, SamplerApp::P_SEQ, SamplerApp::P_MIX, SamplerApp::P_KEY, SamplerApp::P_SAVE, SamplerApp::P_LEN, SamplerApp::P_TEMPO};
+const char* kTabName[] = {"SAMPLE", "ECHO", "FX", "FILT", "DLY", "REV", "E.TP", "E.MX", "ENV", "LFO", "ARP", "TAPE", "MIX", "KEY", "LOOP", "LEN", "BPM"};
+const char* kShortTab[] = {"S", "G", "FX", "F", "D", "R", "W", "X", "E", "L", "A", "T", "M", "K", "R", "N", "B"};
 uint32_t pageColor(SamplerApp::Page p, bool trace = false) {
     using P = SamplerApp;
     switch (p) {
+    case P::P_EFILTER: case P::P_EDELAY: case P::P_EREVERB: case P::P_ETAPE: case P::P_EMIX:
     case P::P_FX: case P::P_LFO: case P::P_ECHO: return trace ? TRACE_VIOLET : VIOLET;
     case P::P_ENV: case P::P_ARP: case P::P_KEY: return trace ? TRACE_GREEN : GREEN;
     case P::P_SEQ: case P::P_LEN: case P::P_TEMPO: return trace ? TRACE_AMBER : AMBER;
@@ -231,6 +232,50 @@ void SamplerUI::pageView(Rect r) {
     };
     std::string head;
     switch (pg) {
+    case P::P_EFILTER: {
+        head = ts.echoInsert.filterMix > 0.001f ? "ECHOFIELD FILTER" : "FILTER / BYPASSED";
+        const float cutoff=kn[1].norm, resonance=kn[2].norm;
+        std::vector<std::pair<float,float>> points;
+        for(int i=0;i<=80;++i) {
+            float f=float(i)/80, delta=(f-cutoff)*16, low=1/(1+std::exp(delta));
+            float band=std::exp(-delta*delta*.14f);
+            float v=ts.echoInsert.filter==0?low:ts.echoInsert.filter==1?band:1-low;
+            v=std::clamp(v+resonance*.35f*band,0.f,1.f);
+            points.push_back({w.x+2+f*(w.w-4),w.y+w.h-4-v*(w.h-8)});
+        }
+        poly(points,ts.echoInsert.filterMix>0.001f?signal:WELL_DIM,1.8f);
+        break; }
+    case P::P_EDELAY: {
+        head="ECHOFIELD DELAY";
+        const float span=w.w-16, feedback=kn[1].norm;
+        for(int j=0;j<6;++j){
+            const float x=w.x+8+span*j/5, rad=std::max(2.f,std::min(13.f,w.h*.19f)*std::pow(std::max(.15f,feedback),float(j)*.5f));
+            const float yy=cy+(kn[3].norm>.5f?(j%2?1:-1)*w.h*.18f:0);
+            circle(x,yy,rad,j?signal:TRACE_AMBER);
+            if(rad>3)circle(x,yy,rad-1.7f,WELL);
+        }
+        break; }
+    case P::P_EREVERB: {
+        head="ECHOFIELD FDN + SHIMMER";
+        for(int j=0;j<8;++j){
+            float x=w.x+(j+.5f)*w.w/8, h=(w.h-12)*(.25f+.75f*kn[1].norm)*(j+5)/12.f;
+            vbar(x,cy-h/2,cy+h/2,signal,4);
+            if(kn[3].norm>0) vbar(x+5,cy-h/2,cy-h/2+h*kn[3].norm,TRACE_AMBER,2);
+        }
+        break; }
+    case P::P_ETAPE: {
+        head=ts.echoInsert.tape>.001f?"ECHOFIELD TAPE":"TAPE / BYPASSED";
+        std::vector<std::pair<float,float>> points;
+        for(int i=0;i<=100;++i){
+            float f=float(i)/100, v=.55f*kn[0].norm*std::sin(f*2*kPi)+.16f*kn[1].norm*std::sin(f*14*kPi);
+            points.push_back({w.x+2+f*(w.w-4),cy+v*(w.h/2-4)});
+        }
+        poly(points,ts.echoInsert.tape>.001f?signal:WELL_DIM,1.8f);
+        break; }
+    case P::P_EMIX: {
+        head="ECHOFIELD INSERT MIX";
+        for(int j=0;j<4;++j){float x=w.x+(j+.5f)*w.w/4;vbar(x,w.y+w.h-4-(w.h-8)*kn[j].norm,w.y+w.h-4,encoderTrace(j),10);}
+        break; }
     case P::P_FX: {   // reverb = a room, a wire cube: its size is the size, the dim rays from the source to the walls are the wet part; delay = an echo: a circle and its repeats, spacing = time, shrinking = feedback
         head = "REVERB + DELAY";
         const float labelY = w.y + w.h - 7;
@@ -794,8 +839,8 @@ void SamplerUI::deck(Rect r) {
     // the sample of this track, its page and the four knobs of the page
     sampleView({x0, 14, w0, 118});
     const float py = 163;
-    const float tabW = std::min(19.f, std::max(10.f, (w0 - 80.f) / SamplerApp::kPages));
-    strip({x0, py - 12, w0 - SamplerApp::kPages * tabW - 4, 24}, pageColor(app_.page()), SamplerApp::pageName(app_.page()), T_BODY);
+    const float tabW = std::min(19.f, std::max(5.f, (w0 - 90.f) / float(SamplerApp::kPages)));
+    strip({x0, py - 12, w0 - float(SamplerApp::kPages) * tabW - 4, 24}, pageColor(app_.page()), SamplerApp::pageName(app_.page()), T_BODY);
     for (int i = 0; i < SamplerApp::kPages; i++) {   // the pages as notches: tap one to go there (the FM-1 buttons do the same)
         Rect nr{zr - (SamplerApp::kPages - i) * tabW, py - 14, tabW, 28};
         const bool on = kTabs[i] == app_.page(); const uint32_t col = app_.pageAvailable(kTabs[i]) ? pageColor(kTabs[i]) : DIM;
@@ -957,7 +1002,8 @@ void SamplerUI::pagePanel(Rect r) {
         button(c, kTabName[i], app_.page() == kTabs[i], [this, i] { app_.gotoPage(kTabs[i]); }, 9.5f, true, app_.pageAvailable(kTabs[i]) ? pageColor(kTabs[i]) : DIM);
     }
     auto k = app_.knobs();
-    const float top = r.y + 72, rh = (r.h - 72) / 4;
+    const float tabsH = ((SamplerApp::kPages + 5) / 6) * 32 + 8;
+    const float top = r.y + tabsH, rh = (r.h - tabsH) / 4;
     for (int i = 0; i < 4; i++) {
         const auto& p = k[(size_t)i];
         const float y = top + i * rh;

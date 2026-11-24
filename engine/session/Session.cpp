@@ -35,6 +35,8 @@ struct Session::Impl {
         Lowpass filt; bool filtOn = false;
         Session::Lfo lfo; float lfoPhase = 0, lfoSH = 0, lfoVal = 0;
         TapeInsert tape;
+        EchoInsert echoInsert;
+        float echoSend[2]{};
         float vol = 0.8f, pan = 0.f, send[2] = {0.f, 0.f};
         // sidechain compressor: this track is ducked by the level of track scSrc (-1 off); scEnv is this track's own level, read by the others
         int scSrc = -1; float scThrDb = -20.f, scRatio = 1.f, scEnv = 0.f, scGain = 1.f;
@@ -47,12 +49,13 @@ struct Session::Impl {
         bool clipHas = false, clipRec = false;
         bool recPrevOk = false; double recPrevCp = 0; float recPrevL = 0, recPrevR = 0;   // tape-speed recording: previous write position and input
         std::atomic<float> peak{0.f};
-        explicit Track(int sr) : tape(sr) {}
+        explicit Track(int sr) : tape(sr), echoInsert(sr) {}
     };
 
     int sr;
     std::vector<std::unique_ptr<Track>> tracks;
     Reverb reverb; TapeDelay delay;
+    EchoReturns echoReturns;
     float masterVol = 0.9f, ret[2] = {0.35f, 0.7f};
     int loopSrc = 1;   // what the loop records: 0 microphone, 1 the track's sound
 
@@ -109,11 +112,12 @@ struct Session::Impl {
     std::atomic<float> a_clipPos{0.f}, a_lfo[kTracks], a_scGain[kTracks], a_scLevel[kTracks];
     std::atomic<int> a_voiceN[kTracks]; std::atomic<float> a_voicePos[kTracks][kVoiceMax], a_voiceLvl[kTracks][kVoiceMax];
 
-    std::vector<float> bus, tmp, sendBus[2], wet;
+    std::vector<float> bus, tmp, sendBus[2], echoBus[2], wet;
 
-    explicit Impl(int rate) : sr(rate), reverb(rate), delay(rate), stretchHeads(rate) {
+    explicit Impl(int rate) : sr(rate), reverb(rate), delay(rate), echoReturns(rate), stretchHeads(rate) {
         for (int i = 0; i < kTracks; i++) tracks.emplace_back(new Track(rate));
         bus.resize(kBlock * 2); tmp.resize(kBlock * 2); wet.resize(kBlock * 2); sendBus[0].resize(kBlock * 2); sendBus[1].resize(kBlock * 2);
+        for (auto& e : echoBus) e.resize(kBlock * 2);
         for (auto& a : a_lpk) a = 0.f;
         for (auto& r : a_tpk) for (auto& a : r) a = 0.f;
         for (auto& a : a_lfo) a = 0.f;
@@ -298,6 +302,7 @@ struct Session::Impl {
     void block(float* out, const float* in, int n) {
         std::fill(out, out + n * 2, 0.f);
         for (auto& s : sendBus) std::fill(s.begin(), s.begin() + n * 2, 0.f);
+        for (auto& e : echoBus) std::fill(e.begin(), e.begin() + n * 2, 0.f);
         const size_t freeBase = freeBuf.size();
         if (freeRec && loopSrc == 1) freeBuf.resize(freeBase + (size_t)n * 2, 0.f);   // the track's sound is added below
         if (in) {
@@ -479,6 +484,7 @@ struct Session::Impl {
                 }
             }
             t.tape.process(bus.data(), n);
+            t.echoInsert.process(bus.data(), n);
             {   // this track's level for the others (peak with a ~120 ms release) ...
                 float bp = 0.f; for (int i = 0; i < n * 2; i++) bp = std::max(bp, std::fabs(bus[(size_t)i]));
                 t.scEnv = std::max(bp, t.scEnv * std::exp(-(float)n / (0.12f * sr)));
@@ -499,6 +505,7 @@ struct Session::Impl {
                 const float l = bus[2 * i] * gl * sc, r = bus[2 * i + 1] * gr * sc;
                 out[2 * i] += l; out[2 * i + 1] += r;
                 for (int sd = 0; sd < 2; sd++) if (t.send[sd] > 0.f) { sendBus[sd][2 * i] += l * t.send[sd]; sendBus[sd][2 * i + 1] += r * t.send[sd]; }
+                for (int sd = 0; sd < 2; ++sd) if (t.echoSend[sd] > 0.f) { echoBus[sd][2*i] += l*t.echoSend[sd]; echoBus[sd][2*i+1] += r*t.echoSend[sd]; }
                 pk = std::max(pk, std::max(std::fabs(l), std::fabs(r)));
             }
             t.peak.store(std::max(pk, t.peak.load() * 0.92f));
@@ -516,6 +523,7 @@ struct Session::Impl {
         for (int i = 0; i < n * 2; i++) out[i] += wet[(size_t)i] * ret[0];
         delay.process(sendBus[1].data(), wet.data(), n);
         for (int i = 0; i < n * 2; i++) out[i] += wet[(size_t)i] * ret[1];
+        echoReturns.process(echoBus[0].data(), echoBus[1].data(), out, n);
         float mp = 0.f;
         for (int i = 0; i < n * 2; i++) { const float v = std::tanh(out[i] * masterVol); out[i] = v; mp = std::max(mp, std::fabs(v)); }
         a_master.store(std::max(mp, a_master.load() * 0.92f));
@@ -632,6 +640,10 @@ void Session::setArp(int t, bool on, int rate, int pattern, int octaves, float g
 void Session::setTape(int t, float sat, float tone, float wobble, float hiss, float mix, float bits) {
     if (t >= 0 && t < kTracks) d->post([=] { d->tracks[(size_t)t]->tape.setParams(sat, tone, wobble, hiss, mix, bits); });
 }
+
+void Session::setEchoInsert(int t, const EchoInsertParams& p) { if (t >= 0 && t < kTracks) d->post([=, this] { d->tracks[t]->echoInsert.set(p); }); }
+void Session::setEchoReturns(const EchoReturnParams& p) { d->post([=, this] { d->echoReturns.set(p); }); }
+void Session::setEchoSend(int t, int w, float v) { if (t >= 0 && t < kTracks && w >= 0 && w < 2) d->post([=, this] { d->tracks[t]->echoSend[w] = clampf(v,0.f,1.f); }); }
 
 // ---- mixer ----
 void Session::setVolume(int t, float v) { if (t >= 0 && t < kTracks) d->post([=] { d->tracks[(size_t)t]->vol = clampf(v, 0.f, 1.5f); }); }

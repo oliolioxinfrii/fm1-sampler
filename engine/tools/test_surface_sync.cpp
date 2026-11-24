@@ -20,8 +20,8 @@ int main() {
                 if (p[0] == 2) { ++clears; waveformRects = 0; std::fill(std::begin(menu), std::end(menu), 0); }
                 if (p[0] == 3 && len >= 12 && ((p[3] << 7) | p[4]) == 40) {
                     const int x = (p[1] << 7) | p[2];
-                    if (x >= 116 && x < 116 + SamplerApp::kPages * 10 && (x - 116) % 10 == 0)
-                        menu[(x - 116) / 10] = (uint16_t)((p[9] << 14) | (p[10] << 7) | p[11]);
+                    if (x >= SamplerApp::kMenuX && x < SamplerApp::kMenuX + SamplerApp::kPages * SamplerApp::kMenuStep && (x - SamplerApp::kMenuX) % SamplerApp::kMenuStep == 0)
+                        menu[(x - SamplerApp::kMenuX) / SamplerApp::kMenuStep] = (uint16_t)((p[9] << 14) | (p[10] << 7) | p[11]);
                 }
                 if (p[0] == 3 && len >= 12 && ((p[3] << 7) | p[4]) == 54)
                     ++waveformRects;

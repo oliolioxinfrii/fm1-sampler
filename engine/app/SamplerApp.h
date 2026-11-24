@@ -22,7 +22,7 @@ public:
     using Send = std::function<void(const uint8_t*, size_t)>;
     static constexpr int kTracks = 8;
     enum Button { OCT_DOWN, OCT_UP, FX, SEL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC };
-    enum Page { P_HOME, P_FX, P_ENV, P_LFO, P_ARP, P_SEQ, P_MIX, P_KEY, P_SAVE, P_LEN, P_TEMPO, P_ECHO, kPages };
+    enum Page { P_HOME, P_FX, P_ENV, P_LFO, P_ARP, P_SEQ, P_MIX, P_KEY, P_SAVE, P_LEN, P_TEMPO, P_ECHO, P_EFILTER, P_EDELAY, P_EREVERB, P_ETAPE, P_EMIX, kPages };
     struct Knob {
         std::string name, value;
         float norm = 0;
@@ -56,7 +56,12 @@ public:
     static const char* algoName(int i);
     static const char* echoModeName(int i);
     bool pageAvailable(Page p) const { return p != P_ECHO || algo() == 4; }
-    static Page menuPage(int slot) { return slot == 0 ? P_HOME : slot == 1 ? P_ECHO : static_cast<Page>(slot - 1); }
+    static Page menuPage(int slot) {
+        constexpr Page pages[] = {P_HOME,P_ECHO,P_FX,P_EFILTER,P_EDELAY,P_EREVERB,P_ETAPE,P_EMIX,P_ENV,P_LFO,P_ARP,P_SEQ,P_MIX,P_KEY,P_SAVE,P_LEN,P_TEMPO};
+        return pages[slot];
+    }
+    static constexpr int kMenuX = 116, kMenuStep = 7, kMenuWidth = 5;
+    static bool fxPage(Page p) { return p == P_FX || (p >= P_EFILTER && p <= P_EMIX); }
     int algo() const { return ts_[track_].algo; }
     void setAlgo(int a);
     const std::vector<Entry>& library() const { return lib_; }
@@ -98,6 +103,8 @@ public:
         float start = 0.f, end = 1.f, speed = 0.5f, pitch = 0.5f;
         float kitThr = 0.22f, paulStretch = 0.4f, paulWidth = 0.5f;
         EchoParams echo;
+        EchoInsertParams echoInsert;
+        float echoDelay = 0, echoRoom = 0;
         int arpRate = 0, arpPatt = 0, arpOct = 0; float arpLen = 0.7f;
         
         float vol = 0.8f, pan = 0.5f, sendR = 0.3f, sendD = 0.2f;
@@ -140,6 +147,7 @@ private:
     void applyAll(int t);
     void applyAlgo(int t); void applyEnv(int t); void applyLfo(int t); void applyHome(int t, bool commit = false); void applyArp(int t); void applyRoot(int t); void applySeq(int t); void applyMix(int t);
     void applyFx();
+    void editEchoFx(int t);
     void editEcho(int t);
     void loadEcho();
     void saveEcho();
@@ -155,6 +163,7 @@ private:
     int track_ = 0;
     std::array<TrackState, kTracks> ts_;
     // global effects
+    EchoReturnParams echoReturns_;
     float reverbSize_ = 0.7f, reverbDw_ = 0.35f, delayTime_ = 0.4f, delayFb_ = 0.45f;
     int loopSrc_ = 1;
     float exciter_ = 0.f, lofi_ = 0.f, wobble_ = 0.f, loopSpeed_ = 2.f / 3.f, micThr_ = 0.452f;   // loop speed is global
