@@ -127,7 +127,23 @@ int main() {
         CHECK(app.state(0).echo.position > 0.44f && app.state(0).echo.position < 0.46f, "editor position handle edits the granular parameter");
         ui.setEditor(false);
     }
+    app.gotoPage(SamplerApp::P_HOME);
+    btn(SamplerApp::HOME); btn(SamplerApp::HOME);
+    CHECK(app.page()==SamplerApp::P_GRAIN && app.knobs()[3].name=="FREEZE","grain controls and freeze");
+    app.knobs()[3].set(1); CHECK(app.state(0).echo.freeze==1,"freeze enabled");
+    app.knobs()[3].set(0);
+    btn(SamplerApp::HOME);
+    CHECK(app.page()==SamplerApp::P_MOTION && app.knobs()[3].name=="LATCH","motion and latch page");
+    app.knobs()[3].set(1); app.playNote(60,true); run(.4);app.playNote(60,false);run(3);
+    CHECK(app.status().voiceN[0]>0,"granular latch sustains after key release");
+    app.knobs()[3].set(0);run(3);
+    CHECK(app.status().voiceN[0]==0,"disabling latch releases grains");
     app.setAlgo(0);
+    app.gotoPage(SamplerApp::P_HOME);
+    const SamplerApp::Page fxPages[]={SamplerApp::P_FX,SamplerApp::P_EFILTER,SamplerApp::P_EDELAY,SamplerApp::P_EREVERB,SamplerApp::P_FX};
+    for(auto pg:fxPages){btn(SamplerApp::FX);CHECK(app.page()==pg,"FX menu cycle");}
+    const SamplerApp::Page seqPages[]={SamplerApp::P_SEQ,SamplerApp::P_ETAPE,SamplerApp::P_EMIX,SamplerApp::P_SEQ};
+    for(auto pg:seqPages){btn(SamplerApp::SEQ);CHECK(app.page()==pg,"SEQ menu cycle");}
     // LFO on each target
     btn(SamplerApp::LFO);
     for (int tg = 0; tg < 4; tg++) { auto k = app.knobs(); while (app.state(0).lfoTarget < tg) k[2].step(1); enc(3, 40); run(0.2); double r = play(60, 1.2); CHECK(r > 0.002, "LFO target %d sounds (rms %.4f), lfo value %.2f", tg, r, app.status().lfoValue[0]); }

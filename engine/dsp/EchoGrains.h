@@ -7,6 +7,8 @@
 struct EchoParams {
     enum Mode { Cloud, Dust, Tape, Bloom, Pulse, Drift, ModeCount };
     int mode = Cloud;
+    int window = 0, freeze = 0; // 0 = mode-selected window, 1..5 = explicit shape
+    float size = .5f, density = .5f, scan = .5f, reverse = .10f, pitchRandom = 0;
     float position = 0.35f, texture = 0.72f, scatter = 0.45f, drift = 0.35f, evolve = 0.35f;
 };
 
@@ -47,6 +49,7 @@ private:
     float spawnWait_ = 0, pulseWait_ = 0, stutterPos_ = 0;
     float lfo1_ = 0, lfo2Time_ = 0, lfo2Target_ = 0, lfo2Cur_ = 0;
     float walkV1_ = 0, walkV2_ = 0, walkPos_ = 0, walkPitch_ = 0, walkSize_ = 0;
+    float scan_ = 0;
     float tapeHead_ = 0, tapeSpeed_ = 1, tapeStop_ = 0;
     std::array<float, 16> stepPos_{};
     std::array<int, 16> stepOct_{};

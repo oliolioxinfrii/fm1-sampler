@@ -69,7 +69,12 @@ void EchoGrains::control(const EchoParams& p, float dt, double regionSeconds) {
     sm_.scatter = mix(sm_.scatter, unit(p.scatter), alpha);
     sm_.drift = mix(sm_.drift, unit(p.drift), alpha);
     sm_.evolve = mix(sm_.evolve, unit(p.evolve), alpha);
+    sm_.freeze = p.freeze != 0; sm_.window = std::clamp(p.window,0,5);
+    sm_.size = mix(sm_.size,unit(p.size),alpha); sm_.density = mix(sm_.density,unit(p.density),alpha);
+    sm_.scan = mix(sm_.scan,unit(p.scan),alpha); sm_.reverse = mix(sm_.reverse,unit(p.reverse),alpha);
+    sm_.pitchRandom = mix(sm_.pitchRandom,unit(p.pitchRandom),alpha);
     const float T = sm_.texture, S = sm_.scatter, D = sm_.drift, M = sm_.evolve;
+    if (!sm_.freeze) {
     lfo1_ = wrap(lfo1_ + dt * (0.03f + 0.3f * M));
     lfo2Time_ += dt * (0.1f + 1.5f * M);
     if (lfo2Time_ >= 1.f) { lfo2Time_ -= 1.f; lfo2Target_ = bipolar(); }
@@ -80,10 +85,12 @@ void EchoGrains::control(const EchoParams& p, float dt, double regionSeconds) {
     walkV2_ += bipolar() * wr * 2.f - walkV2_ * wr * 2.f;
     walkPitch_ = clip(walkPitch_ + walkV2_ * wr * 4.f - walkPitch_ * wr * 0.3f, -1.f, 1.f);
     walkSize_ = mix(walkSize_, bipolar(), dt * 0.3f);
+        scan_ = wrap(scan_ + (2*sm_.scan-1)*dt/float(std::max(.05,regionSeconds)));
+    }
     const float lfo = std::sin(twopi * lfo1_), pos = sm_.position, wander = D * 0.3f * walkPos_;
     c_ = Control{};
     c_.pitchRand = 0.08f + D * 0.3f;
-    c_.reverse = 0.10f;
+    c_.reverse = sm_.reverse;
     switch (sm_.mode) {
     default: case EchoParams::Cloud:
         c_.size = 0.12f * std::pow(1500.f / 120.f, T);
@@ -105,8 +112,8 @@ void EchoGrains::control(const EchoParams& p, float dt, double regionSeconds) {
         break;
     case EchoParams::Tape: {
         float target = mix(1.f, 0.3f, std::pow(T, 1.2f)) * (1.f + 0.03f * M * lfo2Cur_ + 0.02f * D * walkPitch_);
-        if (tapeStop_ <= 0 && random() < M * 0.02f * dt) tapeStop_ = 1.6f;
-        if (tapeStop_ > 0) {
+        if (!sm_.freeze && tapeStop_ <= 0 && random() < M * 0.02f * dt) tapeStop_ = 1.6f;
+        if (!sm_.freeze && tapeStop_ > 0) {
             tapeStop_ -= dt;
             const float ph = 1.6f - tapeStop_;
             target *= ph < 0.8f ? 1.f - ph / 0.8f : (ph - 0.8f) / 0.8f;
@@ -115,7 +122,7 @@ void EchoGrains::control(const EchoParams& p, float dt, double regionSeconds) {
         tapeSpeed_ = mix(tapeSpeed_, target, std::min(1.f, dt * 6.f));
         if (initial_ || previousMode != EchoParams::Tape) tapeHead_ = pos;
         else tapeHead_ = wrap(tapeHead_ + pos - previousPosition);
-        tapeHead_ = wrap(tapeHead_ + tapeSpeed_ * dt / float(std::max(0.005, regionSeconds)));
+        if (!sm_.freeze) tapeHead_ = wrap(tapeHead_ + tapeSpeed_ * dt / float(std::max(0.005, regionSeconds)));
         c_.tape = true; c_.tapeSpeed = tapeSpeed_;
         c_.size = 0.18f * (1.f + T); c_.density = 4.f / c_.size;
         c_.jitter = 0.15f; c_.center = tapeHead_; c_.scatter = 0.002f + S * 0.03f;
@@ -143,6 +150,10 @@ void EchoGrains::control(const EchoParams& p, float dt, double regionSeconds) {
         c_.reverse += 0.15f; c_.window = Gauss;
         break;
     }
+    c_.size *= std::exp2(4*sm_.size-2); c_.density *= std::exp2(4*sm_.density-2);
+    c_.pitchRand += 12*sm_.pitchRandom;
+    if (sm_.window) c_.window = sm_.window-1;
+    c_.center += scan_;
     c_.reverse = unit(c_.reverse); c_.scatter = unit(c_.scatter);
     c_.size = clip(c_.size, 0.004f, 2.5f); c_.density = clip(c_.density, 0.f, 400.f);
     c_.center = wrap(c_.center);
@@ -220,7 +231,7 @@ void EchoGrains::next(const EchoParams& params, const float* pcm, int frames, in
         if (--pulseWait_ <= 0) {
             const int st = pulseStep_; pulseStep_ = (pulseStep_ + 1) & 15;
             pulseWait_ += sr * 15.f / (30.f + 90.f * sm_.evolve) * (1.f + (st & 1 ? 0.08f : -0.08f) * sm_.drift);
-            if (st == 0 && random() < sm_.evolve * 0.35f) {
+            if (st == 0 && !sm_.freeze && random() < sm_.evolve * 0.35f) {
                 int j = std::min(15, int(random() * 16)); stepPos_[j] = random();
                 stepOct_[j] = random() < sm_.drift * 0.5f ? (random() < 0.5f ? 12 : 7) : 0;
                 if (random() < sm_.evolve * 0.3f) pulseRot_ = (pulseRot_ + 1) & 15;

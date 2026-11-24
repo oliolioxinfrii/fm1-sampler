@@ -65,6 +65,7 @@ public:
     void setSidechain(int track, int sourceTrack, float thresholdDb, float ratio);   // the track is ducked by the level of another one (source < 0: off)
     void setSliceThreshold(int track, float thr01);                           // KIT: the threshold the slices are cut at
     void setKitPitch(int track, float semitones);                              // KIT: transposition of every slice
+    void setEchoLatch(int track, bool on);
     void setEchoInsert(int track, const EchoInsertParams& params);
     void setEchoReturns(const EchoReturnParams& params);
     void setEchoSend(int track, int which, float level);

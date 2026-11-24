@@ -47,6 +47,7 @@ private:
         void push(float value);
     };
     int sr_;
+    bool active_ = false;
     EchoReturnParams target_, smooth_;
     Ring delay_[2], ap_[4], fdn_[8], shift_;
     int length_[8]{};

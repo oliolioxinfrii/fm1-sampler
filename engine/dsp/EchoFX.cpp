@@ -37,6 +37,10 @@ void EchoInsert::process(float* x, int n) {
     sm(s.width,p.width); sm(s.level,p.level); s.filter=std::clamp(p.filter,0,2);
     const float width=.4f+.8f*s.width, gain=1.6f*s.level*s.level;
     const bool tape=s.tape>1e-5f, filter=s.filterMix>1e-5f;
+    if (!tape && !filter && std::abs(width-1)<1e-6f && std::abs(gain-1)<1e-6f) {
+        for(int i=0;i<n;++i){tape_[0][wr_]=x[2*i];tape_[1][wr_]=x[2*i+1];if(++wr_>=int(tape_[0].size()))wr_=0;}
+        return;
+    }
     const float tw=std::min(1.f,s.tape*4), sat=1+3*s.tape, satNorm=1/std::tanh(sat);
     const float toneA=pole(16000*(1-.8f*s.tape*(.3f+.7f*s.age)),sr_);
     const float g=std::tan(pi*std::min(30.f*std::pow(600.f,s.cutoff),.45f*sr_)/sr_);
@@ -86,6 +90,10 @@ EchoReturns::EchoReturns(int sr):sr_(sr) {
     shift_.data.assign(int(.11f*sr)+8,0.f);
 }
 void EchoReturns::process(const float* echo,const float* room,float* out,int n) {
+    if (!active_) {
+        for(int i=0;i<2*n;++i) if(echo[i]!=0.f || room[i]!=0.f) {active_=true;break;}
+        if(!active_) {smooth_=target_;return;}
+    }
     auto& s=smooth_; const auto& p=target_;
     const float a=1-std::exp(-float(n)/(.04f*sr_));
     s.feedback=mix(s.feedback,std::clamp(p.feedback,0.f,.92f),a);

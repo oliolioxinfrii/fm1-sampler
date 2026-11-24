@@ -15,13 +15,14 @@ void syncColors() { kBg = theme::BG; kPaper = theme::TEXT; kOrange = theme::AMBE
 namespace {
 float clamp01(float v) { return std::min(1.f, std::max(0.f, v)); }
 std::string num(const char* f, double v) { char b[48]; snprintf(b, sizeof b, f, v); return b; }
-const SamplerApp::Page kTabs[] = {SamplerApp::P_HOME, SamplerApp::P_ECHO, SamplerApp::P_FX, SamplerApp::P_EFILTER, SamplerApp::P_EDELAY, SamplerApp::P_EREVERB, SamplerApp::P_ETAPE, SamplerApp::P_EMIX, SamplerApp::P_ENV, SamplerApp::P_LFO, SamplerApp::P_ARP, SamplerApp::P_SEQ, SamplerApp::P_MIX, SamplerApp::P_KEY, SamplerApp::P_SAVE, SamplerApp::P_LEN, SamplerApp::P_TEMPO};
-const char* kTabName[] = {"SAMPLE", "ECHO", "FX", "FILT", "DLY", "REV", "E.TP", "E.MX", "ENV", "LFO", "ARP", "TAPE", "MIX", "KEY", "LOOP", "LEN", "BPM"};
-const char* kShortTab[] = {"S", "G", "FX", "F", "D", "R", "W", "X", "E", "L", "A", "T", "M", "K", "R", "N", "B"};
+const SamplerApp::Page kTabs[] = {SamplerApp::P_HOME, SamplerApp::P_ECHO, SamplerApp::P_GRAIN, SamplerApp::P_MOTION, SamplerApp::P_FX, SamplerApp::P_EFILTER, SamplerApp::P_EDELAY, SamplerApp::P_EREVERB, SamplerApp::P_ENV, SamplerApp::P_LFO, SamplerApp::P_ARP, SamplerApp::P_SEQ, SamplerApp::P_ETAPE, SamplerApp::P_EMIX, SamplerApp::P_MIX, SamplerApp::P_KEY, SamplerApp::P_SAVE, SamplerApp::P_LEN, SamplerApp::P_TEMPO};
+const char* kTabName[] = {"SAMPLE", "ECHO", "GRN", "MOT", "FX", "FILT", "DLY", "REV", "ENV", "LFO", "ARP", "TAPE", "E.TP", "E.MX", "MIX", "KEY", "LOOP", "LEN", "BPM"};
+const char* kShortTab[] = {"S", "G", "g", "m", "FX", "F", "D", "R", "E", "L", "A", "T", "W", "X", "M", "K", "R", "N", "B"};
 uint32_t pageColor(SamplerApp::Page p, bool trace = false) {
     using P = SamplerApp;
     switch (p) {
-    case P::P_EFILTER: case P::P_EDELAY: case P::P_EREVERB: case P::P_ETAPE: case P::P_EMIX:
+    case P::P_ETAPE: case P::P_EMIX: return trace ? TRACE_AMBER : AMBER;
+    case P::P_GRAIN: case P::P_MOTION: case P::P_EFILTER: case P::P_EDELAY: case P::P_EREVERB:
     case P::P_FX: case P::P_LFO: case P::P_ECHO: return trace ? TRACE_VIOLET : VIOLET;
     case P::P_ENV: case P::P_ARP: case P::P_KEY: return trace ? TRACE_GREEN : GREEN;
     case P::P_SEQ: case P::P_LEN: case P::P_TEMPO: return trace ? TRACE_AMBER : AMBER;
@@ -434,7 +435,7 @@ void SamplerUI::sampleView(Rect r) {
     const int t = app_.track();
     const auto ts = app_.state(t);
     const int micS = app_.micState();
-    const bool echo = app_.page() == SamplerApp::P_ECHO;
+    const bool echo = app_.page() == SamplerApp::P_ECHO || app_.page() == SamplerApp::P_GRAIN || app_.page() == SamplerApp::P_MOTION;
     if (app_.page() != SamplerApp::P_HOME && !echo && micS == 0) { pageView(r); return; }
     const uint32_t header = micS ? RED : echo ? VIOLET : ACCENT;
     const std::string mode = ts.algo == 4 ? std::string("GRANULAR / ") + SamplerApp::echoModeName(ts.echo.mode) : SamplerApp::algoName(ts.algo);
@@ -996,13 +997,14 @@ void SamplerUI::sampleArea(Rect r) {
 }
 
 void SamplerUI::pagePanel(Rect r) {
-    const float tw = (r.w - 5 * 4) / 6;
+    constexpr int cols=7;
+    const float tw = (r.w - (cols-1)*4) / cols;
     for (int i = 0; i < SamplerApp::kPages; i++) {
-        Rect c{r.x + (i % 6) * (tw + 4), r.y + (i / 6) * 32, tw, 28};
+        Rect c{r.x + (i % cols) * (tw + 4), r.y + (i / cols) * 32, tw, 28};
         button(c, kTabName[i], app_.page() == kTabs[i], [this, i] { app_.gotoPage(kTabs[i]); }, 9.5f, true, app_.pageAvailable(kTabs[i]) ? pageColor(kTabs[i]) : DIM);
     }
     auto k = app_.knobs();
-    const float tabsH = ((SamplerApp::kPages + 5) / 6) * 32 + 8;
+    const float tabsH = ((SamplerApp::kPages + cols-1) / cols) * 32 + 8;
     const float top = r.y + tabsH, rh = (r.h - tabsH) / 4;
     for (int i = 0; i < 4; i++) {
         const auto& p = k[(size_t)i];

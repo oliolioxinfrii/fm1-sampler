@@ -46,7 +46,7 @@ int main() {
             app.onSysex(m, sizeof m);
         };
         run(3000);
-        const uint16_t inactive = menu[2];
+        const uint16_t inactive = menu[4];
         require(menu[0] != inactive && menu[1] != inactive, "initial page marker or unavailable ECHOFIELD marker missing");
         app.setAlgo(4);
         run(3000);

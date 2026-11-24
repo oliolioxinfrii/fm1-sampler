@@ -36,6 +36,9 @@ struct Session::Impl {
         Session::Lfo lfo; float lfoPhase = 0, lfoSH = 0, lfoVal = 0;
         TapeInsert tape;
         EchoInsert echoInsert;
+        int mode = 0;
+        bool latch = false;
+        std::array<bool,128> latchNotes{}, latchHeld{};
         float echoSend[2]{};
         float vol = 0.8f, pan = 0.f, send[2] = {0.f, 0.f};
         // sidechain compressor: this track is ducked by the level of track scSrc (-1 off); scEnv is this track's own level, read by the others
@@ -139,15 +142,35 @@ struct Session::Impl {
 
     // ---- notes ----
     void releaseAll(Track& t) {
+        t.latchNotes.fill(false); t.latchHeld.fill(false);
         std::vector<Arp::Ev> evs; t.arp.clear(evs);
         t.pending.clear();
         if (t.sampler) t.sampler->allOff();
     }
+    void emitNote(Track& t, int note, int vel) {
+        if (t.arpOn) { if (vel) t.arp.noteOn(note); else t.arp.noteOff(note); }
+        else t.pending.push_back({note,vel});
+    }
+    void releaseLatch(Track& t) {
+        for (int i=0;i<128;++i) if (t.latchNotes[i]) emitNote(t,i,0);
+        t.latchNotes.fill(false); t.latchHeld.fill(false);
+    }
     void liveNote(int ti, int note, int vel) {
         Track& t = *tracks[ti];
         if (freeArmed && ti == freeTrack && loopSrc == 1 && vel > 0) { freeArmed = false; a_freeArmed = false; freeRec = true; playing = true; pos = 0; }   // the take starts with the first note
-        if (t.arpOn) { if (vel) t.arp.noteOn(note); else t.arp.noteOff(note); }
-        else t.pending.push_back({note, vel});
+        if (note < 0 || note > 127) return;
+        if (t.latch && t.mode == 4) {
+            if (vel) {
+                const bool newGroup = std::none_of(t.latchHeld.begin(),t.latchHeld.end(),[](bool v){return v;});
+                const bool toggle = newGroup && t.latchNotes[note] &&
+                    std::count(t.latchNotes.begin(),t.latchNotes.end(),true)==1;
+                if (newGroup) releaseLatch(t);
+                t.latchHeld[note]=true;
+                if (!toggle) { t.latchNotes[note]=true; emitNote(t,note,vel); }
+            } else t.latchHeld[note]=false;
+            return;
+        }
+        emitNote(t,note,vel);
     }
 
     // ---- free take ----
@@ -600,7 +623,8 @@ void Session::loadSamplePath(const std::string& path, bool kit, int track) {
     d->a_sampleState = 2;
     d->job([this, path, track, kit] { d->installNew(path, track, kit); });
 }
-void Session::setMode(int t, int m) { if (t >= 0 && t < kTracks) d->post([=] { if (d->tracks[(size_t)t]->sampler) d->tracks[(size_t)t]->sampler->setMode(m); }); }
+void Session::setMode(int t, int m) { if (t >= 0 && t < kTracks) d->post([=] { auto& tr=*d->tracks[t]; if(tr.mode==4 && m!=4) d->releaseLatch(tr); tr.mode=m; if(tr.sampler) tr.sampler->setMode(m); }); }
+void Session::setEchoLatch(int t, bool on) { if(t>=0 && t<kTracks) d->post([=]{auto& tr=*d->tracks[t]; if(tr.latch && !on) d->releaseLatch(tr); tr.latch=on;}); }
 void Session::setEnv(int t, float a, float dc, float s, float r) { if (t >= 0 && t < kTracks) d->post([=] { if (d->tracks[(size_t)t]->sampler) d->tracks[(size_t)t]->sampler->setEnv(a, dc, s, r); }); }
 void Session::setRoot(int t, float note) { if (t >= 0 && t < kTracks) d->post([=] { if (d->tracks[(size_t)t]->sampler) d->tracks[(size_t)t]->sampler->setRoot(note); }); }
 float Session::detectRoot(int t) const {

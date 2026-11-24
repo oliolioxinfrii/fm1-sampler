@@ -22,7 +22,7 @@ public:
     using Send = std::function<void(const uint8_t*, size_t)>;
     static constexpr int kTracks = 8;
     enum Button { OCT_DOWN, OCT_UP, FX, SEL, ENV, LFO, EDIT, GLO, HOME, SAVE, ARP, SEQ, PLAY, REC };
-    enum Page { P_HOME, P_FX, P_ENV, P_LFO, P_ARP, P_SEQ, P_MIX, P_KEY, P_SAVE, P_LEN, P_TEMPO, P_ECHO, P_EFILTER, P_EDELAY, P_EREVERB, P_ETAPE, P_EMIX, kPages };
+    enum Page { P_HOME, P_FX, P_ENV, P_LFO, P_ARP, P_SEQ, P_MIX, P_KEY, P_SAVE, P_LEN, P_TEMPO, P_ECHO, P_EFILTER, P_EDELAY, P_EREVERB, P_ETAPE, P_EMIX, P_GRAIN, P_MOTION, kPages };
     struct Knob {
         std::string name, value;
         float norm = 0;
@@ -55,13 +55,13 @@ public:
     Knobs knobs(Page p);
     static const char* algoName(int i);
     static const char* echoModeName(int i);
-    bool pageAvailable(Page p) const { return p != P_ECHO || algo() == 4; }
+    bool pageAvailable(Page p) const { return (p != P_ECHO && p != P_GRAIN && p != P_MOTION) || algo() == 4; }
     static Page menuPage(int slot) {
-        constexpr Page pages[] = {P_HOME,P_ECHO,P_FX,P_EFILTER,P_EDELAY,P_EREVERB,P_ETAPE,P_EMIX,P_ENV,P_LFO,P_ARP,P_SEQ,P_MIX,P_KEY,P_SAVE,P_LEN,P_TEMPO};
+        constexpr Page pages[] = {P_HOME,P_ECHO,P_GRAIN,P_MOTION,P_FX,P_EFILTER,P_EDELAY,P_EREVERB,P_ENV,P_LFO,P_ARP,P_SEQ,P_ETAPE,P_EMIX,P_MIX,P_KEY,P_SAVE,P_LEN,P_TEMPO};
         return pages[slot];
     }
-    static constexpr int kMenuX = 116, kMenuStep = 7, kMenuWidth = 5;
-    static bool fxPage(Page p) { return p == P_FX || (p >= P_EFILTER && p <= P_EMIX); }
+    static constexpr int kMenuX = 116, kMenuStep = 6, kMenuWidth = 4;
+    static bool fxPage(Page p) { return p == P_FX || (p >= P_EFILTER && p <= P_EREVERB); }
     int algo() const { return ts_[track_].algo; }
     void setAlgo(int a);
     const std::vector<Entry>& library() const { return lib_; }
@@ -103,6 +103,7 @@ public:
         float start = 0.f, end = 1.f, speed = 0.5f, pitch = 0.5f;
         float kitThr = 0.22f, paulStretch = 0.4f, paulWidth = 0.5f;
         EchoParams echo;
+        int echoLatch = 0;
         EchoInsertParams echoInsert;
         float echoDelay = 0, echoRoom = 0;
         int arpRate = 0, arpPatt = 0, arpOct = 0; float arpLen = 0.7f;

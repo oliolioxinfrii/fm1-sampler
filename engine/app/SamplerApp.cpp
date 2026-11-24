@@ -21,7 +21,8 @@ void setPalette(bool) {
 uint32_t pageAccent(SamplerApp::Page p) {
     using P = SamplerApp;
     switch (p) {
-    case P::P_EFILTER: case P::P_EDELAY: case P::P_EREVERB: case P::P_ETAPE: case P::P_EMIX:
+    case P::P_ETAPE: case P::P_EMIX: return theme::AMBER;
+    case P::P_GRAIN: case P::P_MOTION: case P::P_EFILTER: case P::P_EDELAY: case P::P_EREVERB:
     case P::P_FX: case P::P_LFO: case P::P_ECHO: return theme::VIOLET;
     case P::P_ENV: case P::P_ARP: case P::P_KEY: return theme::GREEN;
     case P::P_SEQ: case P::P_LEN: case P::P_TEMPO: return theme::AMBER;
@@ -30,7 +31,7 @@ uint32_t pageAccent(SamplerApp::Page p) {
     default: return theme::ACCENT;
     }
 }
-const char* kPage[] = {"SAMPLE", "FX", "ENVELOPE", "LFO", "ARP", "TAPE", "MIXER", "KEY", "LOOP", "LENGTH", "TEMPO", "ECHOFIELD", "FILTER", "DELAY", "REVERB", "EF TAPE", "EF MIX"};
+const char* kPage[] = {"SAMPLE", "FX", "ENVELOPE", "LFO", "ARP", "TAPE", "MIXER", "KEY", "LOOP", "LENGTH", "TEMPO", "ECHOFIELD", "FILTER", "DELAY", "REVERB", "EF TAPE", "EF MIX", "GRAIN", "MOTION"};
 const char* kEchoMode[] = {"CLOUD", "DUST", "TAPE", "BLOOM", "PULSE", "DRIFT"};
 const char* kAlgo[] = {"MELODIC", "ONE-SHOT", "LOOPED", "KIT/SLICE", "GRANULAR", "PAULSTRETCH"};
 const char* kScaleName[] = {"CHROM", "MIX", "MAJ", "MIN", "HMIN", "PHRYG", "MIN+", "OFF"};
@@ -160,7 +161,7 @@ void SamplerApp::applyHome(int t, bool commit) {
     s_.setSampleRange(t, x.start, x.end);
     const float semis = std::round((x.pitch - 0.5f) * 48.f);
     if (x.algo == 3) { s_.setStretch(t, 1.f, 0.f, commit); s_.setSliceThreshold(t, x.kitThr); s_.setKitPitch(t, semis); }   // KIT: threshold instead of speed, the pitch moves every slice
-    else if (x.algo == 4) { s_.setStretch(t, 1.f, 0.f, commit); s_.setEchoParams(t, x.echo); }
+    else if (x.algo == 4) { s_.setStretch(t, 1.f, 0.f, commit); s_.setEchoParams(t, x.echo); s_.setEchoLatch(t,x.echoLatch!=0); }
     else if (x.algo == 5) { s_.setStretch(t, 1.f, 0.f, commit); s_.setPaul(t, paulFactor(x.paulStretch), x.paulWidth * 2.f); }
     else s_.setStretch(t, speedOf(x.speed), semis, commit);
 }
@@ -200,6 +201,7 @@ void SamplerApp::editEchoFx(int t) {
 }
 void SamplerApp::editEcho(int t) {
     s_.setEchoParams(t, ts_[t].echo);
+    s_.setEchoLatch(t, ts_[t].echoLatch != 0);
     echoSaveAt_ = nowMs_ + 350;
 }
 void SamplerApp::loadEcho() {
@@ -238,6 +240,14 @@ void SamplerApp::loadEcho() {
             echoReturns_=p;
         }
     }
+    int grainVersion=0;
+    if(fscanf(f,"%d",&grainVersion)==1 && grainVersion==1) for(auto& t:ts_){
+        int window;float size,density,scan,reverse,pitch;
+        if(fscanf(f,"%d %f %f %f %f %f",&window,&size,&density,&scan,&reverse,&pitch)!=6) break;
+        if(window>=0&&window<=5&&std::isfinite(size)&&std::isfinite(density)&&std::isfinite(scan)&&std::isfinite(reverse)&&std::isfinite(pitch)){
+            t.echo.window=window;t.echo.size=cl(size);t.echo.density=cl(density);t.echo.scan=cl(scan);t.echo.reverse=cl(reverse);t.echo.pitchRandom=cl(pitch);
+        }
+    }
     fclose(f);
 }
 void SamplerApp::saveEcho() {
@@ -259,6 +269,8 @@ void SamplerApp::saveEcho() {
     }
     const auto& p=echoReturns_;
     ok &= fprintf(f,"%.9g %.9g %.9g %.9g %.9g %d\n",p.time,p.feedback,p.size,p.damp,p.shimmer,p.ping)>0;
+    ok &= fprintf(f,"1\n")>0;
+    for(const auto& t:ts_) {const auto& g=t.echo;ok &= fprintf(f,"%d %.9g %.9g %.9g %.9g %.9g\n",g.window,g.size,g.density,g.scan,g.reverse,g.pitchRandom)>0;}
     const int closed = fclose(f);
     if (!ok || closed || rename(tmp.c_str(), path.c_str())) {
         remove(tmp.c_str()); say("ECHOFIELD SETTINGS NOT SAVED");
@@ -328,6 +340,20 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
         k[1] = cont("SCATTER", &x.echo.scatter, [](float v) { return pct(v); }, [=] { editEcho(t); }, 0.01f);
         k[2] = cont("DRIFT", &x.echo.drift, [](float v) { return pct(v); }, [=] { editEcho(t); }, 0.01f);
         k[3] = cont("EVOLVE", &x.echo.evolve, [](float v) { return pct(v); }, [=] { editEcho(t); }, 0.01f);
+        break;
+    case P_GRAIN:
+        if(x.algo!=4) break;
+        k[0]=cont("SIZE",&x.echo.size,[](float v){return fmt("%.2fX",std::exp2(4*v-2));},[=]{editEcho(t);});
+        k[1]=cont("DENSITY",&x.echo.density,[](float v){return fmt("%.2fX",std::exp2(4*v-2));},[=]{editEcho(t);});
+        k[2]=choice("WINDOW",&x.echo.window,{"AUTO","HANN","TUKEY","PERC","SWELL","GAUSS"},[=]{editEcho(t);});
+        k[3]=choice("FREEZE",&x.echo.freeze,{"OFF","ON"},[=]{editEcho(t);});
+        break;
+    case P_MOTION:
+        if(x.algo!=4) break;
+        k[0]=cont("SCAN",&x.echo.scan,[](float v){return fmt("%+.0f%%",200*v-100);},[=]{editEcho(t);},.01f);
+        k[1]=cont("REVERSE",&x.echo.reverse,[](float v){return pct(v);},[=]{editEcho(t);});
+        k[2]=cont("PITCH RND",&x.echo.pitchRandom,[](float v){return fmt("%.1f ST",12*v);},[=]{editEcho(t);});
+        k[3]=choice("LATCH",&x.echoLatch,{"OFF","ON"},[=]{editEcho(t);});
         break;
     case P_EFILTER:
         k[0] = choice("FILTER", &x.echoInsert.filter, {"LOW PASS","BAND PASS","HIGH PASS"}, [=, this] { editEchoFx(t); });
@@ -604,7 +630,7 @@ void SamplerApp::button(int b, bool down) {
     if (down) held_ |= 1u << b; else held_ &= ~(1u << b);
     if (b == HOME) {
         if (down && !wasHeld) { homeAt_ = nowMs_; homeLong_ = false; }
-        else if (!down && wasHeld && !homeLong_) page_ = page_ == P_HOME && algo() == 4 ? P_ECHO : P_HOME;
+        else if (!down && wasHeld && !homeLong_) page_ = algo()!=4 ? P_HOME : page_==P_HOME ? P_ECHO : page_==P_ECHO ? P_GRAIN : page_==P_GRAIN ? P_MOTION : P_HOME;
         return;
     }
     if (b == GLO) {
@@ -618,11 +644,11 @@ void SamplerApp::button(int b, bool down) {
     }
     if (!down) return;
     switch (b) {
-    case FX: if (!wasHeld) page_ = page_ == P_FX ? P_EFILTER : page_ >= P_EFILTER && page_ < P_EMIX ? static_cast<Page>(page_ + 1) : P_FX; break;
+    case FX: if (!wasHeld) page_ = page_ == P_FX ? P_EFILTER : page_ >= P_EFILTER && page_ < P_EREVERB ? static_cast<Page>(page_ + 1) : P_FX; break;
     case ENV: page_ = P_ENV; break;
     case LFO: page_ = P_LFO; break;
     case ARP: page_ = P_ARP; break;
-    case SEQ: page_ = P_SEQ; break;
+    case SEQ: if (!wasHeld) page_ = page_ == P_SEQ ? P_ETAPE : page_ == P_ETAPE ? P_EMIX : P_SEQ; break;
     case EDIT: page_ = P_MIX; break;
     case SEL: if (!wasHeld) page_ = page_ == P_LEN ? P_TEMPO : P_LEN; break;
     case PLAY: transportPlay(); break;
@@ -771,7 +797,7 @@ void SamplerApp::heal() {   // a lost frame leaves a hole nothing would redraw: 
 void SamplerApp::leds() {
     uint64_t m = 0;
     const bool blinkFast = (nowMs_ / 250) & 1, blinkSlow = (nowMs_ / 500) & 1;
-    static const int pageBtn[] = {HOME, FX, ENV, LFO, ARP, SEQ, EDIT, GLO, SAVE, SEL, SEL, HOME, FX, FX, FX, FX, FX};
+    static const int pageBtn[] = {HOME, FX, ENV, LFO, ARP, SEQ, EDIT, GLO, SAVE, SEL, SEL, HOME, FX, FX, FX, SEQ, SEQ, HOME, HOME};
     m |= 1ull << pageBtn[page_];
     if (st_.playing) m |= 1ull << PLAY;
     if (st_.freeRecording || st_.track_clip_rec[track_] || mic_ == 2) { if (blinkFast) m |= 1ull << REC; }
@@ -909,7 +935,7 @@ void SamplerApp::draw(uint32_t now) {
         rect(70 + i, cx + std::min(101, bw), cy + 37, std::max(1, 102 - bw), 5, bw == 102 ? kc : BAR);
     }
     const char* hint = mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_LEN ? "K1 X2 OR /2  SEL AGAIN FOR TEMPO" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_TEMPO ? "K1 BARS  K2 BPM  K3 MODE" : page_ == P_KEY ? "KEYS FOLLOW THE KEY  CHANGE ANY TIME"
-                     : page_ == P_ECHO ? "HOME: SAMPLE  TEXTURE SCATTER DRIFT EVOLVE" : page_ == P_HOME && algo() == 4 ? "HOME AGAIN: ECHOFIELD  K3 MODE K4 POS" : page_ == P_EFILTER ? "FX AGAIN  ENABLE FILTER ON EF MIX" : page_ == P_ETAPE ? "FX AGAIN  ENABLE TAPE ON EF MIX" : fxPage(page_) ? "FX AGAIN: NEXT EFFECT PAGE" : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
+                     : page_ == P_ECHO ? "HOME AGAIN: GRAIN" : page_ == P_HOME && algo() == 4 ? "HOME AGAIN: ECHOFIELD  K3 MODE K4 POS" : page_ == P_EFILTER ? "FX AGAIN  ENABLE FILTER ON EF MIX" : page_ == P_ETAPE ? "SEQ AGAIN  ENABLE TAPE ON EF MIX" : page_ == P_EMIX || page_ == P_SEQ ? "SEQ AGAIN: NEXT TAPE/MIX PAGE" : page_ == P_GRAIN || page_ == P_MOTION ? "HOME AGAIN: NEXT GRANULAR PAGE" : fxPage(page_) ? "FX AGAIN: NEXT EFFECT PAGE" : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
     drawText(90, 12, 228, 1, DIM, BLACK, hint, 38);
     needClear_ = false;
 }
@@ -970,7 +996,9 @@ void SamplerApp::hero(uint32_t now, const Knobs& k) {
         drawText(100, x0, y0 + 3, 3, TRACE, WELL, b, 9);
         snprintf(b, sizeof b, "OCT %+d  %s", scale_.octave, scale_.mode ? "CHORD" : "KEY");
         drawText(101, x0, y0 + 28, 2, INK, WELL, b, 18);
-    } else if (page_ == P_ECHO || (page_ == P_HOME && algo() == 4)) {
+    } else if (page_ >= P_EFILTER && page_ <= P_EMIX) {
+        for(int i=0;i<54;++i){int j=std::min(3,i*4/54);int h=int(k[j].norm*H);column(i,x0+i*4,3,h,rgb565(theme::encoderTrace(j)),true);}
+    } else if (page_ == P_ECHO || page_ == P_GRAIN || page_ == P_MOTION || (page_ == P_HOME && algo() == 4)) {
         // Actual grain positions and envelopes on the sample's waveform.
         auto pk = peaks(track_, 54);
         float grains[54] = {};
