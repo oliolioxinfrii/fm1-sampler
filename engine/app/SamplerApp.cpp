@@ -338,11 +338,11 @@ void SamplerApp::endRecording() {
 }
 void SamplerApp::transportPlay() {   // while recording the first press ends the recording (the loop plays on), the next one stops the tape
     if (recordingNow()) { endRecording(); return; }
-    s_.play(!st_.playing);
+    s_.play(!st_.playing, editor_);
 }
 void SamplerApp::transportSet(bool play) {
     if (recordingNow()) { if (!play) endRecording(); return; }
-    s_.play(play);
+    s_.play(play, editor_);
 }
 void SamplerApp::loopRecord() {
     if (st_.freeArmed || st_.freeRecording) { s_.freeRecord(track_, false); say("LOOP SET"); return; }

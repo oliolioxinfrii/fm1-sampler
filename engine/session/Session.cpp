@@ -59,6 +59,9 @@ struct Session::Impl {
     bool playing = false;
     // tape start / stop: the loops speed up from standstill / slow down to it instead of cutting in and out
     double rate = 1.0; bool stopping = false; std::vector<float> rateArr; std::vector<double> cpArr;
+    bool digitalStop = false;
+    float transportGain = 1.f;
+    float transportGains[kBlock]{};
     // scrubbing with a finger: the tape follows the target position with a smoothed speed (forward and backward), like a hand on the reel
     bool scrubActive = false, scrubTail = false;
     ScrubStyle scrubStyle = ScrubStyle::Timeline;
@@ -150,7 +153,7 @@ struct Session::Impl {
         freeArmed = true; a_freeArmed = true; freeRec = false; freeTrack = track;
         freeBuf.clear(); freeBuf.reserve((size_t)sr * 2 * 30);
         freeN = 0; freeAcc = 0; freeCnt = 0;
-        pos = 0; playing = false;
+        pos = 0; playing = false; digitalStop = false; transportGain = 1.f;
     }
     void freeStop() {
         if (freeArmed) { freeArmed = false; a_freeArmed = false; return; }   // cancelled before any sound
@@ -310,7 +313,7 @@ struct Session::Impl {
         updateLoopPeaks();
         const double pitchRate = tapeSpeed.load();
         const double spd = pitchRate * tempoRate;
-        if (!playing) { rate = 1.0; stopping = false; }
+        if (!playing) { rate = 1.0; stopping = false; digitalStop = false; }
         bool ramp = false; double rateSum = n, tapeEnd = tapePos;
         const bool scrubbing = (scrubActive || scrubTail) && loopSamples > 0 && !freeRec;
         if (loopSamples <= 0 || freeRec) scrubActive = scrubTail = false;
@@ -344,7 +347,7 @@ struct Session::Impl {
             }
             tapeEnd = scrubPos;
             if (!scrubActive && std::fabs(scrubV - run) < 0.01) { scrubTail = false; scrubV = 0; rate = 1.0; if (!playing) { rateArr[(size_t)n - 1] = 0.f; } }
-        } else if (tl && (stopping || rate < 1.0)) {   // the tape runs up to speed / down to standstill: a per-sample rate and read position
+        } else if (tl && !digitalStop && (stopping || rate < 1.0)) {   // the tape runs up to speed / down to standstill: a per-sample rate and read position
             ramp = true; rateSum = 0;
             if ((int)rateArr.size() < n) { rateArr.resize((size_t)n); cpArr.resize((size_t)n); }
             const double step = stopping ? 1.0 / (0.7 * sr) : 1.0 / (0.45 * sr);
@@ -359,6 +362,14 @@ struct Session::Impl {
         const bool locked = !ramp && std::fabs(spd - 1.0) < 1e-6;
         const double tb = loopSamples > 0 ? (locked ? (double)(p0 % loopSamples) : tapePos) : 0.0;
         if (loopSamples > 0) tapePos = ramp ? tapeEnd : !tl ? tapePos : locked ? (double)((p0 + n) % loopSamples) : std::fmod(tb + n * spd, (double)loopSamples);
+        // Digital start/stop changes only loop gain. Keep the normal read
+        // path (including pitch-preserving tempo) running during the fade.
+        const float gainStep = 1.f / std::max(1, sr / 200);
+        const float gainTarget = digitalStop && !scrubbing ? 0.f : 1.f;
+        for (int i = 0; i < n; ++i) {
+            transportGain = gainTarget > transportGain ? std::min(gainTarget, transportGain + gainStep) : std::max(gainTarget, transportGain - gainStep);
+            transportGains[i] = transportGain;
+        }
         // Stretch only the tempo factor; physical tape speed and scrubbing
         // retain their varispeed character. Crossfade mode changes.
         const bool useStretch = tl && !ramp && tempoStretch && std::fabs(tempoRate - 1.0) > 1e-5;
@@ -423,7 +434,7 @@ struct Session::Impl {
                 for (int i = 0; i < n; i++) {
                     const int32_t k0 = (p0 + i) % loopSamples;
                     const double cp = ramp ? cpArr[(size_t)i] : locked ? (double)k0 : std::fmod(tb + i * spd, (double)loopSamples);
-                    const float lg = ramp ? rateArr[(size_t)i] : 1.f;   // while the tape starts / stops its level follows the speed
+                    const float lg = (ramp ? rateArr[(size_t)i] : 1.f) * transportGains[i];
                     const float src0 = bus[2 * i], src1 = bus[2 * i + 1];
                     const int32_t k = (int32_t)cp % loopSamples;
                     if (t.clipHas) {
@@ -514,7 +525,10 @@ struct Session::Impl {
             else if (loopSamples > 0 && pos >= loopSamples) pos -= loopSamples;
         }
         if (scrubbing || tl) pos = tapePos;
-        if (stopping && !scrubbing && (rate <= 0.0 || !tl)) { playing = false; stopping = false; rate = 1.0; for (auto& t : tracks) releaseAll(*t); }
+        if (stopping && !scrubbing && (!tl || (digitalStop ? transportGain <= 0.f : rate <= 0.0))) {
+            playing = false; stopping = digitalStop = false; rate = 1.0; transportGain = 1.f;
+            for (auto& t : tracks) releaseAll(*t);
+        }
         if (sampling) a_sampleSec = (float)sampleBuf.size() / sr;
     }
 };
@@ -544,14 +558,28 @@ void Session::process(float* out, const float* in, int frames) {
 }
 
 // ---- transport and notes ----
-void Session::play(bool on) {
-    d->post([this, on] {
-        if (!on) {
-            if (d->freeRec || d->freeArmed) d->freeStop();
-            if (d->playing) d->stopping = true;   // the tape slows down to standstill (block() ends it: playing = false, notes released)
+void Session::play(bool on, bool digital) {
+    d->post([this, on, digital] {
+        if (!on && (d->freeRec || d->freeArmed)) d->freeStop();
+        if (digital) {
+            // A digital transport command takes over from any scrub tail
+            // at the current read position, without a pitch ramp.
+            d->scrubActive = d->scrubTail = false;
+            d->rate = 1.0;
+            if (!on) {
+                if (d->playing) { d->stopping = true; d->digitalStop = true; }
+            } else {
+                if (!d->playing && d->loopSamples > 0) d->transportGain = 0.f;
+                d->playing = true; d->stopping = d->digitalStop = false;
+            }
         } else {
-            d->stopping = false;
-            if (!d->playing) { d->playing = true; d->rate = d->loopSamples > 0 ? 0.0 : 1.0; }   // the tape runs up from standstill
+            d->digitalStop = false;
+            if (!on) {
+                if (d->playing) d->stopping = true;
+            } else {
+                d->stopping = false;
+                if (!d->playing) { d->playing = true; d->rate = d->loopSamples > 0 ? 0.0 : 1.0; }
+            }
         }
     });
 }
@@ -661,7 +689,7 @@ void Session::scrubBegin(float f, ScrubStyle style) {
             for (const auto& t : d->tracks) if (t->clipRec) return;
         }
         if (!d->scrubActive && !d->scrubTail) { d->scrubPos = d->tapePos; d->scrubV = d->playing && !d->stopping ? d->rate * d->tapeSpeed.load() * d->tempoRate : 0.0; }
-        if (d->stopping) { d->playing = false; d->stopping = false; }
+        if (d->stopping) { d->playing = false; d->stopping = d->digitalStop = false; }
         d->scrubActive = true; d->scrubTail = false; d->scrubStyle = style;
         d->scrubTarget = style == ScrubStyle::Reel ? d->scrubPos : clampf(f, 0.f, 0.9999f) * d->loopSamples;
     });

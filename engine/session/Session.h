@@ -49,7 +49,7 @@ public:
     void process(float* out /*interleaved stereo*/, const float* in /*interleaved stereo, may be null*/, int frames);
 
     // ---- transport and notes ----
-    void play(bool on);
+    void play(bool on, bool digital = false); // digital transport fades gain without changing playback rate
     void noteOn(int track, int note, int vel);
     void noteOff(int track, int note);
 

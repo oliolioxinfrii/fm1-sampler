@@ -238,7 +238,30 @@ int main() {
       const float resumed = s.status().clipPos[0]; run(0.15);
       const float moved = std::fmod(s.status().clipPos[0] - resumed + 1.f, 1.f);
       CHECK(s.status().playing && moved > 0.01f, "editor shuttle resumes playback after release");
-      ui.setEditor(false);
+      // The workstation transport uses full rate, with a short gain
+      // fade; the cassette transport still has its speed ramps.
+      auto editorPlay = [&] { ui.frame(now); ui.touch(0, 30, 22, now); ui.touch(2, 30, 22, now); };
+      const double L = s.status().loopSamples;
+      auto advance = [&](double p) { return std::fmod(s.status().pos - p + L, L); };
+      editorPlay(); const double stopAt = s.status().pos;
+      run(0.04);
+      const double stopDist = advance(stopAt), stoppedAt = s.status().pos;
+      CHECK(!s.status().playing && stopDist < 0.02 * sr * s.status().tempoRate, "digital stop has no tape deceleration");
+      run(0.1);
+      CHECK(std::fabs(s.status().pos - stoppedAt) < 1.0, "digital stop holds position");
+      s.setLoopSpeed(1.f); s.seek(0.25f); run(0.1);
+      const double start = s.status().pos;
+      const double expected = (long)(0.04 * sr) / 256 * 256 * s.status().tempoRate;
+      editorPlay(); run(0.04);
+      CHECK(s.status().playing && std::fabs(advance(start) - expected) < 2.0, "editor starts at configured speed");
+      btn(SamplerApp::PLAY); run(0.04);
+      const double hardwareStop = s.status().pos; run(0.1);
+      CHECK(!s.status().playing && std::fabs(s.status().pos - hardwareStop) < 1.0, "hardware PLAY uses digital transport in editor");
+      ui.setEditor(false); s.seek(0.25f); run(0.1);
+      const double tapeStart = s.status().pos;
+      btn(SamplerApp::PLAY); run(0.04);
+      CHECK(s.status().playing && advance(tapeStart) < expected * 0.2, "cassette start retains acceleration");
+      btn(SamplerApp::PLAY); run(0.8);
       app.loopClear(); run(0.3); }
     {   // the first take can be drawn while it is recorded
       app.selectTrack(0); app.loopClear(); run(0.3); app.loopRecord(); run(0.1); app.playNote(60, true); run(0.8); app.playNote(60, false); run(0.3);
