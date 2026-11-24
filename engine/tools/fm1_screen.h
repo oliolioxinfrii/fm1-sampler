@@ -29,9 +29,7 @@ struct Fm1Screen {
             if (sc < 1 || sc > 4) break;
             for (size_t i = 11; i < len; i++, x += 6 * sc) {
                 if (x + 6 * sc > 240 || y + 8 * sc > 240) continue;
-                const uint8_t* g = fm1_glyph(p[i]);
-                for (unsigned py = 0; py < 8 * sc; py++) for (unsigned qx = 0; qx < 6 * sc; qx++)
-                    px[(y + py) * 240 + x + qx] = fm1_font_pixel(g, qx, py, sc, fg, bg);
+                fm1_font_draw(px + y * 240 + x, 240, sc, p[i], fg, bg);
             } } break;
         case 8: for (unsigned i = 0; i < 16 && 3 * i + 3 <= len; i++) pal[i] = color(p + 3 * i); break;
         case 9: if (len >= 8) {   // same decoder as CMD_BLIT in app/ctrl.c

@@ -28,3 +28,6 @@ id_ed25519
 /INTERNAL_PROVENANCE.md
 /fm1-open-publish.md
 /.codex-sinco/
+
+# Generated from the locally selected Android system font.
+/app/display_font_data.inc

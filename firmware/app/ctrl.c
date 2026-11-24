@@ -53,10 +53,7 @@ static void draw_char(unsigned x, unsigned y, unsigned scale, unsigned c, uint16
 {
     unsigned w = 6 * scale, h = 8 * scale;
     if (x + w > FM1_SCREEN_WIDTH || y + h > FM1_SCREEN_HEIGHT) return;
-    const uint8_t *g = fm1_glyph(c);
-    for (unsigned py = 0; py < h; ++py)
-        for (unsigned px = 0; px < w; ++px)
-            cell[py * w + px] = fm1_font_pixel(g, px, py, scale, fg, bg);
+    fm1_font_draw(cell, w, scale, c, fg, bg);
     (void)fm1_screen_blit(x, y, w, h, cell, w * h);
 }
 

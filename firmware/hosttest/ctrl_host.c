@@ -49,16 +49,24 @@ static int events(unsigned status, unsigned data) {
 }
 int main(void) {
     groove_screen_init();
-    CHECK(memcmp(fm1_glyph('a'), fm1_glyph('A'), 5) != 0, "font preserves lowercase");
-    CHECK(fm1_font_bit(fm1_glyph('g'), 2, 7) != 0, "font preserves descenders");
-    CHECK(memcmp(fm1_glyph('('), fm1_glyph(' '), 5) != 0, "font supports punctuation");
-    unsigned partial = 0;
-    for (unsigned y = 0; y < 24; ++y)
-        for (unsigned x = 0; x < 18; ++x) {
-            const uint16_t px = fm1_font_pixel(fm1_glyph('A'), x, y, 3, 0xffff, 0);
-            partial += px != 0 && px != 0xffff;
-        }
-    CHECK(partial > 0, "larger glyphs have smoothed edges");
+    uint16_t upper[432], lower[432], space[432], punct[432];
+    fm1_font_draw(upper, 18, 3, 'A', 0xffff, 0);
+    fm1_font_draw(lower, 18, 3, 'a', 0xffff, 0);
+    fm1_font_draw(space, 18, 3, ' ', 0xffff, 0);
+    fm1_font_draw(punct, 18, 3, '(', 0xffff, 0);
+    CHECK(memcmp(upper, lower, sizeof upper) != 0, "font preserves lowercase");
+    CHECK(memcmp(space, punct, sizeof space) != 0, "font supports punctuation");
+    unsigned partial = 0, nonzero = 0, bottom = 0;
+    for (unsigned i = 0; i < 432; ++i) {
+        partial += upper[i] != 0 && upper[i] != 0xffff;
+        nonzero += space[i] != 0;
+        if (upper[i]) bottom = i / 18;
+    }
+    CHECK(partial > 0 && nonzero == 0, "outline coverage and opaque space");
+    fm1_font_draw(lower, 18, 3, 'g', 0xffff, 0);
+    unsigned descender = 0;
+    for (unsigned i = (bottom + 1) * 18; i < 432; ++i) descender += lower[i] != 0;
+    CHECK(descender > 0, "font preserves descenders");
     CHECK(link_state == LINK_WAIT, "boot waits for phone");
     press_key(0, 1); press_key(0, 0);
     CHECK(midi_n == 0, "unlinked controls locked");
