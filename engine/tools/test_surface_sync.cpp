@@ -1,6 +1,7 @@
 #include "SamplerApp.h"
 #include <algorithm>
 #include <cstdio>
+#include <iterator>
 #include <stdexcept>
 
 static void require(bool ok, const char* msg) {
@@ -11,11 +12,17 @@ int main() {
     try {
         Session session;
         int clears = 0, waveformRects = 0;
+        uint16_t menu[SamplerApp::kPages] = {};
         SamplerApp app(session, [&](const uint8_t* m, size_t n) {
             if (n < 8) return;
             auto command = [&](const uint8_t* p, size_t len) {
                 if (len == 0) return;
-                if (p[0] == 2) { ++clears; waveformRects = 0; }
+                if (p[0] == 2) { ++clears; waveformRects = 0; std::fill(std::begin(menu), std::end(menu), 0); }
+                if (p[0] == 3 && len >= 12 && ((p[3] << 7) | p[4]) == 40) {
+                    const int x = (p[1] << 7) | p[2];
+                    if (x >= 116 && x < 116 + SamplerApp::kPages * 10 && (x - 116) % 10 == 0)
+                        menu[(x - 116) / 10] = (uint16_t)((p[9] << 14) | (p[10] << 7) | p[11]);
+                }
                 if (p[0] == 3 && len >= 12 && ((p[3] << 7) | p[4]) == 54)
                     ++waveformRects;
             };
@@ -38,6 +45,16 @@ int main() {
             m[29] = 0xf7;
             app.onSysex(m, sizeof m);
         };
+        run(3000);
+        const uint16_t inactive = menu[SamplerApp::P_FX];
+        require(menu[SamplerApp::P_HOME] != inactive, "initial page marker missing");
+        for (int page = 0; page < SamplerApp::kPages; ++page) {
+            app.gotoPage(static_cast<SamplerApp::Page>(page));
+            run(3000);
+            for (int i = 0; i < SamplerApp::kPages; ++i)
+                require((menu[i] != inactive) == (i == page), "page marker did not follow menu");
+        }
+        app.gotoPage(SamplerApp::P_HOME);
         run(3000);
         int before = clears;
         app.resetSurface();

@@ -4,8 +4,14 @@
 #include <stdint.h>
 
 /* The generated masks use the Android monospace outline, rendered at each
- * target size. Opaque 6x8-scaled cells preserve the existing wire layout. */
+ * target size. Opaque cells have the protocol's fixed width per size. */
 #include "display_font_data.inc"
+
+static inline unsigned fm1_font_width(unsigned scale)
+{
+    static const uint8_t widths[] = {0, 6, 10, 14, 24};
+    return scale <= 4 ? widths[scale] : 0;
+}
 
 static inline uint16_t fm1_font_blend(uint16_t fg, uint16_t bg, unsigned a)
 {
@@ -28,7 +34,7 @@ static inline void fm1_font_draw(uint16_t *dst, unsigned stride, unsigned scale,
     unsigned index = (scale - 1) * 95 + ch - 32;
     const uint8_t *p = fm1_font_runs + fm1_font_offsets[index];
     const uint8_t *end = fm1_font_runs + fm1_font_offsets[index + 1];
-    const unsigned w = 6 * scale, h = 8 * scale;
+    const unsigned w = fm1_font_width(scale), h = 8 * scale;
     unsigned x = 0, y = 0;
     while (p < end && y < h) {
         const unsigned token = *p++;

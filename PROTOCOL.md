@@ -31,7 +31,7 @@ All values 7-bit. n14 = 2 bytes (hi,lo). color = 3 bytes, RGB565 split 2/7/7 bit
 | 01 LED | 6 bytes, 7 bits each, little-endian bitmask of 41 LEDs (0..13 buttons, 14..40 keys) |
 | 02 CLEAR | color |
 | 03 RECT | x n14, y n14, w n14, h n14, color |
-| 04 TEXT | x n14, y n14, scale (1..4), fg color, bg color, ASCII text (opaque cell 6*scale x 8*scale) |
+| 04 TEXT | x n14, y n14, scale (1..4), fg color, bg color, ASCII text (opaque cell widths 6/10/14/24 for scales 1/2/3/4; height 8*scale) |
 | 05 PING | id n14 -> PONG |
 | 06 SCALE | scale root octave+3 mode |
 | 08 PALETTE | 16 x color: the palette of BLIT |

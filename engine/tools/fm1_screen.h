@@ -27,8 +27,8 @@ struct Fm1Screen {
         case 4: if (len >= 11) {
             unsigned x = n14(p), y = n14(p + 2), sc = p[4]; uint16_t fg = color(p + 5), bg = color(p + 8);
             if (sc < 1 || sc > 4) break;
-            for (size_t i = 11; i < len; i++, x += 6 * sc) {
-                if (x + 6 * sc > 240 || y + 8 * sc > 240) continue;
+            for (size_t i = 11; i < len; i++, x += fm1_font_width(sc)) {
+                if (x + fm1_font_width(sc) > 240 || y + 8 * sc > 240) continue;
                 fm1_font_draw(px + y * 240 + x, 240, sc, p[i], fg, bg);
             } } break;
         case 8: for (unsigned i = 0; i < 16 && 3 * i + 3 <= len; i++) pal[i] = color(p + 3 * i); break;

@@ -673,6 +673,12 @@ void SamplerApp::draw(uint32_t now) {
     if (needClear_) { fwDirty_ = true; clear(BLACK); std::fill(cells_.begin(), cells_.end(), SurfaceCell()); std::fill(rects_.begin(), rects_.end(), ~0ull); }
     if (needClear_) {
         rect(360, 6, 5, 228, 30, PANEL);
+        // Inset sample name field, with the same chrome as the phone selector.
+        rect(366, 33, 7, 174, 26, rgb565(theme::RAISED));
+        rect(367, 33, 7, 174, 1, rgb565(theme::SHADOW));
+        rect(368, 33, 8, 1, 24, rgb565(theme::SHADOW));
+        rect(369, 33, 32, 174, 1, rgb565(theme::HI));
+        rect(370, 206, 8, 1, 24, rgb565(theme::HI));
         rect(361, 9, 52, 222, 49, WELL);
         for (int i = 0; i < 4; ++i) rect(362 + i, 8 + (i % 2) * 114, 121 + (i / 2) * 48, 110, 46, PANEL);
     }
@@ -683,8 +689,13 @@ void SamplerApp::draw(uint32_t now) {
     {
         const std::string lab = s_.trackLabel(track_);
         const uint32_t tc = theme::trackColor(track_);
-        drawText(0, 10, 8, 3, rgb565(theme::contrastInk(tc)), rgb565(tc), std::to_string(track_ + 1), 1);
-        drawText(1, 36, 12, 2, lab.empty() ? DIM : PAPER, PANEL, lab.empty() ? "EMPTY" : lab, 14);
+        // Side strips leave the text cell independent of cache repairs.
+        rect(371, 8, 7, 22, 1, rgb565(tc));
+        rect(372, 8, 32, 22, 1, rgb565(tc));
+        rect(373, 8, 8, 4, 24, rgb565(tc));
+        rect(374, 26, 8, 4, 24, rgb565(tc));
+        drawText(0, 12, 8, 3, rgb565(theme::contrastInk(tc)), rgb565(tc), std::to_string(track_ + 1), 1);
+        drawText(1, 38, 12, 2, lab.empty() ? DIM : PAPER, rgb565(theme::RAISED), lab.empty() ? "EMPTY" : lab, 16);
         const int stt = recNow ? 2 : st_.playing ? 1 : 0;
         static int lastSt = -1; if (stt != lastSt || needClear_) { lastSt = stt; rects_[26] = ~0ull; for (int i = 0; i < 16; i++) rects_[300 + i] = ~0ull; }
         rect(26, 212, 12, 16, 16, PANEL);
@@ -697,7 +708,9 @@ void SamplerApp::draw(uint32_t now) {
     }
     const uint32_t pc = pageAccent(page_);
     drawText(20, 12, 36, 2, rgb565(theme::contrastInk(pc)), rgb565(pc), kPage[page_], 9);
-    for (int i = 0; i < kTracks; i++) rect(8 + i, 127 + i * 13, 42, 10, 6, i == track_ ? rgb565(theme::trackColor(i)) : BAR);
+    // Page markers track menu selection, independently of the track badge.
+    for (int i = 0; i < kPages; i++)
+        rect(8 + i, 116 + i * 10, 40, 8, 10, i == page_ ? rgb565(pc) : BAR);
     hero(now, k);
     // the loop: a thin bar with the position, under it the state (mic / toast / audition, else the sample mode and the loop)
     std::string line;
@@ -723,7 +736,7 @@ void SamplerApp::draw(uint32_t now) {
         const uint16_t kc = rgb565(theme::encoderColor(i)), kt = rgb565(theme::encoderTrace(i));
         snprintf(b, sizeof b, "K%d %s", i + 1, p.name.c_str());
         drawText(40 + i * 2, cx, cy, 1, kc, PANEL, p.valid ? b : "", 17);
-        const bool big = p.value.size() <= 6;
+        const bool big = p.value.size() <= 7;
         const int kind = !p.valid ? 0 : big ? 3 : 2;
         static int lastKind[4] = {-1, -1, -1, -1};
         if (needClear_ || lastKind[i] != kind) {
@@ -733,8 +746,8 @@ void SamplerApp::draw(uint32_t now) {
             lastKind[i] = kind;
         }
         if (p.valid) {
-            if (big) drawText(41 + i * 2, cx, cy + 10, 3, kt, WELL, p.value, 6);
-            else drawText(41 + i * 2, cx, cy + 14, 2, kt, WELL, p.value, 9);
+            if (big) drawText(41 + i * 2, cx, cy + 10, 3, kt, WELL, p.value, 7);
+            else drawText(41 + i * 2, cx, cy + 14, 2, kt, WELL, p.value, 10);
         }
         // Two adjacent nonoverlapping rectangles cover the entire slider.
         // Reserve a single background pixel at full scale for the boundary.

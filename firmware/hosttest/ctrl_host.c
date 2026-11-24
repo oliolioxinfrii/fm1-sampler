@@ -49,24 +49,26 @@ static int events(unsigned status, unsigned data) {
 }
 int main(void) {
     groove_screen_init();
-    uint16_t upper[432], lower[432], space[432], punct[432];
-    fm1_font_draw(upper, 18, 3, 'A', 0xffff, 0);
-    fm1_font_draw(lower, 18, 3, 'a', 0xffff, 0);
-    fm1_font_draw(space, 18, 3, ' ', 0xffff, 0);
-    fm1_font_draw(punct, 18, 3, '(', 0xffff, 0);
+    uint16_t upper[336], lower[336], space[336], punct[336];
+    fm1_font_draw(upper, 14, 3, 'A', 0xffff, 0);
+    fm1_font_draw(lower, 14, 3, 'a', 0xffff, 0);
+    fm1_font_draw(space, 14, 3, ' ', 0xffff, 0);
+    fm1_font_draw(punct, 14, 3, '(', 0xffff, 0);
     CHECK(memcmp(upper, lower, sizeof upper) != 0, "font preserves lowercase");
     CHECK(memcmp(space, punct, sizeof space) != 0, "font supports punctuation");
     unsigned partial = 0, nonzero = 0, bottom = 0;
-    for (unsigned i = 0; i < 432; ++i) {
+    for (unsigned i = 0; i < 336; ++i) {
         partial += upper[i] != 0 && upper[i] != 0xffff;
         nonzero += space[i] != 0;
-        if (upper[i]) bottom = i / 18;
+        if (upper[i]) bottom = i / 14;
     }
     CHECK(partial > 0 && nonzero == 0, "outline coverage and opaque space");
-    fm1_font_draw(lower, 18, 3, 'g', 0xffff, 0);
+    fm1_font_draw(lower, 14, 3, 'g', 0xffff, 0);
     unsigned descender = 0;
-    for (unsigned i = (bottom + 1) * 18; i < 432; ++i) descender += lower[i] != 0;
+    for (unsigned i = (bottom + 1) * 14; i < 336; ++i) descender += lower[i] != 0;
     CHECK(descender > 0, "font preserves descenders");
+    CHECK(fm1_font_width(2) == 10 && fm1_font_width(3) == 14, "compact text advances");
+    CHECK(fb[94 * 240 + 119] == rgb565(0xff5279U) && fb[94 * 240 + 120] == rgb565(0xff5279U), "reconnect cross is centered");
     CHECK(link_state == LINK_WAIT, "boot waits for phone");
     press_key(0, 1); press_key(0, 0);
     CHECK(midi_n == 0, "unlinked controls locked");

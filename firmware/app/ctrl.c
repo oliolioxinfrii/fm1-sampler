@@ -51,7 +51,7 @@ static uint16_t blit_pal[16];
 
 static void draw_char(unsigned x, unsigned y, unsigned scale, unsigned c, uint16_t fg, uint16_t bg)
 {
-    unsigned w = 6 * scale, h = 8 * scale;
+    unsigned w = fm1_font_width(scale), h = 8 * scale;
     if (x + w > FM1_SCREEN_WIDTH || y + h > FM1_SCREEN_HEIGHT) return;
     fm1_font_draw(cell, w, scale, c, fg, bg);
     (void)fm1_screen_blit(x, y, w, h, cell, w * h);
@@ -126,7 +126,7 @@ static void scale_set(unsigned scale, unsigned root, int oct, unsigned mode)
 
 static void draw_text(unsigned x, unsigned y, unsigned scale, const char *t, uint16_t fg, uint16_t bg)
 {
-    for (; *t; ++t, x += 6 * scale) draw_char(x, y, scale, (unsigned char)*t, fg, bg);
+    for (; *t; ++t, x += fm1_font_width(scale)) draw_char(x, y, scale, (unsigned char)*t, fg, bg);
 }
 static void draw_overlay(void)
 {
@@ -202,7 +202,14 @@ static void link_screen(int reconnect)
     draw_text(26, 64, 2, reconnect ? "LINK LOST" : "USB MIDI", rgb565(0x49d9ffU), well);
     fm1_screen_fill(27, 92, 62, 4, rgb565(0xbd8affU));
     fm1_screen_fill(151, 92, 62, 4, rgb565(0xbd8affU));
-    draw_text(102, 85, 2, "X", rgb565(0xff5279U), well);
+    /* A symmetric 28px cross, centered between the two cable segments. */
+    const uint16_t cross = rgb565(0xff5279U);
+    for (unsigned i = 0; i < 28; ++i) {
+        const unsigned a = i < 2 ? 0 : i - 2;
+        const unsigned b = i > 25 ? 27 : i + 2;
+        fm1_screen_fill(106 + a, 80 + i, b - a + 1, 1, cross);
+        fm1_screen_fill(133 - b, 80 + i, b - a + 1, 1, cross);
+    }
     draw_text(18, 142, 2, reconnect ? "RECONNECT PHONE" : "CONNECT PHONE", ink, panel);
     draw_text(18, 169, 1, "CONTROLS LOCKED UNTIL LINK", ink, panel);
 }
@@ -252,7 +259,7 @@ static void screen_cmd(unsigned cmd, const uint8_t *p, unsigned len)
             unsigned x = n14(p), y = n14(p + 2), scale = p[4];
             uint16_t fg = color(p + 5), bg = color(p + 8);
             if (scale < 1 || scale > MAX_SCALE) break;
-            for (unsigned i = 11; i < len; ++i, x += 6 * scale) draw_char(x, y, scale, p[i], fg, bg);
+            for (unsigned i = 11; i < len; ++i, x += fm1_font_width(scale)) draw_char(x, y, scale, p[i], fg, bg);
         }
         break;
     case CMD_PING:   /* id14 -> PONG id14 millis32 rx_frames rx_bytes rx_dropped */

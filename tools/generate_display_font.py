@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
 SIZES = (9, 16, 22, 28)
+WIDTHS = (6, 10, 14, 24)
 FIRST, LAST = 32, 126
 # Keep below the available application-image margin.
 MAX_BYTES = 40000
@@ -18,7 +19,7 @@ MAX_BYTES = 40000
 def masks(path):
     offsets, runs = [0], []
     for scale, size in enumerate(SIZES, 1):
-        width, height = 6 * scale, 8 * scale
+        width, height = WIDTHS[scale - 1], 8 * scale
         font = ImageFont.truetype(str(path), size)
         # Center the common baseline range rather than each individual
         # character; ascenders and descenders remain in their proper positions.
