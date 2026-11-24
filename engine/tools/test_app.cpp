@@ -1,6 +1,7 @@
 // Host tests of the sampler app: every algorithm sounds, LFO targets, stretch/pitch, tape knobs, arp, loop speed, library, import. Exit code 1 on failure.
 #include <Session.h>
 #include <SamplerApp.h>
+#include <SamplerUI.h>
 #include <Common.h>
 #include <Stretch.h>
 #include <Wav.h>
@@ -134,6 +135,18 @@ int main() {
       const float p1 = app.status().clipPos[0]; run(0.3); CHECK(std::fabs(app.status().clipPos[0] - p1) > 0.02f && app.status().playing, "after the finger lifts the loop plays on (%.3f -> %.3f)", p1, app.status().clipPos[0]);
       app.transportPlay(); run(1.2); const float ps = app.status().clipPos[0]; app.scrub(0, 0.6f); run(0.3); app.scrub(2, 0); run(0.8);
       CHECK(!app.status().playing && std::fabs(app.status().clipPos[0] - 0.6f) < 0.06f, "scrubbing a stopped tape moves it, it stays stopped afterwards (%.3f -> %.3f)", ps, app.status().clipPos[0]);
+      // Rotate the large cassette reel across the splice in both directions.
+      s.seek(0.04f); run(0.2);
+      SamplerUI ui(app); ui.setSize(860, 400, 0, 0); ui.frame(now);
+      ui.touch(0, 130, 149, now); run(0.1);
+      ui.touch(1, 93, 186, now); run(0.8);
+      const float reverse = app.status().clipPos[0];
+      CHECK(reverse > 0.85f && reverse < 0.98f, "reel crosses the splice backwards (%.3f)", reverse);
+      ui.touch(1, 130, 149, now); run(0.8);
+      const float forward = app.status().clipPos[0];
+      CHECK(std::fabs(forward - 0.04f) < 0.03f, "reel crosses the splice forwards (%.3f)", forward);
+      ui.touch(2, 130, 149, now); run(0.8);
+      CHECK(!app.status().playing && std::fabs(app.status().clipPos[0] - forward) < 0.02f, "reel release preserves stopped transport");
       app.loopClear(); run(0.3); }
     {   // the first take can be drawn while it is recorded
       app.selectTrack(0); app.loopClear(); run(0.3); app.loopRecord(); run(0.1); app.playNote(60, true); run(0.8); app.playNote(60, false); run(0.3);

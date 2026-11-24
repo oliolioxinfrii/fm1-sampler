@@ -448,6 +448,30 @@ void SamplerUI::cassette(Rect wd) {
     const int t0 = std::max(1, (int)std::lround(per / (2 * kPi * posts[0].r))), t1 = std::max(1, (int)std::lround(per / (2 * kPi * posts[1].r)));
     reel(posts[0].x, posts[0].y, posts[0].r, -turn * 2 * kPi * t0); reel(posts[1].x, posts[1].y, posts[1].r, -turn * 2 * kPi * t1);
     float x, y; at(turn * per, x, y); circle(x, y, 6, recNow ? kPaper : kOrange);
+    if (!hasLoop || recNow) return;
+    // Drag the ribbon horizontally, or rotate either reel. Both gestures
+    // move the shared read head relative to its position when grabbed.
+    hit(wd, [this](float px, float) {
+        dragV_ = px;
+        app_.session().scrubBegin(0.f, true);
+    }, [this, per](float px, float) {
+        app_.session().scrubBy(-(px - dragV_) / per);
+        dragV_ = px;
+    }, [this] { app_.session().scrubEnd(); });
+    for (int i = 0; i < 2; ++i) {
+        const Post p = posts[i];
+        const int turns = i == 0 ? t0 : t1;
+        hit({p.x - p.r, p.y - p.r, 2 * p.r, 2 * p.r}, [this, p](float px, float py) {
+            dragV_ = std::atan2(py - p.y, px - p.x);
+            app_.session().scrubBegin(0.f, true);
+        }, [this, p, turns](float px, float py) {
+            if (std::hypot(px - p.x, py - p.y) < 0.15f * p.r) return;
+            const float angle = std::atan2(py - p.y, px - p.x);
+            const float delta = std::remainder(angle - dragV_, 2 * kPi);
+            dragV_ = angle;
+            app_.session().scrubBy(-delta / (2 * kPi * turns));
+        }, [this] { app_.session().scrubEnd(); });
+    }
 }
 
 float SamplerUI::loopPos() const {

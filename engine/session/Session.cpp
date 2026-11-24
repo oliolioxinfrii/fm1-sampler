@@ -59,7 +59,8 @@ struct Session::Impl {
     // tape start / stop: the loops speed up from standstill / slow down to it instead of cutting in and out
     double rate = 1.0; bool stopping = false; std::vector<float> rateArr; std::vector<double> cpArr;
     // scrubbing with a finger: the tape follows the target position with a smoothed speed (forward and backward), like a hand on the reel
-    bool scrubActive = false, scrubTail = false; double scrubPos = 0, scrubV = 0; std::atomic<double> scrubTarget{0};
+    bool scrubActive = false, scrubTail = false, scrubRelative = false;
+    double scrubPos = 0, scrubV = 0, scrubTarget = 0;
     float bpm = 120.f; int loopBars = 4;
     double pos = 0; int32_t loopSamples = 0;
     std::atomic<float> tapeSpeed{1.f}; double tapePos = 0;   // ONE tape pointer for every loop clip, so they never drift apart
@@ -292,20 +293,31 @@ struct Session::Impl {
         if (!playing) { rate = 1.0; stopping = false; }
         bool ramp = false; double rateSum = n, tapeEnd = tapePos;
         const bool scrubbing = (scrubActive || scrubTail) && loopSamples > 0 && !freeRec;
-        if (scrubActive && (loopSamples <= 0 || freeRec)) scrubActive = false;
+        if (loopSamples <= 0 || freeRec) scrubActive = scrubTail = false;
         if (scrubbing) {   // the read position is driven by the finger: speed follows (target - position), smoothed, so there are no jumps and no clicks
             ramp = true; rateSum = 0;
             if ((int)rateArr.size() < n) { rateArr.resize((size_t)n); cpArr.resize((size_t)n); }
-            const double L = (double)loopSamples, follow = 1.0 / (0.07 * sr), smooth = 1.0 - std::exp(-1.0 / (0.012 * sr));
+            const double L = (double)loopSamples, follow = 1.0 / (0.07 * sr);
+            const double smooth = 1.0 - std::exp(-1.0 / ((scrubRelative ? 0.045 : 0.012) * sr));
+            // A reel may cross the splice repeatedly; wrap the read head and
+            // target together so the signed tracking error is continuous.
+            auto wrapScrub = [&] {
+                const double shift = std::floor(scrubPos / L) * L;
+                scrubPos -= shift;
+                if (scrubRelative) scrubTarget -= shift;
+            };
+            if (scrubRelative || !scrubActive) wrapScrub();
+            else scrubPos = std::max(0.0, std::min(L - 1.0, scrubPos));
             const double run = (playing && !stopping) ? spd : 0.0;   // after the finger lifts the tape goes back to the transport speed (or stands still)
             for (int i = 0; i < n; i++) {
-                double want = scrubActive ? std::max(-6.0, std::min(6.0, (scrubTarget.load() - scrubPos) * follow)) : run;
-                if (scrubActive && std::fabs(scrubTarget.load() - scrubPos) < 2.0) want = 0.0;
+                double want = scrubActive ? std::max(-6.0, std::min(6.0, (scrubTarget - scrubPos) * follow)) : run;
+                if (scrubActive && std::fabs(scrubTarget - scrubPos) < 2.0) want = 0.0;
                 scrubV += (want - scrubV) * smooth;
                 cpArr[(size_t)i] = scrubPos;
                 rateArr[(size_t)i] = (float)std::min(1.0, std::sqrt(std::fabs(scrubV)));   // standing tape is silent, a slow one quiet
                 scrubPos += scrubV;
-                if (scrubActive) scrubPos = std::max(0.0, std::min(L - 1.0, scrubPos)); else { scrubPos = std::fmod(scrubPos, L); if (scrubPos < 0) scrubPos += L; }
+                if (scrubActive && !scrubRelative) scrubPos = std::max(0.0, std::min(L - 1.0, scrubPos));
+                else if (scrubPos < 0 || scrubPos >= L) wrapScrub();
             }
             tapeEnd = scrubPos;
             if (!scrubActive && std::fabs(scrubV - run) < 0.01) { scrubTail = false; scrubV = 0; rate = 1.0; if (!playing) { rateArr[(size_t)n - 1] = 0.f; } }
@@ -591,15 +603,22 @@ void Session::loopHalve() {
         if (d->tapePos >= h) d->tapePos = std::fmod(d->tapePos, (double)h);
     });
 }
-void Session::scrubBegin(float f) {
-    d->post([this, f] {
+void Session::scrubBegin(float f, bool relative) {
+    d->post([this, f, relative] {
         if (d->loopSamples <= 0 || d->freeRec) return;
         if (!d->scrubActive && !d->scrubTail) { d->scrubPos = d->tapePos; d->scrubV = d->playing && !d->stopping ? d->rate * d->tapeSpeed.load() : 0.0; }
         if (d->stopping) { d->playing = false; d->stopping = false; }
-        d->scrubActive = true; d->scrubTail = false; d->scrubTarget.store(clampf(f, 0.f, 0.9999f) * d->loopSamples);
+        d->scrubActive = true; d->scrubTail = false; d->scrubRelative = relative;
+        d->scrubTarget = relative ? d->scrubPos : clampf(f, 0.f, 0.9999f) * d->loopSamples;
     });
 }
-void Session::scrubMove(float f) { d->scrubTarget.store((double)clampf(f, 0.f, 0.9999f) * d->a_loop.load()); }
+void Session::scrubMove(float f) {
+    d->post([this, f] { if (d->scrubActive && !d->scrubRelative) d->scrubTarget = clampf(f, 0.f, 0.9999f) * d->loopSamples; });
+}
+void Session::scrubBy(float delta) {
+    if (!std::isfinite(delta)) return;
+    d->post([this, delta] { if (d->scrubActive && d->scrubRelative) d->scrubTarget += (double)delta * d->loopSamples; });
+}
 void Session::scrubEnd() { d->post([this] { if (d->scrubActive) { d->scrubActive = false; d->scrubTail = true; } }); }
 void Session::seek(float f) {
     d->post([this, f] {
