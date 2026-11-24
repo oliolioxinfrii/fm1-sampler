@@ -1,0 +1,61 @@
+name: Android experimental APK
+
+on:
+  push:
+    branches:
+      - fix/android-compatibility
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install pinned Android SDK components
+        run: |
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "build-tools;35.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
+      - name: Build debug APK
+        working-directory: android
+        run: gradle --no-daemon :app:assembleDebug --stacktrace
+      - name: Verify APK signing and 16 KiB alignment
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk=android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 -v 4 "$apk"
+          python3 - "$apk" <<'PY'
+          import pathlib, subprocess, sys, tempfile, zipfile
+          with zipfile.ZipFile(sys.argv[1]) as archive, tempfile.TemporaryDirectory() as tmp:
+              names = [n for n in archive.namelist() if n.startswith("lib/arm64-v8a/") and n.endswith(".so")]
+              if not names:
+                  raise SystemExit("No ARM64 native libraries found")
+              for name in names:
+                  path = pathlib.Path(tmp) / pathlib.Path(name).name
+                  path.write_bytes(archive.read(name))
+                  output = subprocess.check_output(["readelf", "-lW", str(path)], text=True)
+                  alignments = [int(line.split()[-1], 16) for line in output.splitlines() if line.strip().startswith("LOAD ")]
+                  print(name, [hex(a) for a in alignments])
+                  if not alignments or any(a < 16384 for a in alignments):
+                      raise SystemExit("ARM64 ELF alignment check failed: " + name)
+          PY
+          mkdir -p dist
+          cp "$apk" "dist/fm1sampler-experimental-$(git rev-parse --short HEAD).apk"
+          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fm1sampler-experimental-apk
+          path: dist/
+          if-no-files-found: error
