@@ -231,22 +231,6 @@ void SamplerUI::pageView(Rect r) {
     };
     std::string head;
     switch (pg) {
-    case P::P_ECHO: {
-        head = std::string("ECHOFIELD / ") + P::echoModeName(ts.echo.mode);
-        const auto pk = app_.peaks(t, 64);
-        const float bw = w.w / 64.f;
-        for (int i = 0; i < int(pk.size()); ++i) {
-            const float f = (i + 0.5f) / 64.f, h = clamp01(pk[i]) * (w.h - 6);
-            rrect({w.x + i * bw, cy - h / 2, std::max(1.f, bw - 1), std::max(1.f, h)}, 0,
-                  f >= ts.start && f <= ts.end ? TRACE_GREEN : GRID);
-        }
-        const float center = w.x + 2 + clamp01(ts.start + ts.echo.position * (ts.end - ts.start)) * (w.w - 4);
-        vbar(center, w.y + 2, w.y + w.h - 2, TRACE_AMBER, 1.5f);
-        for (int i = 0; i < st_.voiceN[t]; ++i) {
-            const float x = w.x + 2 + clamp01(st_.voicePos[t][i]) * (w.w - 4), h = 4 + clamp01(st_.voiceLvl[t][i]) * (w.h - 8);
-            vbar(x, cy - h / 2, cy + h / 2, TRACE_VIOLET, 2.f);
-        }
-        break; }
     case P::P_FX: {   // reverb = a room, a wire cube: its size is the size, the dim rays from the source to the walls are the wet part; delay = an echo: a circle and its repeats, spacing = time, shrinking = feedback
         head = "REVERB + DELAY";
         const float labelY = w.y + w.h - 7;
@@ -397,7 +381,7 @@ void SamplerUI::pageView(Rect r) {
     endClip();
     const int nv = st_.voiceN[t];
     strip({r.x, r.y, r.w, 18}, pageColor(pg), fit(head, r.w - (nv > 0 ? 90 : 12), 11), 11);
-    if (nv > 0) text(r.x + r.w - 4, r.y + 9, 10, contrastInk(pageColor(pg)), std::to_string(nv) + (pg == P::P_ECHO ? (nv == 1 ? " GRAIN" : " GRAINS") : (nv == 1 ? " VOICE" : " VOICES")), 2, true);
+    if (nv > 0) text(r.x + r.w - 4, r.y + 9, 10, contrastInk(pageColor(pg)), std::to_string(nv) + (nv == 1 ? " VOICE" : " VOICES"), 2, true);
 }
 
 // The sample of the selected track: its waveform (the playback window bright), the playback mode, and a line for every sounding voice.
@@ -405,9 +389,12 @@ void SamplerUI::sampleView(Rect r) {
     const int t = app_.track();
     const auto ts = app_.state(t);
     const int micS = app_.micState();
-    if (app_.page() != SamplerApp::P_HOME && micS == 0) { pageView(r); return; }   // every other page draws what it edits
-    const uint32_t header = micS ? RED : ACCENT;
-    strip({r.x, r.y, r.w, 18}, header, micS == 1 ? "MIC: WAITING FOR SOUND" : micS == 2 ? "MIC: RECORDING " + num("%.1f", st_.sampleSeconds) + " S" : micS == 3 ? "MIC: SAVING" : SamplerApp::algoName(ts.algo), 11);
+    const bool echo = app_.page() == SamplerApp::P_ECHO;
+    if (app_.page() != SamplerApp::P_HOME && !echo && micS == 0) { pageView(r); return; }
+    const uint32_t header = micS ? RED : echo ? VIOLET : ACCENT;
+    const std::string mode = ts.algo == 4 ? std::string("GRANULAR / ") + SamplerApp::echoModeName(ts.echo.mode) : SamplerApp::algoName(ts.algo);
+    const float headerSpace = st_.voiceN[t] > 0 ? (ts.algo <= 1 ? 100.f : 80.f) : ts.algo <= 1 ? 30.f : 10.f;
+    strip({r.x, r.y, r.w, 18}, header, micS == 1 ? "MIC: WAITING FOR SOUND" : micS == 2 ? "MIC: RECORDING " + num("%.1f", st_.sampleSeconds) + " S" : micS == 3 ? "MIC: SAVING" : fit(mode, r.w - headerSpace, 11), 11);
     tap({r.x, r.y, 120, 18}, [this, ts] { app_.setAlgo((ts.algo + 1) % 6); });   // tap the mode: the next one
     if (ts.algo <= 1) {   // auto-tune (MELODIC, ONE-SHOT): a tuning fork at the right end of the header; orange while the sample is tuned
         const float ax = r.x + r.w - 10, ay = r.y + 8; const uint32_t ac = app_.tuned(t) ? TRACE_GREEN : contrastInk(header);
@@ -417,7 +404,7 @@ void SamplerUI::sampleView(Rect r) {
         tap({ax - 16, r.y - 6, 32, 32}, [this] { app_.autoTune(); });
     }
     const int nv = st_.voiceN[t];
-    if (nv > 0) text(r.x + r.w - (ts.algo <= 1 ? 26 : 0), r.y + 8, 11, contrastInk(header), std::to_string(nv) + (nv == 1 ? " VOICE" : " VOICES"), 2, true);
+    if (nv > 0) text(r.x + r.w - (ts.algo <= 1 ? 26 : 0), r.y + 8, 11, contrastInk(header), std::to_string(nv) + (ts.algo == 4 ? (nv == 1 ? " GRAIN" : " GRAINS") : (nv == 1 ? " VOICE" : " VOICES")), 2, true);
     const Rect panel{r.x, r.y + 22, r.w, r.h - 22};
     scope(panel);
     const Rect w{panel.x + 3, panel.y + 3, panel.w - 6, panel.h - 6};
@@ -472,7 +459,34 @@ void SamplerUI::sampleView(Rect r) {
         const float h = std::max(4.f, lv * (w.h - 2));
         line(vx, cy - h / 2, vx, cy + h / 2, encoderTrace(j), 2.2f);
     }
+    if (ts.algo == 4 && micS == 0) echoPosition(w, 2.f);
     endClip();
+}
+
+// Position is relative to START..END, whereas the waveform spans the
+// entire source. Only the bottom handle captures touch, leaving the
+// editor's start and end handles usable even when they coincide.
+void SamplerUI::echoPosition(Rect w, float inset) {
+    const int t = app_.track();
+    const auto ts = app_.state(t);
+    const float left = w.x + inset, span = w.w - 2 * inset;
+    const float x = left + clamp01(ts.start + ts.echo.position * (ts.end - ts.start)) * span;
+    const float bottom = w.y + w.h - 3;
+    line(x, w.y + 3, x, bottom - 7, TRACE_AMBER, 1.8f);
+    tri(std::max(w.x + 1, x - 5), bottom, std::min(w.x + w.w - 1, x + 5), bottom, x, bottom - 8, TRACE_AMBER);
+    const std::string label = "POS " + num("%.1f%%", ts.echo.position * 100.f);
+    const float labelW = float(label.size()) * T_CAPTION * 0.61f + 6;
+    const float lx = std::clamp(x + 5, w.x + 2, std::max(w.x + 2, w.x + w.w - labelW - 2));
+    rrect({lx, w.y + 4, labelW, 14}, 0, WELL);
+    text(lx + 3, w.y + 11, T_CAPTION, TRACE_AMBER, label, 0, true);
+    auto move = [this, t, left, span](float px, float) {
+        if (app_.track() != t || app_.algo() != 4) return;
+        const auto& state = app_.state(t);
+        const float p = (px - left) / span;
+        app_.knobs(SamplerApp::P_HOME)[3].set(clamp01((p - state.start) / std::max(0.001f, state.end - state.start)));
+    };
+    hit({std::max(w.x, x - 14), bottom - 14, std::min(w.x + w.w, x + 14) - std::max(w.x, x - 14), 17},
+        [](float, float) {}, move);
 }
 
 // A knob of the app (drag up / down to turn): a ring, an orange arc for the value, a pointer, the value under it and its name.
@@ -878,6 +892,7 @@ void SamplerUI::sampleArea(Rect r) {
             [](float, float) {},
             [this, h, w](float x, float) { auto k = app_.knobs(SamplerApp::P_HOME); k[(size_t)h].set(clamp01((x - w.x - 2) / (w.w - 4))); });
     }
+    if (ts.algo == 4 && app_.micState() == 0 && app_.hasSample(t)) echoPosition(w, 2.f);
     // loop strip under the waveform
     Rect ls{r.x, w.y + w.h + 6, r.w, 34};
     scope(ls, false);

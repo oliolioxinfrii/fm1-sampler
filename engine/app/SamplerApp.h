@@ -131,6 +131,7 @@ private:
     void leds();
     void flush(uint32_t now);
     void heal();
+    void discardPending(int firstKey, int lastKey);
     void hero(uint32_t now, const Knobs& k);
     // ---- input ----
     void button(int b, bool down);
@@ -185,6 +186,8 @@ private:
     uint32_t held_ = 0;
     ScaleState scale_;
     uint32_t touchedAt_ = 0; int touchedKnob_ = -1;
+    int lastLight_ = -1, lastHeroLayout_ = -1;
+    std::array<uint32_t, 100> heroSig_{};
     std::vector<SurfaceCell> cells_;
     std::vector<uint64_t> rects_;
 };

@@ -650,6 +650,14 @@ void SamplerApp::sysex(int cmd, const std::vector<uint8_t>& p, bool urgent, int 
     if (urgent) pending_.push_front({key, std::move(m)}); else pending_.push_back({key, std::move(m)});
 }
 void SamplerApp::clear(uint16_t c) { sysex(2, col(c)); }
+void SamplerApp::discardPending(int firstKey, int lastKey) {
+    for (auto it = pending_.begin(); it != pending_.end();) {
+        if (it->key >= firstKey && it->key <= lastKey) {
+            pendingBytes_ -= it->bytes.size();
+            it = pending_.erase(it);
+        } else ++it;
+    }
+}
 void SamplerApp::rect(int id, int x, int y, int w, int h, uint16_t c) {
     uint64_t sig = (uint64_t)c | (uint64_t)(w & 0xfff) << 16 | (uint64_t)(h & 0xfff) << 28 | (uint64_t)(x & 0xfff) << 40 | (uint64_t)(y & 0xfff) << 52;
     if (!needClear_ && rects_[id] == sig) return;
@@ -722,11 +730,29 @@ void SamplerApp::leds() {
 // ---- screen ----
 // Layout (240x240): track tags, page and state, sample name, a 60 px picture that depends on the page, the loop strip, four knobs, a hint.
 void SamplerApp::draw(uint32_t now) {
-    static int lastLight = -1; if ((int)theme::light != lastLight) { lastLight = theme::light; setPalette(theme::light); needClear_ = true; }
-    static int lastHero = -1;
-    const int heroKind = mic_ == 1 || mic_ == 2 ? 6 : page_ == P_ENV ? 1 : page_ == P_LFO ? 2 : page_ == P_MIX ? 3 : page_ == P_KEY ? 4 : (page_ == P_LEN || page_ == P_TEMPO) ? 5 : (page_ == P_ECHO || (page_ == P_HOME && algo() == 4)) ? 7 : 0;
-    if (heroKind != lastHero) { lastHero = heroKind; needClear_ = true; }
-    if (needClear_) { fwDirty_ = true; clear(BLACK); std::fill(cells_.begin(), cells_.end(), SurfaceCell()); std::fill(rects_.begin(), rects_.end(), ~0ull); }
+    if ((int)theme::light != lastLight_) { lastLight_ = theme::light; setPalette(theme::light); needClear_ = true; }
+    // All narrow-column plots share their geometry, as do the text plots.
+    // Only a change of geometry requires erasing the plot's interior.
+    const int layout = mic_ == 1 || mic_ == 2 ? 0 :
+        page_ == P_KEY || page_ == P_LEN || page_ == P_TEMPO ? 1 : page_ == P_MIX ? 2 : 0;
+    if (needClear_) {
+        fwDirty_ = true; clear(BLACK);
+        std::fill(cells_.begin(), cells_.end(), SurfaceCell());
+        std::fill(rects_.begin(), rects_.end(), ~0ull);
+        heroSig_.fill(~0u);
+    } else if (layout != lastHeroLayout_) {
+        // Commands queued for the previous plot must not be replayed
+        // before or after the replacement plot's background.
+        discardPending(100, 299);
+        discardPending(1100, 1101);
+        discardPending(361, 361);
+        std::fill(rects_.begin() + 100, rects_.begin() + 300, ~0ull);
+        cells_[100].known = cells_[101].known = false;
+        heroSig_.fill(~0u);
+        rects_[361] = ~0ull;
+        rect(361, 9, 52, 222, 49, WELL);
+    }
+    lastHeroLayout_ = layout;
     if (needClear_) {
         rect(360, 6, 5, 228, 30, PANEL);
         // Inset sample name field, with the same chrome as the phone selector.
@@ -798,6 +824,8 @@ void SamplerApp::draw(uint32_t now) {
         const int kind = !p.valid ? 0 : big ? 3 : 2;
         static int lastKind[4] = {-1, -1, -1, -1};
         if (needClear_ || lastKind[i] != kind) {
+            discardPending(350 + i, 350 + i);
+            discardPending(1041 + i * 2, 1041 + i * 2);
             rects_[350 + i] = ~0ull;
             rect(350 + i, cx, cy + 10, 108, 24, WELL);
             cells_[41 + i * 2].known = false;
@@ -822,12 +850,17 @@ void SamplerApp::draw(uint32_t now) {
 void SamplerApp::hero(uint32_t now, const Knobs& k) {
     const int x0 = 12, y0 = 54, W = 216, H = 46;
     // one column: background (cleared only when the height changed) + bar
-    static uint32_t sig[100]; if (needClear_) for (auto& s : sig) s = ~0u;
+    auto& sig = heroSig_;
     auto column = [&](int idx, int x, int w, int h, uint16_t fg, bool fromBottom) {
         h = std::min(H, std::max(1, h));
         const uint32_t s = (uint32_t)h | (uint32_t)fg << 8 | (uint32_t)w << 24 | (uint32_t)fromBottom << 31;
         if (sig[idx] == s && !needClear_) return;
         sig[idx] = s;
+        // Replace pending background/bar as a pair. If the older
+        // background already reached the screen, never enqueue its
+        // replacement behind a still-pending foreground.
+        const bool queuedBg = std::any_of(pending_.begin(), pending_.end(), [=](const Frame& f) { return f.key == 100 + idx; });
+        if (!queuedBg) discardPending(200 + idx, 200 + idx);
         rects_[100 + idx] = ~0ull; rects_[200 + idx] = ~0ull;
         rect(100 + idx, x, y0, w, H, WELL);
         rect(200 + idx, x, fromBottom ? y0 + H - h : y0 + (H - h) / 2, w, h, fg);
@@ -861,7 +894,8 @@ void SamplerApp::hero(uint32_t now, const Knobs& k) {
             v = x.lfoShape == 0 ? std::sin(6.2831853f * ph) : x.lfoShape == 1 ? (ph < 0.5f ? 4 * ph - 1 : 3 - 4 * ph) : x.lfoShape == 2 ? (ph < 0.5f ? 1.f : -1.f) : std::sin(ph * 71.f + (int)(i / 9) * 5.1f);
             column(i, x0 + i * 4, 3, (int)((0.08f + 0.92f * x.lfoDepth * std::fabs(v)) * H), rgb565(theme::TRACE_VIOLET), false);
         }
-        column(56, x0 + 212, 4, (int)((0.5f + 0.5f * st_.lfoValue[track_]) * H), TRACE, true);
+        column(52, x0 + 208, 3, 1, WELL, false);
+        column(53, x0 + 212, 3, (int)((0.5f + 0.5f * st_.lfoValue[track_]) * H), TRACE, true);
     } else if (page_ == P_MIX) {   // eight strips: level (bar) and the track
         for (int i = 0; i < kTracks; i++) column(i, x0 + i * 27, 20, (int)(std::min(1.f, st_.track_peak[i] * 1.5f) * H), rgb565(theme::trackTrace(i)), true);
     } else if (page_ == P_KEY) {   // the tonality in big letters
@@ -882,7 +916,7 @@ void SamplerApp::hero(uint32_t now, const Knobs& k) {
             const float pos = (i + 0.5f) / 54.f;
             const bool in = pos >= x.start && pos <= x.end;
             const float v = i < (int)pk.size() ? pk[i] : 0.f;
-            const int h = int(std::max(std::min(1.f, v), grains[i]) * H);
+            const int h = int(std::max(std::min(1.f, v * 1.1f), grains[i]) * H) + 1;
             column(i, x0 + i * 4, 3, i == center ? H : h,
                    i == center ? TIME : grains[i] > 0 ? rgb565(theme::TRACE_VIOLET) : in ? TRACE : GRID, false);
         }

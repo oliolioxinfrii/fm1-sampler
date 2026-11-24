@@ -36,8 +36,7 @@ int main(int argc, char** argv) {
         for (auto& o : ui.ops()) { fprintf(f, "%s[%d,%g,%g,%g,%g,%g,%g,%u,\"%s\"]", first ? "" : ",", (int)o.type, o.f[0], o.f[1], o.f[2], o.f[3], o.f[4], o.f[5], o.color, esc(o.text).c_str()); first = false; }
         fprintf(f, "]}");
     };
-    const float rx = W - 252, tw = (252 - 8 - 20) / 6.f;
-    auto tab = [&](int i) { tapAt(rx + (i % 6) * (tw + 4) + tw / 2, 44 + 8 + (i / 6) * 32 + 14); };
+    auto tab = [&](int i) { app.gotoPage(static_cast<SamplerApp::Page>(i)); };
     theme::apply(true);
     ui.frame(now); dump("deck");
     theme::apply(false); dump("deck_dark");
@@ -60,6 +59,9 @@ int main(int argc, char** argv) {
       app.setAlgo(3); run(0.5); ui.frame(now); dump("deck_kit");
       app.knobs(SamplerApp::P_HOME)[2].set(0.8f); run(0.3); ui.frame(now); dump("deck_kit_hi");
       app.setAlgo(4); run(0.3); ui.frame(now); dump("deck_grain");
+      app.gotoPage(SamplerApp::P_ECHO); dump("deck_echo");
+      ui.setEditor(true); dump("editor_echo"); ui.setEditor(false);
+      app.gotoPage(SamplerApp::P_HOME);
       app.setAlgo(5); run(0.3); ui.frame(now); dump("deck_paul");
       app.setAlgo(0); app.selectTrack(0); run(0.2); }
     ui.openProject(true); ui.frame(now); dump("deck_project"); ui.openProject(false);

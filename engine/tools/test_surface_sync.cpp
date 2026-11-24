@@ -51,12 +51,19 @@ int main() {
         app.setAlgo(4);
         run(3000);
         require(menu[1] == inactive, "ECHOFIELD marker did not become available");
+        const int normalClears = clears;
         for (int page = 0; page < SamplerApp::kPages; ++page) {
             app.gotoPage(static_cast<SamplerApp::Page>(page));
             run(3000);
+            require(clears == normalClears, "menu navigation cleared the full display");
             for (int i = 0; i < SamplerApp::kPages; ++i)
                 require((menu[i] != inactive) == (SamplerApp::menuPage(i) == page), "page marker did not follow menu");
         }
+        // Rapid navigation can leave commands queued from multiple layouts.
+        app.gotoPage(SamplerApp::P_KEY); run(48);
+        app.gotoPage(SamplerApp::P_MIX); run(48);
+        app.gotoPage(SamplerApp::P_ECHO); run(3000);
+        require(clears == normalClears && menu[1] != inactive, "rapid menu navigation wiped display");
         app.setAlgo(0);
         app.gotoPage(SamplerApp::P_HOME);
         run(3000);

@@ -83,7 +83,51 @@ int main() {
             std::abs(saved.state(0).echo.drift - 0.17f) < 1e-6f &&
             std::abs(saved.state(0).echo.evolve - 0.81f) < 1e-6f,
             "ECHOFIELD settings survive app reconstruction"); }
-    app.selectTrack(0); app.setAlgo(0);
+    app.selectTrack(0);
+    app.gotoPage(SamplerApp::P_HOME);
+    app.knobs()[3].set(0.35f);
+    {
+        SamplerUI ui(app); ui.setSize(860, 400, 0, 0);
+        ui.setEditor(false); ui.frame(now);
+        auto marker = [&]() {
+            for (const auto& o : ui.ops()) if (o.type == UiOp::TEXT && o.text == "POS 35.0%" && o.color == theme::TRACE_AMBER) return true;
+            return false;
+        };
+        auto plot = [&]() {
+            std::vector<UiOp> ops; bool inPlot = false;
+            for (const auto& o : ui.ops()) {
+                if (o.type == UiOp::CLIP && o.f[0] > 440 && o.f[1] < 60) inPlot = true;
+                if (inPlot) ops.push_back(o);
+                if (inPlot && o.type == UiOp::ENDCLIP) break;
+            }
+            return ops;
+        };
+        CHECK(marker(), "deck SAMPLE has position marker");
+        const auto home = plot();
+        app.gotoPage(SamplerApp::P_ECHO); ui.frame(now);
+        CHECK(marker(), "deck ECHOFIELD has position marker");
+        const auto echo = plot();
+        bool same = !home.empty() && home.size() == echo.size();
+        for (size_t i = 0; same && i < home.size(); ++i) {
+            same = home[i].type == echo[i].type && home[i].color == echo[i].color && home[i].text == echo[i].text;
+            for (int j = 0; same && j < 6; ++j) same = home[i].f[j] == echo[i].f[j];
+        }
+        CHECK(same, "SAMPLE and ECHOFIELD share waveform drawing");
+        ui.setEditor(true); ui.frame(now);
+        CHECK(marker(), "original editor has position marker on ECHOFIELD");
+        app.gotoPage(SamplerApp::P_HOME); ui.frame(now);
+        CHECK(marker(), "original editor has position marker on SAMPLE");
+        // The marker is a small amber triangle at the bottom of the sample.
+        for (const auto& o : ui.ops()) if (o.type == UiOp::TRI && o.color == theme::TRACE_AMBER &&
+                o.f[1] > 200 && o.f[1] < 240) {
+            const float x = o.f[4], y = o.f[1] - 3;
+            ui.touch(0, x, y, now); ui.touch(1, x + 41.2f, y, now); ui.touch(2, x + 41.2f, y, now);
+            break;
+        }
+        CHECK(app.state(0).echo.position > 0.44f && app.state(0).echo.position < 0.46f, "editor position handle edits the granular parameter");
+        ui.setEditor(false);
+    }
+    app.setAlgo(0);
     // LFO on each target
     btn(SamplerApp::LFO);
     for (int tg = 0; tg < 4; tg++) { auto k = app.knobs(); while (app.state(0).lfoTarget < tg) k[2].step(1); enc(3, 40); run(0.2); double r = play(60, 1.2); CHECK(r > 0.002, "LFO target %d sounds (rms %.4f), lfo value %.2f", tg, r, app.status().lfoValue[0]); }
