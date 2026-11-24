@@ -89,30 +89,25 @@ static inline unsigned fm1_font_bit(const uint8_t *g, int x, int y)
 
 /* Subpixel samples smooth diagonal joins and exposed corners at larger
  * sizes. The native 6x8 cell stays pixel-sharp at scale 1. */
-static inline unsigned fm1_font_sample(const uint8_t *g, unsigned qx, unsigned qy, unsigned unit)
-{
-    const int x = (int)(qx / unit), y = (int)(qy / unit);
-    const unsigned fx = qx % unit, fy = qy % unit;
-    const int dx = fx < unit / 2 ? -1 : 1, dy = fy < unit / 2 ? -1 : 1;
-    const unsigned cx = dx < 0 ? fx : unit - 1 - fx;
-    const unsigned cy = dy < 0 ? fy : unit - 1 - fy;
-    const unsigned on = fm1_font_bit(g, x, y);
-    if (cx + cy >= unit / 2) return on;
-    const unsigned h = fm1_font_bit(g, x + dx, y);
-    const unsigned v = fm1_font_bit(g, x, y + dy);
-    if (h == v) return h;
-    return on;
-}
-
 static inline uint16_t fm1_font_pixel(const uint8_t *g, unsigned x, unsigned y,
                                       unsigned scale, uint16_t fg, uint16_t bg)
 {
-    if (scale == 1) return fm1_font_bit(g, (int)x, (int)y) ? fg : bg;
-    const unsigned unit = 4 * scale;
-    unsigned n = 0;
-    for (unsigned j = 1; j <= 3; j += 2)
-        for (unsigned i = 1; i <= 3; i += 2)
-            n += fm1_font_sample(g, x * 4 + i, y * 4 + j, unit);
+    const int col = (int)(x / scale), row = (int)(y / scale);
+    const unsigned on = fm1_font_bit(g, col, row);
+    if (scale == 1) return on ? fg : bg;
+    const unsigned fx = x % scale, fy = y % scale;
+    const int dx = fx < scale / 2 ? -1 : 1, dy = fy < scale / 2 ? -1 : 1;
+    const unsigned cx = dx < 0 ? fx : scale - 1 - fx;
+    const unsigned cy = dy < 0 ? fy : scale - 1 - fy;
+    // All four subpixel samples stay inside this base pixel. Most pixels
+    // never touch a chamfer; skip adjacent-glyph lookups for those.
+    const unsigned sum = 4 * (cx + cy), limit = 2 * scale;
+    if (sum + 2 >= limit) return on ? fg : bg;
+    const unsigned h = fm1_font_bit(g, col + dx, row);
+    const unsigned v = fm1_font_bit(g, col, row + dy);
+    if (h != v || h == on) return on ? fg : bg;
+    const unsigned corner = (sum + 2 < limit) + 2 * (sum + 4 < limit) + (sum + 6 < limit);
+    const unsigned n = on ? 4 - corner : corner;
     if (!n) return bg;
     if (n == 4) return fg;
     const unsigned m = 4 - n;
