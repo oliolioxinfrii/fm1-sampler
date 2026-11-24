@@ -87,7 +87,8 @@ public:
     void clipClearAll();                  // every loop: the looper is clean again
     void loopDouble();                    // loop twice as long, the content repeated (up to 3 min)
     void loopHalve();                     // half as long, the second half dropped
-    void scrubBegin(float fraction, bool relative = false); // relative gestures start at the actual read head
+    enum class ScrubStyle { Timeline, Reel, Digital };
+    void scrubBegin(float fraction, ScrubStyle style = ScrubStyle::Timeline);
     void scrubMove(float fraction);       // absolute timeline position
     void scrubBy(float delta);            // signed displacement in loop lengths
     void scrubEnd();                      // the finger lifts: the tape returns to the transport speed, or comes to a stop

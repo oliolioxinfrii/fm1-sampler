@@ -595,7 +595,7 @@ void SamplerUI::cassette(Rect wd) {
     hit(wd, [this, project, touchWidth](float px, float py) {
         tapeGrabbed_ = project(px, py, tapeLast_) <= touchWidth;
         tapeTracking_ = tapeGrabbed_;
-        if (tapeGrabbed_) app_.session().scrubBegin(0.f, true);
+        if (tapeGrabbed_) app_.session().scrubBegin(0.f, Session::ScrubStyle::Reel);
     }, [this, project, trackingWidth](float px, float py) {
         if (!tapeGrabbed_) return;
         float fraction = 0;
@@ -873,8 +873,24 @@ void SamplerUI::sampleArea(Rect r) {
             }
         } else text(ls.x + ls.w / 2, ls.y + ls.h / 2, T_CAPTION, WELL_DIM, "NO LOOP: PRESS REC", 1, false);
     }
-    const float lp = st_.track_has_clip[t] ? st_.clipPos[t] : (app_.loopExists() && st_.loopSamples > 0 ? (float)(st_.pos / st_.loopSamples) : 0.f);
-    if (app_.loopExists() || st_.freeRecording) rrect({ls.x + 2 + clamp01(lp) * (ls.w - 7), ls.y + 2, 3, ls.h - 4}, 0, st_.freeRecording || st_.track_clip_rec[t] ? TRACE_RED : TRACE_AMBER);
+    const bool hasLoop = app_.loopExists() && st_.loopSamples > 0;
+    const float lp = loopPos(), x0 = ls.x + 3.5f, span = ls.w - 7.f;
+    if (hasLoop || st_.freeRecording) {
+        const float hx = x0 + clamp01(lp) * span;
+        const uint32_t col = st_.freeRecording || st_.track_clip_rec[t] ? TRACE_RED : TRACE_AMBER;
+        rrect({hx - 1.5f, ls.y + 2, 3, ls.h - 4}, 0, col);
+        rrect({hx - 2.5f, ls.y + 2, 5, 4}, 0, col);
+        rrect({hx - 2.5f, ls.y + ls.h - 6, 5, 4}, 0, col);
+    }
+    // The editor uses an absolute shuttle with a lighter response than
+    // the tape deck. The sample-window handles above remain independent.
+    if (hasLoop && !app_.recordingNow()) {
+        hit(ls, [this, x0, span](float x, float) {
+            app_.scrub(0, clamp01((x - x0) / span), Session::ScrubStyle::Digital);
+        }, [this, x0, span](float x, float) {
+            app_.scrub(1, clamp01((x - x0) / span));
+        }, [this] { app_.scrub(2, 0); });
+    }
     // library row
     Rect lr{r.x, ls.y + ls.h + 12, r.w, 34};
     const auto& lib = app_.library();

@@ -211,6 +211,34 @@ int main() {
       CHECK(std::fabs(forward - 0.04f) < 0.025f, "ribbon crosses the splice forwards (%.3f)", forward);
       ui.touch(2, 120, 195, now); run(0.8);
       CHECK(!app.status().playing && std::fabs(app.status().clipPos[0] - forward) < 0.02f, "ribbon release preserves stopped transport");
+      // Compare the digital shuttle with the ordinary linear tape timeline.
+      const float delta = (float)(0.08 * sr / s.status().loopSamples);
+      s.seek(0.25f); run(0.2);
+      app.scrub(0, 0.25f); app.scrub(1, 0.25f + delta); run(0.08);
+      const float slowPos = s.status().clipPos[0];
+      app.scrub(2, 0); run(0.4);
+      s.seek(0.25f); run(0.2);
+      ui.setEditor(true); ui.frame(now);
+      // The strip is below the sample waveform in the 860 x 400 editor.
+      const float sx = 187.5f, sw = 409.f, sy = 259.f;
+      ui.touch(0, sx + sw * 0.25f, sy, now);
+      ui.touch(1, sx + sw * (0.25f + delta), sy, now); run(0.08);
+      const float fastPos = s.status().clipPos[0];
+      CHECK(fastPos > slowPos + delta * 0.15f, "editor shuttle follows faster than tape timeline (%.3f vs %.3f)", fastPos, slowPos);
+      ui.touch(1, sx + sw * 0.25f, sy, now); run(0.12);
+      CHECK(std::fabs(s.status().clipPos[0] - 0.25f) < delta * 0.1f, "editor shuttle reverses to its target");
+      ui.touch(1, sx + sw * (0.25f + delta), sy, now); run(0.025);
+      ui.touch(2, sx + sw * (0.25f + delta), sy, now); run(0.06);
+      const float stopped = s.status().clipPos[0];
+      run(0.2);
+      CHECK(!s.status().playing && std::fabs(s.status().clipPos[0] - stopped) < 0.001f, "editor shuttle stops promptly on release");
+      app.transportSet(true); run(0.6); ui.frame(now);
+      ui.touch(0, sx + sw * 0.5f, sy, now); run(0.2);
+      ui.touch(2, sx + sw * 0.5f, sy, now); run(0.12);
+      const float resumed = s.status().clipPos[0]; run(0.15);
+      const float moved = std::fmod(s.status().clipPos[0] - resumed + 1.f, 1.f);
+      CHECK(s.status().playing && moved > 0.01f, "editor shuttle resumes playback after release");
+      ui.setEditor(false);
       app.loopClear(); run(0.3); }
     {   // the first take can be drawn while it is recorded
       app.selectTrack(0); app.loopClear(); run(0.3); app.loopRecord(); run(0.1); app.playNote(60, true); run(0.8); app.playNote(60, false); run(0.3);
