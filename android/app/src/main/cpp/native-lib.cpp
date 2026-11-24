@@ -39,11 +39,16 @@ struct Engine : public oboe::AudioStreamDataCallback, public oboe::AudioStreamEr
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream* s, void* data, int32_t frames) override {
         Denormals::enableOnThisThread();
         const float* in = nullptr;
-        if (inStream && frames <= 8192) {
-            auto r = inStream->read(inMono.data(), frames, 0);   // non-blocking: whatever the mic has delivered
-            int got = r ? r.value() : 0;
-            for (int i = 0; i < frames; i++) { float v = i < got ? inMono[i] : 0.f; inStereo[2 * i] = v; inStereo[2 * i + 1] = v; }
-            in = inStereo.data();
+        {
+            // Never wait for stream management on the audio callback. The lock
+            // keeps the microphone stream alive while the nonblocking read runs.
+            std::unique_lock<std::mutex> lk(streamMtx, std::try_to_lock);
+            if (lk.owns_lock() && inStream && frames <= 8192) {
+                auto r = inStream->read(inMono.data(), frames, 0);   // non-blocking: whatever the mic has delivered
+                int got = r ? r.value() : 0;
+                for (int i = 0; i < frames; i++) { float v = i < got ? inMono[i] : 0.f; inStereo[2 * i] = v; inStereo[2 * i + 1] = v; }
+                in = inStereo.data();
+            }
         }
         session.process(static_cast<float*>(data), in, frames);
         return oboe::DataCallbackResult::Continue;
@@ -57,7 +62,8 @@ struct Engine : public oboe::AudioStreamDataCallback, public oboe::AudioStreamEr
         std::lock_guard<std::mutex> lk(streamMtx);
         deviceId = dev;
         streamDead = false; streamRaw = nullptr;
-        if (stream) { stream->close(); stream.reset(); }
+        if (stream) stream->close();
+        std::shared_ptr<oboe::AudioStream> next;
         oboe::Result r = oboe::Result::ErrorInternal;
         for (int attempt = 0; attempt < 3; attempt++) {   // exclusive low latency first, then shared, then without the device id
             oboe::AudioStreamBuilder b;
@@ -66,12 +72,13 @@ struct Engine : public oboe::AudioStreamDataCallback, public oboe::AudioStreamEr
                 ->setSampleRate(44100)->setSampleRateConversionQuality(oboe::SampleRateConversionQuality::Medium)
                 ->setUsage(oboe::Usage::Media)->setDataCallback(this)->setErrorCallback(this);
             if (dev && attempt < 2) b.setDeviceId(dev);
-            r = b.openStream(stream);
+            r = b.openStream(next);
             if (r == oboe::Result::OK) break;
             LOG("open failed (attempt %d): %s", attempt, oboe::convertToText(r));
-            stream.reset();
+            next.reset();
         }
         if (r != oboe::Result::OK) return -1;
+        stream = std::move(next);
         streamRaw = stream.get();
         stream->setBufferSizeInFrames(stream->getFramesPerBurst() * 2);
         r = stream->requestStart();
@@ -107,7 +114,9 @@ struct Engine : public oboe::AudioStreamDataCallback, public oboe::AudioStreamEr
     void stop() {
         std::lock_guard<std::mutex> lk(streamMtx);
         streamRaw = nullptr;
-        if (inStream) { inStream->stop(); inStream->close(); inStream.reset(); } if (stream) { stream->stop(); stream->close(); stream.reset(); } }
+        if (stream) { stream->stop(); stream->close(); }
+        if (inStream) { inStream->stop(); inStream->close(); inStream.reset(); }
+    }
 };
 Engine* E(jlong h) { return reinterpret_cast<Engine*>(h); }
 }  // namespace
@@ -127,7 +136,13 @@ FN(jint, startInput)(JNIEnv*, jclass, jlong h, jint dev) { return E(h)->startInp
 FN(void, stopAudio)(JNIEnv*, jclass, jlong h) { E(h)->stop(); }
 // 1 once when the system closed the output stream under us (the device list changed)
 FN(jboolean, audioDead)(JNIEnv*, jclass, jlong h) { return E(h)->streamDead.exchange(false); }
-FN(jint, xruns)(JNIEnv*, jclass, jlong h) { auto& e = *E(h); return e.stream ? e.stream->getXRunCount().value() : -1; }
+FN(jint, xruns)(JNIEnv*, jclass, jlong h) {
+    auto& e = *E(h);
+    std::lock_guard<std::mutex> lk(e.streamMtx);
+    if (!e.stream || !e.streamRaw.load()) return -1;
+    auto r = e.stream->getXRunCount();
+    return r ? r.value() : -1;
+}
 
 FN(void, midiIn)(JNIEnv* env, jclass, jlong h, jbyteArray a, jint off, jint n) {
     if (!a || off < 0 || n <= 0 || off + n > env->GetArrayLength(a)) return;

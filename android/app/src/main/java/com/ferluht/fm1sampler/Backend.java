@@ -30,7 +30,13 @@ public class Backend {
     volatile boolean running;
     Thread ticker;
     boolean audioStarted, micStarted, micWanted;
-    int usbAudioId = 0;
+    volatile int usbAudioId = 0;
+    boolean forceAudioRestart;
+    final Runnable audioRestart = () -> {
+        boolean force = forceAudioRestart;
+        forceAudioRestart = false;
+        if (running && (force || !audioStarted || findUsbAudio() != usbAudioId)) startAudio();
+    };
     /** Set by the activity: opens the system file picker (the phone UI asked for LOAD FILE FROM DISK). */
     public volatile Runnable onFileRequest;
 
@@ -67,7 +73,6 @@ public class Backend {
         }, main);
         ticker = new Thread(() -> {
             long t0 = SystemClock.uptimeMillis();
-            long lastRestart = 0;
             while (running) {
                 try {
                     MidiInputPort port = toFm1;
@@ -75,10 +80,7 @@ public class Backend {
                     send(port, out);
                     Native.uiLink(engine, toFm1 != null, usbAudioId != 0);
                     if (Native.wantFile(engine)) { Runnable r = onFileRequest; if (r != null) main.post(r); }
-                    if (Native.audioDead(engine) && SystemClock.uptimeMillis() - lastRestart > 700) {   // the system closed the stream (USB plugged / unplugged)
-                        lastRestart = SystemClock.uptimeMillis();
-                        main.postDelayed(() -> { if (running) startAudio(); }, 300);
-                    }
+                    if (Native.audioDead(engine)) main.post(() -> scheduleAudioRestart(true));
                 } catch (Throwable t) { Log.w(TAG, "tick: " + t); }
                 try { Thread.sleep(16); } catch (InterruptedException ignored) { }
             }
@@ -88,6 +90,8 @@ public class Backend {
 
     public synchronized void stop() {
         running = false;
+        main.removeCallbacks(audioRestart);
+        forceAudioRestart = false;
         try { if (ticker != null) ticker.join(300); } catch (InterruptedException ignored) { }
         Native.stopAudio(engine);
         audioStarted = micStarted = false;
@@ -109,7 +113,17 @@ public class Backend {
     void restartAudioIfUsbChanged() {
         if (!running) return;
         int id = findUsbAudio();
-        if (id != usbAudioId) { Log.i(TAG, "usb audio device changed " + usbAudioId + " -> " + id); startAudio(); }
+        if (id != usbAudioId) {
+            Log.i(TAG, "usb audio device changed " + usbAudioId + " -> " + id);
+            scheduleAudioRestart(false);
+        }
+    }
+    // Device notifications and stream errors can describe the same routing change.
+    void scheduleAudioRestart(boolean force) {
+        if (!running) return;
+        forceAudioRestart |= force;
+        main.removeCallbacks(audioRestart);
+        main.postDelayed(audioRestart, 300);
     }
     /** Call after RECORD_AUDIO was granted. The phone's own microphone, never the USB device. */
     public synchronized void startMic() {
