@@ -20,19 +20,21 @@ def masks(path):
     for scale, size in enumerate(SIZES, 1):
         width, height = 6 * scale, 8 * scale
         font = ImageFont.truetype(str(path), size)
-        ascent, descent = font.getmetrics()
         # Center the common baseline range rather than each individual
         # character; ascenders and descenders remain in their proper positions.
         boxes = [font.getbbox(chr(ch), anchor="ls") for ch in range(FIRST, LAST + 1)]
         top, bottom = min(b[1] for b in boxes), max(b[3] for b in boxes)
-        baseline = (height - (bottom - top)) // 2 - top
+        render_height = max(height, bottom - top)
+        baseline = (render_height - (bottom - top)) // 2 - top
         for ch in range(FIRST, LAST + 1):
             char = chr(ch)
-            canvas = Image.new("L", (width, height))
+            canvas = Image.new("L", (width, render_height))
             advance = font.getlength(char)
             x = (width - advance) / 2
             ImageDraw.Draw(canvas).text((x, baseline), char, font=font,
                                         anchor="ls", fill=255)
+            if render_height != height:
+                canvas = canvas.resize((width, height), Image.Resampling.LANCZOS)
             values = [(v * 15 + 127) // 255 for v in canvas.getdata()]
             i = 0
             while i < len(values):

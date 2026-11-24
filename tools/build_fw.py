@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Linux/wine port of fm1_open/sdk/Build.ps1 (-FirmwareOnly). NOT yet run against the real toolchain.
 
-usage: build_fw.py <fm1_open dir> <JL toolchain pi32 dir, e.g. ~/fm1/wine/drive_c/JL/pi32>
-Needs: wine, the JieLi 2.5.3 toolchain installed, python3. Output: <fm1_open>/build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc
+usage: build_fw.py <firmware dir> <JieLi pi32 or pi32v2 dir> [--native]
+Use --native for the Linux PI32v2 toolchain. Otherwise requires Wine.
+Output: firmware/build/dx7[-linux]/generated/FM1_OFFICIAL_OPEN.fwsc
 """
 import os, sys, subprocess, hashlib, re, glob, json
 
+if len(sys.argv) not in (3, 4) or (len(sys.argv) == 4 and sys.argv[3] != '--native'):
+    raise SystemExit(__doc__)
+native = len(sys.argv) == 4
 root = os.path.abspath(sys.argv[1]); tc = os.path.abspath(sys.argv[2])
 bin_ = os.path.join(tc, 'bin')
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -15,12 +19,27 @@ env = dict(os.environ)
 env.setdefault('WINEPREFIX', os.path.expanduser('~/fm1/wine')); env['WINEDEBUG'] = '-all'
 
 def wine(exe, args, cwd, check=True):
-    r = subprocess.run(['wine', os.path.join(bin_, exe)] + args, cwd=cwd, env=env, capture_output=True, text=True)
+    if native:
+        names = {'clang.exe': 'clang', 'pi32v2-ld.exe': 'ld', 'llvm-objcopy.exe': 'objcopy'}
+        cmd = [os.path.join(bin_, names[exe])]
+    else:
+        cmd = ['wine', os.path.join(bin_, exe)]
+    r = subprocess.run(cmd + args, cwd=cwd, env=env, capture_output=True, text=True)
     if r.stdout.strip(): print(r.stdout.strip())
     if r.stderr.strip(): print(r.stderr.strip())
     if check and r.returncode:
         raise SystemExit('%s failed (%d)' % (exe, r.returncode))
     return r
+
+if not os.path.isfile(os.path.join(root, 'app/display_font_data.inc')):
+    raise SystemExit('Generate display_font_data.inc with tools/generate_display_font.py first')
+with open(os.path.join(root, 'sdk/manifest.json')) as f:
+    manifest = json.load(f)
+for name, expected in manifest['files'].items():
+    with open(os.path.join(root, name), 'rb') as f:
+        if hashlib.sha256(f.read()).hexdigest() != expected:
+            raise SystemExit('SDK checksum mismatch: ' + name)
+print('SDK checksums passed')
 
 # ---- version / product ------------------------------------------------------------
 ver = open(os.path.join(root, 'app/version.h')).read()
@@ -28,7 +47,7 @@ release = re.search(r'#define FM1_RELEASE_VERSION "(V\d+)"', ver).group(1)
 product = re.search(r'#define FM1_UPDATE_PRODUCT "(FM-1_8\d{6})"', ver).group(1)
 print('building FM1 Open', release, product)
 
-build = os.path.join(root, 'build/dx7'); obj = os.path.join(build, 'obj'); gen = os.path.join(build, 'generated')
+build = os.path.join(root, 'build/dx7-linux' if native else 'build/dx7'); obj = os.path.join(build, 'obj'); gen = os.path.join(build, 'generated')
 os.makedirs(obj, exist_ok=True); os.makedirs(gen, exist_ok=True)
 for f in glob.glob(obj + '/*'): os.remove(f)
 
@@ -79,7 +98,7 @@ objects.append('obj/build_identity.obj')
 ld = open(os.path.join(root, 'sdk/config/linker.ld.in')).read()
 ld = ld.replace('@SBC_DECODER@', 'sbc_decoder\n').replace('@ACL_TX_EXTRA@', ' + 1024').replace('@ACL_RX_EXTRA@', ' + 4096')
 open(os.path.join(gen, 'linker'), 'w').write(ld)
-link = ['--plugin', 'C:\\JL\\pi32\\bin\\LLVMgold.dll' if False else os.path.join(bin_, 'LLVMgold.dll'), '-o', 'sdk.elf'] + objects + [
+link = ['--plugin', 'C:\\JL\\pi32\\bin\\LLVMgold.dll' if False else os.path.join(bin_, 'LLVMgold.so' if native else 'LLVMgold.dll'), '-o', 'sdk.elf'] + objects + [
     '-flto', '--plugin-opt=-pi32v2-always-use-itblock=false', '--plugin-opt=-enable-ipra=true',
     '--plugin-opt=-pi32v2-merge-max-offset=4096', '--plugin-opt=-pi32v2-enable-simd=true', '--plugin-opt=mcpu=r3',
     '--plugin-opt=-global-merge-on-const', '--plugin-opt=-inline-threshold=5', '--plugin-opt=-inline-max-allocated-size=32',
