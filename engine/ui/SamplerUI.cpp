@@ -724,7 +724,11 @@ void SamplerUI::deck(Rect r) {
     std::string title = app_.sampleLabel(t); if (title.empty()) title = "Empty";
     const int mic = app_.micState();
     if (mic == 1) title = "Listening"; else if (mic == 2) title = "Recording"; else if (mic == 3) title = "Saving";
-    text(M + 30, 34, T_TITLE, kPaper, fit(title, 254, T_TITLE), 0, true);
+    const Rect nameField{M + 28, 12, 260, 43};
+    bevel(nameField, RAISED, true);
+    text(nameField.x + 8, 34, T_TITLE, TEXT, fit(title, nameField.w - 30, T_TITLE), 0, true);
+    const float ax = nameField.x + nameField.w - 13;
+    tri(ax - 4, 32, ax + 4, 32, ax, 37, tc);
     tap({M + 24, 8, mx - M - 40, 52}, [this] { sheetOpen_ = true; sheetScroll_ = std::max(0.f, (float)app_.libraryCursor() * 34.f - 100.f); app_.refreshLibrary(); });
     {
         float lsec = 0, psec = 0;
