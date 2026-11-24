@@ -76,6 +76,13 @@ int main() {
     CHECK(app.page() == SamplerApp::P_ECHO && pageLed(SamplerApp::HOME), "ECHOFIELD keeps HOME LED");
     CHECK(app.knobs()[0].norm == 0.23f && app.knobs()[1].norm == 0.62f && app.knobs()[2].norm == 0.17f && app.knobs()[3].norm == 0.81f, "granular settings survive algorithm cycle");
     app.selectTrack(1); CHECK(app.page() == SamplerApp::P_HOME && app.state(1).echo.texture == 0.72f, "granular settings are per track");
+    { Session restored(sr); restored.setDataDir("/tmp/fm1sampler_t2");
+      SamplerApp saved(restored, [](const uint8_t*, size_t) {});
+      CHECK(std::abs(saved.state(0).echo.texture - 0.23f) < 1e-6f &&
+            std::abs(saved.state(0).echo.scatter - 0.62f) < 1e-6f &&
+            std::abs(saved.state(0).echo.drift - 0.17f) < 1e-6f &&
+            std::abs(saved.state(0).echo.evolve - 0.81f) < 1e-6f,
+            "ECHOFIELD settings survive app reconstruction"); }
     app.selectTrack(0); app.setAlgo(0);
     // LFO on each target
     btn(SamplerApp::LFO);

@@ -46,9 +46,11 @@ int main() {
             app.onSysex(m, sizeof m);
         };
         run(3000);
-        const uint16_t inactive = menu[SamplerApp::P_FX];
-        require(menu[SamplerApp::P_HOME] != inactive, "initial page marker missing");
+        const uint16_t inactive = menu[2];
+        require(menu[0] != inactive && menu[1] != inactive, "initial page marker or unavailable ECHOFIELD marker missing");
         app.setAlgo(4);
+        run(3000);
+        require(menu[1] == inactive, "ECHOFIELD marker did not become available");
         for (int page = 0; page < SamplerApp::kPages; ++page) {
             app.gotoPage(static_cast<SamplerApp::Page>(page));
             run(3000);
