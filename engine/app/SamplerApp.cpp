@@ -684,7 +684,7 @@ void SamplerApp::draw(uint32_t now) {
         const std::string lab = s_.trackLabel(track_);
         const uint32_t tc = theme::trackColor(track_);
         drawText(0, 10, 8, 3, rgb565(theme::contrastInk(tc)), rgb565(tc), std::to_string(track_ + 1), 1);
-        drawText(1, 36, 8, 3, lab.empty() ? DIM : PAPER, PANEL, lab.empty() ? "EMPTY" : lab, 9);
+        drawText(1, 36, 12, 2, lab.empty() ? DIM : PAPER, PANEL, lab.empty() ? "EMPTY" : lab, 14);
         const int stt = recNow ? 2 : st_.playing ? 1 : 0;
         static int lastSt = -1; if (stt != lastSt || needClear_) { lastSt = stt; rects_[26] = ~0ull; for (int i = 0; i < 16; i++) rects_[300 + i] = ~0ull; }
         rect(26, 212, 12, 16, 16, PANEL);

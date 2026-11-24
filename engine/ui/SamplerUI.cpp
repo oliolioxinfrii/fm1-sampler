@@ -478,8 +478,8 @@ void SamplerUI::knob(float cx, float cy, SamplerApp::Page page, int idx, bool) {
     float x, y; pt(R - 8, n, x, y);
     line(cx, cy, x, y, kPaper, 3.3f); circle(x, y, 1.65f, kPaper); circle(cx, cy, 1.65f, kPaper);
     rrect({cx - half + 4, cy + 29, 2 * half - 8, 20}, 0, WELL);
-    text(cx, cy + 39, 14.f, encoderTrace(idx), fit(p.value, 2 * half - 12, 14.f), 1, true);
-    text(cx, cy + 58, 9, col, fit(p.name, 2 * half - 4, 9), 1, true);
+    text(cx, cy + 39, T_VALUE, encoderTrace(idx), fit(p.value, 2 * half - 12, T_VALUE), 1, true);
+    text(cx, cy + 58, T_CAPTION, col, fit(p.name, 2 * half - 4, T_CAPTION), 1, true);
     Rect hr{cx - half, cy - 33, 2 * half, 99};
     hit(hr, [this, n](float, float y) { dragY_ = y; dragV_ = n; },
         [this, page, idx](float, float y) { app_.knobs(page)[(size_t)idx].set(clamp01(dragV_ + (dragY_ - y) / 110.f)); });
@@ -719,12 +719,12 @@ void SamplerUI::deck(Rect r) {
     // header: the track number (tap = next track), the sample name (tap = library), under it the position in the loop
     const uint32_t tc = trackColor(t);
     bevel({M - 5, 12, 29, 43}, tc, true);
-    text(M + 9, 34, 27, contrastInk(tc), std::to_string(t + 1), 1, true);
+    text(M + 9, 34, T_TITLE, contrastInk(tc), std::to_string(t + 1), 1, true);
     tap({M - 6, 8, 34, 52}, [this, t] { app_.selectTrack((t + 1) % SamplerApp::kTracks); });
     std::string title = app_.sampleLabel(t); if (title.empty()) title = "Empty";
     const int mic = app_.micState();
     if (mic == 1) title = "Listening"; else if (mic == 2) title = "Recording"; else if (mic == 3) title = "Saving";
-    text(M + 30, 34, 27, kPaper, fit(title, 254, 27), 0, true);
+    text(M + 30, 34, T_TITLE, kPaper, fit(title, 254, T_TITLE), 0, true);
     tap({M + 24, 8, mx - M - 40, 52}, [this] { sheetOpen_ = true; sheetScroll_ = std::max(0.f, (float)app_.libraryCursor() * 34.f - 100.f); app_.refreshLibrary(); });
     {
         float lsec = 0, psec = 0;
@@ -733,7 +733,7 @@ void SamplerUI::deck(Rect r) {
         const std::string ts = app_.toast();
         bevel({M - 4, 57, 292, 20}, WELL, true);
         const std::string info = hasLoop ? std::to_string(st_.loopBars) + "B  " + num("%.0f", st_.bpm) + " BPM  " + cnt : st_.freeRecording ? std::string(cnt) : "NO LOOP";
-        text(M + 2, 67, 11, !ts.empty() ? TRACE_GREEN : TRACE_AMBER, fit(!ts.empty() ? ts : info, 280, 11), 0, true);
+        text(M + 2, 67, T_BODY, !ts.empty() ? TRACE_GREEN : TRACE_AMBER, fit(!ts.empty() ? ts : info, 280, T_BODY), 0, true);
     }
     scope({M - 4, 86, 292, 133});
     cassette({M - 4, 86, 292, 150});
@@ -746,7 +746,7 @@ void SamplerUI::deck(Rect r) {
         bevel({cx - 26, ty - 22, 52, 44}, on ? col : SURFACE, on);
         icon(i, cx, ty - 4, on ? contrastInk(col) : col);
         static const char* names[] = {"PLAY", "STOP", "REC", "CLEAR"};
-        text(cx, ty + 15, 8, on ? contrastInk(col) : col, names[i], 1, true);
+        text(cx, ty + 15, T_CAPTION, on ? contrastInk(col) : col, names[i], 1, true);
         if (i == 2 && armed && (now_ / 400) % 2 == 0) stroke({cx - 26, ty - 22, 52, 44}, 0, RED, 2);
         tap({cx - 32, ty - 28, 64, 58}, [this, i] { if (i == 0) app_.transportSet(true); else if (i == 1) app_.transportSet(false); else if (i == 2) app_.loopRecord(); else app_.loopClearTrack(); });
     }
@@ -761,7 +761,7 @@ void SamplerUI::deck(Rect r) {
     sampleView({x0, 14, w0, 118});
     const float py = 163;
     const float tabW = std::min(19.f, std::max(10.f, (w0 - 80.f) / SamplerApp::kPages));
-    strip({x0, py - 12, w0 - SamplerApp::kPages * tabW - 4, 24}, pageColor(app_.page()), SamplerApp::pageName(app_.page()), 11);
+    strip({x0, py - 12, w0 - SamplerApp::kPages * tabW - 4, 24}, pageColor(app_.page()), SamplerApp::pageName(app_.page()), T_BODY);
     for (int i = 0; i < SamplerApp::kPages; i++) {   // the pages as notches: tap one to go there (the FM-1 buttons do the same)
         Rect nr{zr - (SamplerApp::kPages - i) * tabW, py - 14, tabW, 28};
         const bool on = kTabs[i] == app_.page(); const uint32_t col = pageColor(kTabs[i]);
