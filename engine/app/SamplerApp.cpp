@@ -454,6 +454,11 @@ void SamplerApp::onSysex(const uint8_t* m, size_t n) {
     }
     else if (m[6] == 0x42) needClear_ = true;     // the firmware had its own screen up: repaint everything
 }
+void SamplerApp::setLight(bool on) {
+    theme::apply(on);
+    FILE* f = fopen((s_.dataDir() + "/theme").c_str(), "w");
+    if (f) { fputc(on ? 'l' : 'd', f); fclose(f); }
+}
 void SamplerApp::button(int b, bool down) {
     if (b < 0 || b > REC) return;
     const bool wasHeld = (held_ & (1u << b)) != 0;
@@ -462,6 +467,11 @@ void SamplerApp::button(int b, bool down) {
     if (b == HOME) {
         if (down && !wasHeld) { homeAt_ = nowMs_; homeLong_ = false; }
         else if (!down && wasHeld && !homeLong_) page_ = P_HOME;
+        return;
+    }
+    if (b == GLO) {
+        if (down && !wasHeld) { gloAt_ = nowMs_; gloLong_ = false; }
+        else if (!down && wasHeld && !gloLong_) page_ = P_KEY;
         return;
     }
     if (b == SAVE) {   // only the LOOP page: saving and clearing loops lives in the phone's PROJECT menu
@@ -476,7 +486,6 @@ void SamplerApp::button(int b, bool down) {
     case ARP: page_ = P_ARP; break;
     case SEQ: page_ = P_SEQ; break;
     case EDIT: page_ = P_MIX; break;
-    case GLO: page_ = P_KEY; break;
     case SEL: if (!wasHeld) page_ = page_ == P_LEN ? P_TEMPO : P_LEN; break;
     case PLAY: transportPlay(); break;
     case REC: loopRecord(); break;
@@ -503,12 +512,15 @@ void SamplerApp::resetSurface() {
     repaintAt_ = 0;
     needClear_ = fwDirty_ = true;
     lastLed_ = ~0ull;
-    held_ = 0; homeLong_ = false;
+    held_ = 0; homeLong_ = gloLong_ = false;
 }
 void SamplerApp::tick(uint32_t now) {
     nowMs_ = now;
     if ((held_ & (1u << HOME)) && !homeLong_ && now - homeAt_ >= 600) {
         editor_ = !editor_; homeLong_ = true;
+    }
+    if ((held_ & (1u << GLO)) && !gloLong_ && now - gloAt_ >= 600) {
+        setLight(!theme::light); gloLong_ = true;
     }
     if (fwDirty_) { fwDirty_ = false; sysex(6, {7, (uint8_t)scale_.root, (uint8_t)(scale_.octave + 3), (uint8_t)scale_.mode}, true); }
     if (repaintAt_ && now >= repaintAt_) { repaintAt_ = 0; needClear_ = true; }

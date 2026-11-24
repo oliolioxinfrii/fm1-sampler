@@ -47,6 +47,18 @@ int main() {
       CHECK(!app.editor(), "holding HOME again returns to the deck");
       btn(SamplerApp::GLO); CHECK(app.page() == SamplerApp::P_KEY, "GLO opens key page");
       btn(SamplerApp::GLO); CHECK(app.page() == SamplerApp::P_KEY, "GLO remains on key page");
+      app.gotoPage(SamplerApp::P_FX);
+      const bool initialLight = theme::light;
+      uint8_t gd[3] = {0x91, (uint8_t)SamplerApp::GLO, 100}, gu[3] = {0x81, (uint8_t)SamplerApp::GLO, 0};
+      app.onMidi(gd, 3); run(1.0);
+      CHECK(theme::light != initialLight && app.page() == SamplerApp::P_FX, "GLO hold switches theme without changing page");
+      run(0.8);
+      CHECK(theme::light != initialLight, "GLO hold switches theme only once");
+      app.onMidi(gu, 3);
+      CHECK(app.page() == SamplerApp::P_FX, "GLO release after hold preserves page");
+      app.onMidi(gd, 3); run(1.0); app.onMidi(gu, 3);
+      CHECK(theme::light == initialLight, "second GLO hold restores theme");
+      btn(SamplerApp::GLO); CHECK(app.page() == SamplerApp::P_KEY, "short GLO still opens key page");
       btn(SamplerApp::SEL); CHECK(app.page() == SamplerApp::P_LEN, "SEL opens length page");
       btn(SamplerApp::SEL); run(0.6); CHECK(app.page() == SamplerApp::P_TEMPO && pageLed(SamplerApp::SEL) && !pageLed(SamplerApp::GLO), "SEL cycles to tempo and keeps its LED lit");
       btn(SamplerApp::SEL); CHECK(app.page() == SamplerApp::P_LEN, "SEL returns to length page");

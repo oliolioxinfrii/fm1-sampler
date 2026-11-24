@@ -45,6 +45,7 @@ public:
     Page page() const { return page_; }
     bool editor() const { return editor_; }
     void setEditor(bool on) { editor_ = on; }
+    void setLight(bool on);
     void gotoPage(Page p);
     static const char* pageName(Page p);
     int track() const { return track_; }
@@ -140,8 +141,8 @@ private:
     Session& s_;
     Send send_;
     Page page_ = P_HOME;
-    bool editor_ = false, homeLong_ = false;
-    uint32_t homeAt_ = 0;
+    bool editor_ = false, homeLong_ = false, gloLong_ = false;
+    uint32_t homeAt_ = 0, gloAt_ = 0;
     int track_ = 0;
     std::array<TrackState, kTracks> ts_;
     // global effects
