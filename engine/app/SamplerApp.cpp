@@ -8,11 +8,26 @@
 
 namespace {
 constexpr uint16_t rgb(int r, int g, int b) { return (uint16_t)((r >> 3) << 11 | (g >> 2) << 5 | (b >> 3)); }
-// The palette of the FM-1 screens: the same as the phone (theme.h), light or dark. BLACK = background, PAPER = ink.
-uint16_t BLACK = rgb(241, 239, 233), PAPER = rgb(17, 17, 17), DIM = rgb(154, 150, 140), ACCENT = rgb(255, 90, 10), BAR = rgb(214, 211, 201);
-void setPalette(bool light) {
-    if (light) { BLACK = rgb(241, 239, 233); PAPER = rgb(17, 17, 17); DIM = rgb(154, 150, 140); BAR = rgb(214, 211, 201); ACCENT = rgb(255, 90, 10); }
-    else { BLACK = rgb(0, 0, 0); PAPER = rgb(255, 255, 255); DIM = rgb(106, 106, 106); BAR = rgb(42, 42, 42); ACCENT = rgb(255, 106, 31); }
+// Convert the phone's shared theme to the display's native RGB565.
+uint16_t rgb565(uint32_t c) { return rgb((c >> 16) & 255, (c >> 8) & 255, c & 255); }
+uint16_t BLACK, PAPER, DIM, ACCENT, BAR, PANEL, WELL, GRID, TRACE, TIME, RECORD, LIVE, INK;
+void setPalette(bool) {
+    BLACK = rgb565(theme::BG); PAPER = rgb565(theme::TEXT); DIM = rgb565(theme::DIM);
+    ACCENT = rgb565(theme::ACCENT); BAR = rgb565(theme::TRACK); PANEL = rgb565(theme::SURFACE);
+    WELL = rgb565(theme::WELL); GRID = rgb565(theme::GRID); TRACE = rgb565(theme::TRACE_GREEN);
+    TIME = rgb565(theme::TRACE_AMBER); RECORD = rgb565(theme::RED); LIVE = rgb565(theme::GREEN);
+    INK = rgb565(theme::WELL_TEXT);
+}
+uint32_t pageAccent(SamplerApp::Page p) {
+    using P = SamplerApp;
+    switch (p) {
+    case P::P_FX: case P::P_LFO: return theme::VIOLET;
+    case P::P_ENV: case P::P_ARP: case P::P_KEY: return theme::GREEN;
+    case P::P_SEQ: case P::P_LEN: case P::P_TEMPO: return theme::AMBER;
+    case P::P_SAVE: return theme::RED;
+    case P::P_MIX: return theme::PINK;
+    default: return theme::ACCENT;
+    }
 }
 const char* kPage[] = {"SAMPLE", "FX", "ENVELOPE", "LFO", "ARP", "TAPE", "MIXER", "KEY", "LOOP", "LENGTH", "TEMPO"};
 const char* kAlgo[] = {"MELODIC", "ONE-SHOT", "LOOPED", "KIT/SLICE", "GRANULAR", "PAULSTRETCH"};
@@ -439,7 +454,7 @@ void SamplerApp::onMidi(const uint8_t* m, size_t n) {
     }
 }
 void SamplerApp::onSysex(const uint8_t* m, size_t n) {
-    if (n < 9 || m[1] != 0x7d || m[2] != 'D' || m[3] != 'A' || m[4] != 'W') return;
+    if (n < 8 || m[1] != 0x7d || m[2] != 'D' || m[3] != 'A' || m[4] != 'W') return;
     linkSeen_ = true;
     if (m[6] == 0x41 && n >= 12) {   // the firmware's own SEL screen / OCT buttons: its scale index is the tonality unless it is the OFF we keep it on
         if ((m[7] & 7) != 7) { scale_.scale = m[7] & 7; fwDirty_ = true; }
@@ -452,7 +467,8 @@ void SamplerApp::onSysex(const uint8_t* m, size_t n) {
         if (!haveDropBase_) fwDirty_ = true;
         dropped_ = d; haveDropBase_ = true;
     }
-    else if (m[6] == 0x42) needClear_ = true;     // the firmware had its own screen up: repaint everything
+    else if (m[6] == 0x42) { needClear_ = fwDirty_ = true; }
+    else if (m[6] == 0x43) resetSurface(); // firmware resumed after a link interruption
 }
 void SamplerApp::setLight(bool on) {
     theme::apply(on);
@@ -504,7 +520,12 @@ void SamplerApp::encoder(int i, int delta) {
 }
 
 // ---- tick ----
+void SamplerApp::releaseSurfaceKeys() {
+    for (int raw = 0; raw < 128; ++raw) if (keyCount_[raw]) keyEvent(raw, false);
+    held_ = 0; homeLong_ = gloLong_ = false;
+}
 void SamplerApp::resetSurface() {
+    releaseSurfaceKeys();
     pending_.clear(); pendingBytes_ = 0;
     haveDropBase_ = false; dropped_ = 0; linkSeen_ = false;
     gap_ = 50; lastLoss_ = lastRaise_ = nowMs_;
@@ -583,8 +604,8 @@ void SamplerApp::rect(int id, int x, int y, int w, int h, uint16_t c) {
 void SamplerApp::drawText(int id, int x, int y, int scale, uint16_t fg, uint16_t bg, const std::string& text, int width) {
     std::string t = pad(text, (size_t)width);
     SurfaceCell& c = cells_[id];
-    if (!needClear_ && c.known && c.text == t && c.fg == fg && c.bg == bg) return;
-    c.text = t; c.fg = fg; c.bg = bg; c.known = true;
+    if (!needClear_ && c.known && c.text == t && c.fg == fg && c.bg == bg && c.x == x && c.y == y && c.scale == scale) return;
+    c.text = t; c.fg = fg; c.bg = bg; c.x = x; c.y = y; c.scale = scale; c.known = true;
     std::vector<uint8_t> p; cat(p, n14(x)); cat(p, n14(y)); p.push_back((uint8_t)scale); cat(p, col(fg)); cat(p, col(bg));
     for (char ch : t) p.push_back((uint8_t)(ch & 127));
     sysex(4, p, false, 1000 + id);
@@ -650,26 +671,33 @@ void SamplerApp::draw(uint32_t now) {
     const int heroKind = mic_ == 1 || mic_ == 2 ? 6 : page_ == P_ENV ? 1 : page_ == P_LFO ? 2 : page_ == P_MIX ? 3 : page_ == P_KEY ? 4 : (page_ == P_LEN || page_ == P_TEMPO) ? 5 : 0;
     if (heroKind != lastHero) { lastHero = heroKind; needClear_ = true; }
     if (needClear_) { fwDirty_ = true; clear(BLACK); std::fill(cells_.begin(), cells_.end(), SurfaceCell()); std::fill(rects_.begin(), rects_.end(), ~0ull); }
+    if (needClear_) {
+        rect(360, 6, 5, 228, 30, PANEL);
+        rect(361, 9, 52, 222, 49, WELL);
+        for (int i = 0; i < 4; ++i) rect(362 + i, 8 + (i % 2) * 114, 121 + (i / 2) * 48, 110, 46, PANEL);
+    }
     char b[96];
     const Knobs k = knobs();
     // header: the track number and the sample name, the transport state as the same pictogram as on the phone
     const bool recNow = st_.freeRecording || st_.track_clip_rec[track_];
     {
         const std::string lab = s_.trackLabel(track_);
-        drawText(0, 12, 10, 3, ACCENT, BLACK, std::to_string(track_ + 1), 1);
-        drawText(1, 36, 10, 3, lab.empty() ? DIM : PAPER, BLACK, lab.empty() ? "EMPTY" : lab, 8);
+        const uint32_t tc = theme::trackColor(track_);
+        drawText(0, 10, 8, 3, rgb565(theme::contrastInk(tc)), rgb565(tc), std::to_string(track_ + 1), 1);
+        drawText(1, 36, 8, 3, lab.empty() ? DIM : PAPER, PANEL, lab.empty() ? "EMPTY" : lab, 9);
         const int stt = recNow ? 2 : st_.playing ? 1 : 0;
         static int lastSt = -1; if (stt != lastSt || needClear_) { lastSt = stt; rects_[26] = ~0ull; for (int i = 0; i < 16; i++) rects_[300 + i] = ~0ull; }
-        rect(26, 212, 12, 16, 16, BLACK);
+        rect(26, 212, 12, 16, 16, PANEL);
         for (int i = 0; i < 16; i++) {
             int w = 16, x = 212; uint16_t c = PAPER;
-            if (stt == 1) { w = std::max(1, (int)std::lround(16 * (1 - std::fabs(i - 7.5f) / 8))); c = ACCENT; }
-            else if (stt == 2) { const float d = (i - 7.5f) / 8; w = std::max(1, (int)std::lround(16 * std::sqrt(std::max(0.f, 1 - d * d)))); x = 212 + (16 - w) / 2; c = ACCENT; }
+            if (stt == 1) { w = std::max(1, (int)std::lround(16 * (1 - std::fabs(i - 7.5f) / 8))); c = LIVE; }
+            else if (stt == 2) { const float d = (i - 7.5f) / 8; w = std::max(1, (int)std::lround(16 * std::sqrt(std::max(0.f, 1 - d * d)))); x = 212 + (16 - w) / 2; c = RECORD; }
             rect(300 + i, x, 12 + i, w, 1, c);
         }
     }
-    drawText(20, 12, 40, 2, ACCENT, BLACK, kPage[page_], 9);
-    for (int i = 0; i < kTracks; i++) rect(8 + i, 127 + i * 13, 44, 10, 4, i == track_ ? ACCENT : BAR);
+    const uint32_t pc = pageAccent(page_);
+    drawText(20, 12, 36, 2, rgb565(theme::contrastInk(pc)), rgb565(pc), kPage[page_], 9);
+    for (int i = 0; i < kTracks; i++) rect(8 + i, 127 + i * 13, 42, 10, 6, i == track_ ? rgb565(theme::trackColor(i)) : BAR);
     hero(now, k);
     // the loop: a thin bar with the position, under it the state (mic / toast / audition, else the sample mode and the loop)
     std::string line;
@@ -680,32 +708,39 @@ void SamplerApp::draw(uint32_t now) {
     else line = std::string(kAlgo[ts_[track_].algo]) + "  " + loopText();
     const bool hot = !toast().empty() || mic_ || auditionAt_ || st_.freeRecording || recNow || st_.freeArmed;
     const bool hasLoopBar = loopAny_ && st_.loopSamples > 0;
-    const int px = (int)(st_.track_has_clip[track_] ? st_.clipPos[track_] * 216 : (hasLoopBar ? st_.pos / st_.loopSamples * 216 : 0));
-    static int lastPx = -1; if (px != lastPx) { lastPx = px; rects_[24] = ~0ull; }   // the bar is redrawn under the growing fill
-    rect(24, 12, 102, 216, 3, BAR);
-    rects_[25] = ~0ull;
-    if (hasLoopBar || recNow) rect(25, 12, 102, std::max(1, px), 3, ACCENT);
-    drawText(23, 12, 110, 1, hot ? ACCENT : DIM, BLACK, line, 38);
+    const int px = std::min(215, std::max(0, (int)(cl(st_.track_has_clip[track_] ? st_.clipPos[track_] : (hasLoopBar ? st_.pos / st_.loopSamples : 0)) * 215)));
+    const uint16_t loopCol = recNow ? rgb565(theme::TRACE_RED) : TIME;
+    if (needClear_) rect(24, 12, 103, 216, 4, WELL);
+    if (hasLoopBar || recNow) {
+        rect(25, 12, 103, std::max(1, px), 4, px ? loopCol : WELL);
+        rect(27, 12 + px, 103, 216 - px, 4, WELL);
+    } else { rect(25, 12, 103, 216, 4, WELL); rects_[27] = ~0ull; }
+    drawText(23, 12, 110, 1, hot ? RECORD : DIM, BLACK, line, 38);
     // knobs: 2 x 2: label, value, bar
     for (int i = 0; i < 4; i++) {
         const int cx = 12 + (i % 2) * 114, cy = 124 + (i / 2) * 48;
         const Knob& p = k[(size_t)i];
-        if (!p.valid) { drawText(40 + i * 2, cx, cy, 1, DIM, BLACK, "", 17); drawText(41 + i * 2, cx, cy + 10, 3, PAPER, BLACK, "", 6); rect(60 + i, cx, cy + 38, 102, 3, BLACK); rects_[70 + i] = ~0ull; rect(70 + i, cx, cy + 38, 1, 3, BLACK); continue; }
+        const uint16_t kc = rgb565(theme::encoderColor(i)), kt = rgb565(theme::encoderTrace(i));
         snprintf(b, sizeof b, "K%d %s", i + 1, p.name.c_str());
-        drawText(40 + i * 2, cx, cy, 1, i == touchedKnob_ && now - touchedAt_ < 1000 ? ACCENT : DIM, BLACK, b, 17);
-        const bool big = p.value.size() <= 6;   // up to 6 characters at scale 3, longer values at scale 2
-        const uint16_t vc = p.isChoice ? ACCENT : PAPER;
-        static int lastBig[4] = {-1, -1, -1, -1};
-        if (lastBig[i] != (int)big) { lastBig[i] = big; rects_[350 + i] = ~0ull; cells_[(size_t)(41 + i * 2)].known = false; }   // the size changed: wipe the old digits
-        rect(350 + i, cx, cy + 10, 108, 24, BLACK);
-        if (big) drawText(41 + i * 2, cx, cy + 10, 3, vc, BLACK, p.value, 6); else drawText(41 + i * 2, cx, cy + 14, 2, vc, BLACK, p.value, 9);
-        const int bw = std::max(1, (int)(cl(p.norm) * 102));
-        static int lastBw[4] = {-1, -1, -1, -1};
-        if (bw < lastBw[i] || needClear_) rects_[60 + i] = ~0ull;   // the bar shrank: paint the track again under it
-        lastBw[i] = bw;
-        rect(60 + i, cx, cy + 38, 102, 3, BAR);
-        rects_[70 + i] = ~0ull;
-        rect(70 + i, cx, cy + 38, bw, 3, ACCENT);
+        drawText(40 + i * 2, cx, cy, 1, kc, PANEL, p.valid ? b : "", 17);
+        const bool big = p.value.size() <= 6;
+        const int kind = !p.valid ? 0 : big ? 3 : 2;
+        static int lastKind[4] = {-1, -1, -1, -1};
+        if (needClear_ || lastKind[i] != kind) {
+            rects_[350 + i] = ~0ull;
+            rect(350 + i, cx, cy + 10, 108, 24, WELL);
+            cells_[41 + i * 2].known = false;
+            lastKind[i] = kind;
+        }
+        if (p.valid) {
+            if (big) drawText(41 + i * 2, cx, cy + 10, 3, kt, WELL, p.value, 6);
+            else drawText(41 + i * 2, cx, cy + 14, 2, kt, WELL, p.value, 9);
+        }
+        // Two adjacent nonoverlapping rectangles cover the entire slider.
+        // Reserve a single background pixel at full scale for the boundary.
+        const int bw = p.valid ? (int)(cl(p.norm) * 102) : 0;
+        rect(60 + i, cx, cy + 37, std::max(1, bw), 5, bw ? kc : BAR);
+        rect(70 + i, cx + std::min(101, bw), cy + 37, std::max(1, 102 - bw), 5, bw == 102 ? kc : BAR);
     }
     const char* hint = mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_LEN ? "K1 X2 OR /2  SEL AGAIN FOR TEMPO" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_TEMPO ? "K1 BARS  K2 BPM  K3 MODE" : page_ == P_KEY ? "KEYS FOLLOW THE KEY  CHANGE ANY TIME"
                      : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
@@ -723,52 +758,52 @@ void SamplerApp::hero(uint32_t now, const Knobs& k) {
         if (sig[idx] == s && !needClear_) return;
         sig[idx] = s;
         rects_[100 + idx] = ~0ull; rects_[200 + idx] = ~0ull;
-        rect(100 + idx, x, y0, w, H, BLACK);
+        rect(100 + idx, x, y0, w, H, WELL);
         rect(200 + idx, x, fromBottom ? y0 + H - h : y0 + (H - h) / 2, w, h, fg);
     };
     const TrackState& x = ts_[track_];
     if (mic_ == 1 || mic_ == 2) {   // microphone: input level against the trigger line (K1 sets it), then the growing take
         const int n = 54; const float thr = std::min(1.f, micThreshold() * 2.f), lv = std::min(1.f, st_.inputPeak * 2.f);
         if (mic_ == 1) {
-            for (int i = 0; i < n; i++) column(i, x0 + i * 4, 3, (int)(lv * H * (i < (int)(lv * n) ? 1.f : 0.f)) + 1, lv > thr ? ACCENT : PAPER, false);
-            column(57, x0 + (int)(thr * (n - 1)) * 4, 3, H, ACCENT, true);
+            for (int i = 0; i < n; i++) column(i, x0 + i * 4, 3, (int)(lv * H * (i < (int)(lv * n) ? 1.f : 0.f)) + 1, lv > thr ? rgb565(theme::TRACE_RED) : TRACE, false);
+            column(57, x0 + (int)(thr * (n - 1)) * 4, 3, H, rgb565(theme::TRACE_RED), true);
         } else {
             float live[2048]; const int ln = s_.livePeaks(live, 2048), per = std::max(1, (ln + n - 1) / n);
-            for (int i = 0; i < n; i++) { float v = 0; for (int j = i * per; j < std::min(ln, (i + 1) * per); j++) v = std::max(v, live[j]); column(i, x0 + i * 4, 3, (int)(std::min(1.f, v * 1.1f) * H) + 1, i * per < ln ? PAPER : BAR, false); }
+            for (int i = 0; i < n; i++) { float v = 0; for (int j = i * per; j < std::min(ln, (i + 1) * per); j++) v = std::max(v, live[j]); column(i, x0 + i * 4, 3, (int)(std::min(1.f, v * 1.1f) * H) + 1, i * per < ln ? TRACE : GRID, false); }
         }
     } else if (page_ == P_LEN || page_ == P_TEMPO) {   // loop length and tempo
         char b[32];
         if (st_.loopSamples > 0) snprintf(b, sizeof b, "%.0f BARS", (double)st_.loopBars); else snprintf(b, sizeof b, "NO LOOP");
-        drawText(100, x0, y0 + 8, 3, ACCENT, BLACK, b, 9);
-        snprintf(b, sizeof b, "%.1fS  %.0f BPM", st_.loopSamples / (double)SAMPLERATE, st_.bpm);
-        drawText(101, x0, y0 + 32, 2, PAPER, BLACK, st_.loopSamples > 0 ? b : "REC TO MAKE ONE", 18);
+        drawText(100, x0, y0 + 3, 3, TIME, WELL, b, 9);
+        snprintf(b, sizeof b, "%.1fS  %.0f BPM", st_.loopSamples / (double)s_.sampleRate(), st_.bpm);
+        drawText(101, x0, y0 + 28, 2, INK, WELL, st_.loopSamples > 0 ? b : "REC TO MAKE ONE", 18);
     } else if (page_ == P_ENV) {   // the ADSR curve
         const float sa = 0.08f + 0.5f * x.a, sd = 0.08f + 0.5f * x.d, ss = 0.3f, sr = 0.08f + 0.5f * x.r, tot = sa + sd + ss + sr;
         for (int i = 0; i < 54; i++) {
             const float u = (i + 0.5f) / 54.f * tot; float v;
             if (u < sa) v = u / sa; else if (u < sa + sd) v = 1.f - (1.f - x.s) * (u - sa) / sd; else if (u < sa + sd + ss) v = x.s; else v = x.s * (1.f - (u - sa - sd - ss) / sr);
-            column(i, x0 + i * 4, 3, (int)(v * H), PAPER, true);
+            column(i, x0 + i * 4, 3, (int)(v * H), rgb565(theme::encoderTrace(u < sa ? 0 : u < sa + sd ? 1 : u < sa + sd + ss ? 2 : 3)), true);
         }
     } else if (page_ == P_LFO) {   // one and a half cycles of the shape, amplitude = depth; the bar on the right is the live value
         for (int i = 0; i < 52; i++) {
             const float ph = std::fmod(i / 52.f * 1.5f * 2.f, 1.f); float v;
             v = x.lfoShape == 0 ? std::sin(6.2831853f * ph) : x.lfoShape == 1 ? (ph < 0.5f ? 4 * ph - 1 : 3 - 4 * ph) : x.lfoShape == 2 ? (ph < 0.5f ? 1.f : -1.f) : std::sin(ph * 71.f + (int)(i / 9) * 5.1f);
-            column(i, x0 + i * 4, 3, (int)((0.08f + 0.92f * x.lfoDepth * std::fabs(v)) * H), PAPER, false);
+            column(i, x0 + i * 4, 3, (int)((0.08f + 0.92f * x.lfoDepth * std::fabs(v)) * H), rgb565(theme::TRACE_VIOLET), false);
         }
-        column(56, x0 + 212, 4, (int)((0.5f + 0.5f * st_.lfoValue[track_]) * H), ACCENT, true);
+        column(56, x0 + 212, 4, (int)((0.5f + 0.5f * st_.lfoValue[track_]) * H), TRACE, true);
     } else if (page_ == P_MIX) {   // eight strips: level (bar) and the track
-        for (int i = 0; i < kTracks; i++) column(i, x0 + i * 27, 20, (int)(std::min(1.f, st_.track_peak[i] * 1.5f) * H), i == track_ ? ACCENT : PAPER, true);
+        for (int i = 0; i < kTracks; i++) column(i, x0 + i * 27, 20, (int)(std::min(1.f, st_.track_peak[i] * 1.5f) * H), rgb565(theme::trackTrace(i)), true);
     } else if (page_ == P_KEY) {   // the tonality in big letters
         char b[32]; snprintf(b, sizeof b, "%s %s", kNote[scale_.root], kScaleName[scale_.scale]);
-        drawText(100, x0, y0 + 8, 3, ACCENT, BLACK, b, 9);
+        drawText(100, x0, y0 + 3, 3, TRACE, WELL, b, 9);
         snprintf(b, sizeof b, "OCT %+d  %s", scale_.octave, scale_.mode ? "CHORD" : "KEY");
-        drawText(101, x0, y0 + 32, 2, PAPER, BLACK, b, 18);
+        drawText(101, x0, y0 + 28, 2, INK, WELL, b, 18);
     } else {   // the waveform with the playback window
         auto pk = peaks(track_, 54);
         for (int i = 0; i < 54; i++) {
             const float pos = (i + 0.5f) / 54.f; const bool in = pos >= x.start && pos <= x.end;
             const float v = i < (int)pk.size() ? pk[(size_t)i] : 0.f;
-            column(i, x0 + i * 4, 3, (int)(std::min(1.f, v * 1.1f) * H) + 1, in ? PAPER : BAR, false);
+            column(i, x0 + i * 4, 3, (int)(std::min(1.f, v * 1.1f) * H) + 1, in ? TRACE : GRID, false);
         }
     }
     (void)k; (void)now;

@@ -15,7 +15,7 @@
 #include <string>
 #include <vector>
 
-struct SurfaceCell { std::string text; uint16_t fg = 0, bg = 0; bool known = false; };
+struct SurfaceCell { std::string text; uint16_t fg = 0, bg = 0; int x = 0, y = 0, scale = 0; bool known = false; };
 
 class SamplerApp {
 public:
@@ -40,6 +40,7 @@ public:
     void onSysex(const uint8_t* msg, size_t n);
     void tick(uint32_t nowMs);                    // ~30 Hz
     void resetSurface();
+    void releaseSurfaceKeys();
 
     // ---- state for the phone UI (all of it can also be edited from there) ----
     Page page() const { return page_; }

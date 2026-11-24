@@ -8,7 +8,9 @@
 
 enum { SYSEX_MAX = 300, SYSEX_Q = 4, KEYS = 27, BUTTONS = 14, ENC = 7, KEY_BASE = 53 };
 enum { CMD_LED = 1, CMD_CLEAR = 2, CMD_RECT = 3, CMD_TEXT = 4, CMD_PING = 5, CMD_SCALE = 6, CMD_PAL = 8, CMD_BLIT = 9, CMD_BATCH = 10, CMD_NOP = 0x7e };   /* numbers are the wire format (PROTOCOL.md): keep them explicit */
-enum { EV_SCALE = 0x41, EV_REDRAW = 0x42 };
+enum { EV_SCALE = 0x41, EV_REDRAW = 0x42, EV_RECONNECT = 0x43 };
+enum { LINK_WAIT, LINK_CLEAR, LINK_ACTIVE };
+enum { LINK_TIMEOUT_MS = 3000 };
 enum { BTN_OCT_DOWN = 0, BTN_OCT_UP = 1, BTN_SCL = 3 };
 
 /* ---- SysEx receive: routing task -> control task ------------------------- */
@@ -27,7 +29,7 @@ static void barrier(void)
 /* Called from fm1_app_sysex (transfer.c) before its own filtering. */
 int ctrl_sysex(const uint8_t *m, size_t n)
 {
-    if (n < 7 || m[0] != 0xf0 || m[1] != 0x7d || m[2] != 'D' || m[3] != 'A' || m[4] != 'W') return 0;
+    if (n < 8 || m[n - 1] != 0xf7 || m[5] != 1 || m[0] != 0xf0 || m[1] != 0x7d || m[2] != 'D' || m[3] != 'A' || m[4] != 'W') return 0;
     rx_frames++; rx_bytes += (uint32_t)n;
     uint8_t slot = rx_head;
     if (n > SYSEX_MAX || rxq[slot].length) { rx_dropped++; return 1; }
@@ -203,6 +205,9 @@ static uint32_t down_keys;                 /* keys whose Note On was sent */
 static int enc_acc[ENC];
 static int knob_sent = -100;
 static uint32_t battery_at;
+static uint8_t link_state, ever_linked, reconnect_shown, redraw_pending;
+static uint32_t last_ping, lost_at, blocked_keys, blocked_buttons, prev_oct;
+static uint16_t shell_bg;
 
 static void leds_apply(const uint8_t *p, unsigned n)
 {
@@ -210,6 +215,32 @@ static void leds_apply(const uint8_t *p, unsigned n)
     uint64_t mask = 0;
     for (unsigned i = 0; i < 6; ++i) mask |= (uint64_t)(p[i] & 127U) << (7U * i);
     for (unsigned k = 0; k < 41; ++k) fm1_led_set(k, (int)(mask >> k & 1U));
+}
+
+static uint16_t rgb565(unsigned rgb)
+{
+    return (uint16_t)(((rgb >> 19) & 31U) << 11 | ((rgb >> 10) & 63U) << 5 | ((rgb >> 3) & 31U));
+}
+
+static void link_screen(int reconnect)
+{
+    const int light = (shell_bg >> 11) >= 16;
+    const uint16_t bg = shell_bg;
+    const uint16_t panel = rgb565(light ? 0xd9dce0U : 0x201c32U);
+    const uint16_t accent = rgb565(light ? 0x164bc9U : 0x49d9ffU);
+    const uint16_t ink = rgb565(light ? 0x161b29U : 0xf2f2ffU);
+    const uint16_t well = rgb565(light ? 0x17202aU : 0x090815U);
+    fm1_screen_fill(0, 0, 240, 240, bg);
+    fm1_screen_fill(8, 8, 224, 24, accent);
+    draw_text(14, 12, 2, "FM1 SAMPLER", light ? 0xffff : 0, accent);
+    fm1_screen_fill(8, 40, 224, 168, panel);
+    fm1_screen_fill(14, 46, 212, 82, well);
+    draw_text(26, 64, 2, reconnect ? "LINK LOST" : "USB MIDI", rgb565(0x49d9ffU), well);
+    fm1_screen_fill(27, 92, 62, 4, rgb565(0xbd8affU));
+    fm1_screen_fill(151, 92, 62, 4, rgb565(0xbd8affU));
+    draw_text(102, 85, 2, "X", rgb565(0xff5279U), well);
+    draw_text(18, 142, 2, reconnect ? "RECONNECT PHONE" : "CONNECT PHONE", ink, panel);
+    draw_text(18, 169, 1, "CONTROLS LOCKED UNTIL LINK", ink, panel);
 }
 
 static void screen_cmd(unsigned cmd, const uint8_t *p, unsigned len);
@@ -234,10 +265,17 @@ static void screen_frame(const uint8_t *m, unsigned n)
 static void screen_cmd(unsigned cmd, const uint8_t *p, unsigned len)
 {
     const unsigned drawing = cmd == CMD_CLEAR || cmd == CMD_RECT || cmd == CMD_TEXT || cmd == CMD_BLIT || cmd == CMD_BATCH;
-    if (drawing && overlay) return;        /* the on-device scale screen owns the display */
+    if (cmd != CMD_PING && cmd != CMD_BATCH && link_state != LINK_ACTIVE && !(cmd == CMD_CLEAR && link_state == LINK_CLEAR)) return;
+    if (drawing && overlay && cmd != CMD_BATCH) return;
     switch (cmd) {
     case CMD_LED: leds_apply(p, len); break;
-    case CMD_CLEAR: if (len >= 3) fm1_screen_fill(0, 0, FM1_SCREEN_WIDTH, FM1_SCREEN_HEIGHT, color(p)); break;
+    case CMD_CLEAR:
+        if (len >= 3) {
+            shell_bg = color(p);
+            fm1_screen_fill(0, 0, FM1_SCREEN_WIDTH, FM1_SCREEN_HEIGHT, shell_bg);
+            link_state = LINK_ACTIVE; ever_linked = 1; reconnect_shown = 0;
+        }
+        break;
     case CMD_RECT:
         if (len >= 11) {
             unsigned x = n14(p), y = n14(p + 2), w = n14(p + 4), h = n14(p + 6);
@@ -255,9 +293,15 @@ static void screen_cmd(unsigned cmd, const uint8_t *p, unsigned len)
         break;
     case CMD_PING:   /* id14 -> PONG id14 millis32 rx_frames rx_bytes rx_dropped */
         if (len >= 2) {
+            last_ping = fm1_millis();
+            if (link_state == LINK_WAIT) { link_state = LINK_CLEAR; redraw_pending = 1; }
             uint8_t r[2 + 2 + 5 + 5 + 5 + 5] = {0x40, p[0], p[1]};
             put32(r + 3, fm1_millis()); put32(r + 8, rx_frames); put32(r + 13, rx_bytes); put32(r + 18, rx_dropped);
             sysex_reply(r, 23);
+            if (redraw_pending) {
+                sysex_reply((const uint8_t[]){ever_linked ? EV_RECONNECT : EV_REDRAW}, 1);
+                redraw_pending = 0;
+            }
         }
         break;
     case CMD_PAL:    /* 16 colours x color(3): the palette of CMD_BLIT */
@@ -291,14 +335,15 @@ void groove_screen_init(void)
     memset(enc_acc, 0, sizeof enc_acc);
     memset(held_count, 0, sizeof held_count);
     knob_sent = -100; battery_at = 0; overlay = overlay_dirty = 0;
+    link_state = LINK_WAIT; ever_linked = reconnect_shown = redraw_pending = 0;
+    blocked_keys = blocked_buttons = prev_oct = 0;
+    last_ping = lost_at = fm1_millis(); shell_bg = rgb565(0x100e1aU);
     rx_head = rx_tail = 0;
     for (unsigned i = 0; i < SYSEX_Q; ++i) rxq[i].length = 0;
     fm1_controls_init();
     for (unsigned key = 0; key < 41; ++key) fm1_led_set(key, 0);
     fm1_screen_init();
-    fm1_screen_fill(0, 0, FM1_SCREEN_WIDTH, FM1_SCREEN_HEIGHT, 0);
-    draw_text(36, 90, 4, "SAMPLER", 0x07ff, 0);
-    draw_text(27, 140, 2, "WAITING FOR PHONE", 0x738e, 0);
+    link_screen(0);
 }
 
 /* A key went down: sound its notes (one in KEY mode, a triad in CHORD mode) and remember them for the Note Off. */
@@ -328,7 +373,35 @@ void groove_screen_control(void)
     struct fm1_controls c;
     fm1_controls_read(&c);
     uint32_t now = fm1_millis();
-    /* The knob is the physical MASTER: without this the output gain stays 0 and the jack is silent. */
+    const unsigned ready = fm1_midi_ready_ports() & (1U << FM1_MIDI_USB);
+    if (link_state != LINK_WAIT && (!ready || now - last_ping >= LINK_TIMEOUT_MS)) {
+        link_state = LINK_WAIT; lost_at = ready ? last_ping : now;
+        redraw_pending = 0; overlay = overlay_dirty = 0;
+        sent_buttons = down_keys = 0;
+        memset(held_count, 0, sizeof held_count);
+        memset(enc_acc, 0, sizeof enc_acc);
+    }
+
+    /* Drain incoming frames before forwarding any panel events. */
+    const unsigned was_active = link_state == LINK_ACTIVE;
+    for (unsigned i = 0; i < SYSEX_Q && rxq[rx_tail].length; ++i) {
+        if (ready) screen_frame(rxq[rx_tail].data, rxq[rx_tail].length);
+        barrier();
+        rxq[rx_tail].length = 0;
+        rx_tail = (uint8_t)((rx_tail + 1) % SYSEX_Q);
+    }
+    if (link_state != LINK_ACTIVE || !was_active) {
+        blocked_keys = c.keys; blocked_buttons = c.buttons; prev_oct = c.buttons;
+        memset(enc_acc, 0, sizeof enc_acc);
+        if (ever_linked && !reconnect_shown && now - lost_at >= LINK_TIMEOUT_MS && link_state != LINK_ACTIVE) {
+            link_screen(1); reconnect_shown = 1;
+            for (unsigned i = 0; i < 41; ++i) fm1_led_set(i, 0);
+        }
+        return;
+    }
+    blocked_keys &= c.keys; blocked_buttons &= c.buttons;
+    c.keys &= ~blocked_keys; c.buttons &= ~blocked_buttons;
+    /* The physical master controls the jack only while the phone is linked. */
     (void)groove_master_update(c.knob);
 
     /* SCL held = the on-device scale screen. */
@@ -338,7 +411,6 @@ void groove_screen_control(void)
 
     /* OCT -/+ shift the keys by an octave (a scale setting, so the phone hears the final notes). */
     {
-        static uint32_t prev_oct;
         uint32_t pressed = c.buttons & ~prev_oct & ((1U << BTN_OCT_DOWN) | (1U << BTN_OCT_UP));
         prev_oct = c.buttons;
         if (pressed & (1U << BTN_OCT_DOWN)) scale_set(sc_scale, sc_root, sc_oct - 1, sc_mode);
@@ -386,12 +458,6 @@ void groove_screen_control(void)
     /* Battery CC 24 and the scale state every 2 s, so a phone that connects later learns both. */
     if (now - battery_at >= 2000U && !midi3(0xb0, 24, (uint8_t)(c.battery >> 3))) { battery_at = now; report_scale(); }
 
-    /* Phone commands. */
-    while (rxq[rx_tail].length) {
-        screen_frame(rxq[rx_tail].data, rxq[rx_tail].length);
-        rxq[rx_tail].length = 0;
-        rx_tail = (uint8_t)((rx_tail + 1) % SYSEX_Q);
-    }
     if (overlay && overlay_dirty) { draw_overlay(); overlay_dirty = 0; }
 }
 

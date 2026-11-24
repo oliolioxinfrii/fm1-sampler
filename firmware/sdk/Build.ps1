@@ -373,7 +373,7 @@ try {
         $options = @($flags)
         # This PI32 LTO plugin can discard application definitions when a
         # native SDK object has weak defaults. Keep user entry units native.
-        if ($source -in @('app/screen.c','app/transfer.c','app/midi_router.c')) {
+        if ($source -in @('app/screen.c','app/ctrl.c','app/transfer.c','app/midi_router.c')) {
             $options += '-fno-lto'
         }
         if ($source -eq 'app/board/panel.c') { $options += @('-fno-lto','-fno-pic') }

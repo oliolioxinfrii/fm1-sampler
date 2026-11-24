@@ -22,6 +22,7 @@ drawing until SCL is released, then sends EV_REDRAW. OCT -/+ shift the octave (-
 | 40 PONG | id(2) millis(5) rx_frames(5) rx_bytes(5) rx_dropped(5) |
 | 41 SCALE | scale root octave+3 mode (also repeated every 2 s) |
 | 42 REDRAW | (none) the phone must repaint the whole screen |
+| 43 RECONNECT | (none) reset held surface keys and repaint the whole screen |
 
 ## Phone -> FM-1 SysEx `F0 7D 'D' 'A' 'W' 01 <cmd> <payload> F7`
 All values 7-bit. n14 = 2 bytes (hi,lo). color = 3 bytes, RGB565 split 2/7/7 bits. Frames <= 300 B, queue depth 4.
@@ -37,6 +38,9 @@ All values 7-bit. n14 = 2 bytes (hi,lo). color = 3 bytes, RGB565 split 2/7/7 bit
 | 09 BLIT | x n14, y n14, w n14, h n14 (w*h <= 768), tokens: colour(4)<<3 \| (run-1); run field 7 = next byte adds 8.. |
 | 0A BATCH | repeated { length n14, cmd, payload }: many small commands in one frame (the FM-1 queue counts frames, not bytes) |
 | 7E NOP | ignored, counted (throughput test) |
+
+## Link recovery
+The phone sends PING every 500 ms. The controller gates panel input until a valid PING and subsequent CLEAR arrive. USB loss gates input immediately when the SDK reports it; three seconds without the heartbeat or a restored display triggers the local reconnect screen. Encoder detents and buttons held across reconnect are discarded. The phone retains its live session; its RECONNECT handler releases held notes and requests a full repaint. No audio is generated locally.
 
 ## Audio
 Phone -> FM-1 USB audio (44.1 kHz, stereo) is mixed to the jack by stock app/audio_output.c. The stock engine stays silent (no notes reach it).

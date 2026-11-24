@@ -45,6 +45,11 @@ int main() {
         require(clears > before, "reconnection did not clear the screen");
         require(waveformRects >= 54, "reconnection did not redraw the waveform");
 
+        uint8_t reconnect[] = {0xf0, 0x7d, 'D', 'A', 'W', 1, 0x43, 0xf7};
+        before = clears;
+        app.onSysex(reconnect, sizeof reconnect);
+        run(3000);
+        require(clears > before && waveformRects >= 54, "firmware reconnect event did not redraw");
         pong(0);
         run(5000);
         before = clears;
