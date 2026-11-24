@@ -39,14 +39,17 @@ int main() {
     run(2.5);
     CHECK(app.hasSample(0) && app.hasSample(1) && app.hasSample(2) && app.hasSample(3), "four default tracks load (%s, %s, %s, %s)", app.sampleLabel(0).c_str(), app.sampleLabel(1).c_str(), app.sampleLabel(2).c_str(), app.sampleLabel(3).c_str());
     CHECK(!app.hasSample(4), "track 5 is empty");
-    { // HOME long press changes the phone view exactly once; GLO cycles pages.
+    { // HOME long press changes the phone view exactly once; SEL cycles pages.
       uint8_t hd[3] = {0x91, (uint8_t)SamplerApp::HOME, 100}, hu[3] = {0x81, (uint8_t)SamplerApp::HOME, 0};
       app.onMidi(hd, 3); run(1.0); CHECK(app.editor(), "holding HOME opens the original editor");
       run(0.8); CHECK(app.editor(), "holding HOME does not toggle repeatedly");
       app.onMidi(hu, 3); app.onMidi(hd, 3); run(1.0); app.onMidi(hu, 3);
       CHECK(!app.editor(), "holding HOME again returns to the deck");
       btn(SamplerApp::GLO); CHECK(app.page() == SamplerApp::P_KEY, "GLO opens key page");
-      btn(SamplerApp::GLO); CHECK(app.page() == SamplerApp::P_TEMPO, "GLO cycles to global tempo");
+      btn(SamplerApp::GLO); CHECK(app.page() == SamplerApp::P_KEY, "GLO remains on key page");
+      btn(SamplerApp::SEL); CHECK(app.page() == SamplerApp::P_LEN, "SEL opens length page");
+      btn(SamplerApp::SEL); run(0.6); CHECK(app.page() == SamplerApp::P_TEMPO && pageLed(SamplerApp::SEL) && !pageLed(SamplerApp::GLO), "SEL cycles to tempo and keeps its LED lit");
+      btn(SamplerApp::SEL); CHECK(app.page() == SamplerApp::P_LEN, "SEL returns to length page");
       btn(SamplerApp::HOME); CHECK(app.page() == SamplerApp::P_HOME && !app.editor(), "short HOME selects sample page only"); }
     // algorithms on track 1
     for (int a = 0; a < 6; a++) { app.setAlgo(a); run(0.3); double r = play(60, 1.0); CHECK(r > 0.003, "algorithm %s sounds (rms %.4f)", SamplerApp::algoName(a), r); }
@@ -105,7 +108,7 @@ int main() {
       app.transportPlay(); run(0.3);
       CHECK(!app.status().freeRecording && app.loopExists() && app.status().playing, "PLAY/STOP while recording ends the recording and keeps playing");
       const auto recorded = app.status();
-      btn(SamplerApp::GLO); if (app.page() != SamplerApp::P_TEMPO) btn(SamplerApp::GLO);
+      btn(SamplerApp::SEL); if (app.page() != SamplerApp::P_TEMPO) btn(SamplerApp::SEL);
       app.knobs()[0].set(1.f / 31.f); run(0.1);
       const auto twoBars = app.status();
       CHECK(twoBars.loopBars == 2 && twoBars.loopSamples == recorded.loopSamples && std::fabs(twoBars.bpm - 480.0 * sr / twoBars.loopSamples) < 0.01, "bar edit reinterprets the original recording");
