@@ -144,6 +144,22 @@ int main() {
     for(auto pg:fxPages){btn(SamplerApp::FX);CHECK(app.page()==pg,"FX menu cycle");}
     const SamplerApp::Page seqPages[]={SamplerApp::P_SEQ,SamplerApp::P_ETAPE,SamplerApp::P_EMIX,SamplerApp::P_SEQ};
     for(auto pg:seqPages){btn(SamplerApp::SEQ);CHECK(app.page()==pg,"SEQ menu cycle");}
+    app.gotoPage(SamplerApp::P_EDELAY);
+    app.knobs()[2].set(.3f);
+    app.gotoPage(SamplerApp::P_EREVERB);
+    app.knobs()[0].set(.4f);
+    app.gotoPage(SamplerApp::P_EMIX);
+    app.knobs()[2].set(.25f);app.knobs()[3].set(.4f);
+    run(.5);
+    CHECK(app.state(0).echoDelay==.3f && app.state(0).echoRoom==.4f &&
+          app.state(0).echoInsert.tape==.25f && app.state(0).echoInsert.filterMix==.4f,
+          "ECHOFIELD wet routing and inserts");
+    CHECK(app.state(1).echoDelay==0 && app.state(1).echoRoom==0 &&
+          app.state(1).echoInsert.tape==0 && app.state(1).echoInsert.filterMix==0,
+          "ECHOFIELD routing independent across tracks");
+    app.knobs()[2].set(0);app.knobs()[3].set(0);
+    app.gotoPage(SamplerApp::P_EDELAY);app.knobs()[2].set(0);
+    app.gotoPage(SamplerApp::P_EREVERB);app.knobs()[0].set(0);
     // LFO on each target
     btn(SamplerApp::LFO);
     for (int tg = 0; tg < 4; tg++) { auto k = app.knobs(); while (app.state(0).lfoTarget < tg) k[2].step(1); enc(3, 40); run(0.2); double r = play(60, 1.2); CHECK(r > 0.002, "LFO target %d sounds (rms %.4f), lfo value %.2f", tg, r, app.status().lfoValue[0]); }

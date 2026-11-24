@@ -16,7 +16,7 @@ namespace {
 float clamp01(float v) { return std::min(1.f, std::max(0.f, v)); }
 std::string num(const char* f, double v) { char b[48]; snprintf(b, sizeof b, f, v); return b; }
 const SamplerApp::Page kTabs[] = {SamplerApp::P_HOME, SamplerApp::P_ECHO, SamplerApp::P_GRAIN, SamplerApp::P_MOTION, SamplerApp::P_FX, SamplerApp::P_EFILTER, SamplerApp::P_EDELAY, SamplerApp::P_EREVERB, SamplerApp::P_ENV, SamplerApp::P_LFO, SamplerApp::P_ARP, SamplerApp::P_SEQ, SamplerApp::P_ETAPE, SamplerApp::P_EMIX, SamplerApp::P_MIX, SamplerApp::P_KEY, SamplerApp::P_SAVE, SamplerApp::P_LEN, SamplerApp::P_TEMPO};
-const char* kTabName[] = {"SAMPLE", "ECHO", "GRN", "MOT", "FX", "FILT", "DLY", "REV", "ENV", "LFO", "ARP", "TAPE", "E.TP", "E.MX", "MIX", "KEY", "LOOP", "LEN", "BPM"};
+const char* kTabName[] = {"SMP", "ECH", "GRN", "MOT", "FX", "FLT", "DLY", "REV", "ENV", "LFO", "ARP", "TAP", "ETP", "EMX", "MIX", "KEY", "LOP", "LEN", "BPM"};
 const char* kShortTab[] = {"S", "G", "g", "m", "FX", "F", "D", "R", "E", "L", "A", "T", "W", "X", "M", "K", "R", "N", "B"};
 uint32_t pageColor(SamplerApp::Page p, bool trace = false) {
     using P = SamplerApp;

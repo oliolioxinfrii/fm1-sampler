@@ -886,7 +886,7 @@ void SamplerApp::draw(uint32_t now) {
     // Page markers track menu selection, independently of the track badge.
     for (int i = 0; i < kPages; i++) {
         const Page p = menuPage(i);
-        rect(8 + i, kMenuX + i * kMenuStep, 40, kMenuWidth, 10, p == page_ ? rgb565(pc) : pageAvailable(p) ? BAR : PANEL);
+        rect(380 + i, kMenuX + i * kMenuStep, 40, kMenuWidth, 10, p == page_ ? rgb565(pc) : pageAvailable(p) ? BAR : PANEL);
     }
     hero(now, k);
     // the loop: a thin bar with the position, under it the state (mic / toast / audition, else the sample mode and the loop)
@@ -935,7 +935,7 @@ void SamplerApp::draw(uint32_t now) {
         rect(70 + i, cx + std::min(101, bw), cy + 37, std::max(1, 102 - bw), 5, bw == 102 ? kc : BAR);
     }
     const char* hint = mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_LEN ? "K1 X2 OR /2  SEL AGAIN FOR TEMPO" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_TEMPO ? "K1 BARS  K2 BPM  K3 MODE" : page_ == P_KEY ? "KEYS FOLLOW THE KEY  CHANGE ANY TIME"
-                     : page_ == P_ECHO ? "HOME AGAIN: GRAIN" : page_ == P_HOME && algo() == 4 ? "HOME AGAIN: ECHOFIELD  K3 MODE K4 POS" : page_ == P_EFILTER ? "FX AGAIN  ENABLE FILTER ON EF MIX" : page_ == P_ETAPE ? "SEQ AGAIN  ENABLE TAPE ON EF MIX" : page_ == P_EMIX || page_ == P_SEQ ? "SEQ AGAIN: NEXT TAPE/MIX PAGE" : page_ == P_GRAIN || page_ == P_MOTION ? "HOME AGAIN: NEXT GRANULAR PAGE" : fxPage(page_) ? "FX AGAIN: NEXT EFFECT PAGE" : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
+                     : page_ == P_ECHO ? "HOME AGAIN: GRAIN" : page_ == P_HOME && algo() == 4 ? "HOME AGAIN: ECHOFIELD  K3 MODE K4 POS" : page_ == P_EFILTER ? "FILTER MIX ON SEQ: EF MIX" : page_ == P_ETAPE ? "SEQ AGAIN  ENABLE TAPE ON EF MIX" : page_ == P_EMIX || page_ == P_SEQ ? "SEQ AGAIN: NEXT TAPE/MIX PAGE" : page_ == P_GRAIN || page_ == P_MOTION ? "HOME AGAIN: NEXT GRANULAR PAGE" : fxPage(page_) ? "FX AGAIN: NEXT EFFECT PAGE" : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
     drawText(90, 12, 228, 1, DIM, BLACK, hint, 38);
     needClear_ = false;
 }

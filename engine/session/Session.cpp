@@ -167,7 +167,10 @@ struct Session::Impl {
                 if (newGroup) releaseLatch(t);
                 t.latchHeld[note]=true;
                 if (!toggle) { t.latchNotes[note]=true; emitNote(t,note,vel); }
-            } else t.latchHeld[note]=false;
+            } else {
+                if (!t.latchHeld[note] && !t.latchNotes[note]) emitNote(t,note,0);
+                t.latchHeld[note]=false;
+            }
             return;
         }
         emitNote(t,note,vel);
