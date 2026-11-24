@@ -296,10 +296,15 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
         bars.set = [this](float v) { s_.setLoopBars(1 + (int)std::lround(cl(v) * 31)); };
         k[0] = bars;
         Knob bpm; bpm.name = "BPM"; bpm.valid = true;
-        bpm.value = fmt("%.1f", st_.bpm); bpm.norm = cl((st_.bpm - 30.f) / 270.f);
+        bpm.value = fmt("%.0f", st_.bpm); bpm.norm = cl((st_.bpm - 30.f) / 270.f);
         bpm.step = [this](int d) { s_.setLoopBpm((float)d, true); };
         bpm.set = [this](float v) { s_.setLoopBpm(std::round(30.f + cl(v) * 270.f)); };
         k[1] = bpm;
+        Knob mode; mode.name = "MODE"; mode.valid = true; mode.isChoice = true;
+        mode.value = st_.tempoStretch ? "STRETCH" : "TAPE"; mode.norm = st_.tempoStretch ? 1.f : 0.f;
+        mode.step = [this](int d) { s_.setTempoStretch(d > 0); };
+        mode.set = [this](float v) { s_.setTempoStretch(v >= 0.5f); };
+        k[2] = mode;
         break;
     }
     case P_LEN: {
@@ -345,6 +350,9 @@ void SamplerApp::loopRecord() {
         s_.freeRecord(track_, true);
         say(loopSrc_ ? "PLAY A KEY TO START" : "WAITING FOR SOUND");
         return;
+    }
+    if (!st_.track_clip_rec[track_] && st_.tempoStretch && std::fabs(st_.tempoRate - 1.0) > 1e-5) {
+        say("USE TAPE MODE TO OVERDUB"); return;
     }
     if (!st_.playing) s_.play(true);
     s_.clipRecord(track_, !st_.track_clip_rec[track_]);
@@ -687,7 +695,7 @@ void SamplerApp::draw(uint32_t now) {
         rects_[70 + i] = ~0ull;
         rect(70 + i, cx, cy + 38, bw, 3, ACCENT);
     }
-    const char* hint = mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_LEN ? "TURN K1: X2 OR /2  THE LOOP REPEATS" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_TEMPO ? "K1 BARS  K2 BPM  GLO FOR KEY PAGE" : page_ == P_KEY ? "PRESS GLO AGAIN FOR TEMPO"
+    const char* hint = mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_LEN ? "TURN K1: X2 OR /2  THE LOOP REPEATS" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_TEMPO ? "K1 BARS  K2 BPM  K3 MODE" : page_ == P_KEY ? "PRESS GLO AGAIN FOR TEMPO"
                      : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
     drawText(90, 12, 228, 1, DIM, BLACK, hint, 38);
     needClear_ = false;

@@ -6,6 +6,7 @@
 #include "Reverb.h"
 #include "Sampler.h"
 #include "Stretch.h"
+#include "LoopStretch.h"
 #include "TapeDelay.h"
 #include "TapeInsert.h"
 #include "Wav.h"
@@ -63,7 +64,12 @@ struct Session::Impl {
     double scrubPos = 0, scrubV = 0, scrubTarget = 0;
     float bpm = 120.f; int loopBars = 4;
     double pos = 0; int32_t loopSamples = 0;
-    std::atomic<float> tapeSpeed{1.f}; double tempoRate = 1.0, tapePos = 0;   // ONE tape pointer for every loop clip, so they never drift apart
+    std::atomic<float> tapeSpeed{1.f}; double tempoRate = 1.0, tapePos = 0;
+    bool tempoStretch = false;
+    LoopStretch stretchHeads;
+    float stretchMix = 0.f;
+    LoopStretch::Frame stretchFrames[kBlock]{};
+    float stretchGains[kBlock]{};   // ONE tape pointer for every loop clip, so they never drift apart
 
     // free take
     bool freeRec = false, freeArmed = false; int freeTrack = 0; std::vector<float> freeBuf;
@@ -88,7 +94,8 @@ struct Session::Impl {
     std::thread worker; std::mutex wMtx; std::condition_variable wCv; std::deque<std::function<void()>> jobs; bool wStop = false;
 
     // status mirror (the audio thread writes)
-    std::atomic<double> a_pos{0};
+    std::atomic<double> a_pos{0}, a_tempoRate{1.0};
+    std::atomic<bool> a_tempoStretch{false};
     std::atomic<bool> a_playing{false}, a_free{false}, a_freeArmed{false}, a_pending{false};
     std::atomic<float> a_master{0.f}, a_freeSec{0.f}, a_sampleSec{0.f}, a_inPeak{0.f}, a_bpm{120.f};
     std::atomic<uint32_t> overruns{0};
@@ -100,7 +107,7 @@ struct Session::Impl {
 
     std::vector<float> bus, tmp, sendBus[2], wet;
 
-    explicit Impl(int rate) : sr(rate), reverb(rate), delay(rate) {
+    explicit Impl(int rate) : sr(rate), reverb(rate), delay(rate), stretchHeads(rate) {
         for (int i = 0; i < kTracks; i++) tracks.emplace_back(new Track(rate));
         bus.resize(kBlock * 2); tmp.resize(kBlock * 2); wet.resize(kBlock * 2); sendBus[0].resize(kBlock * 2); sendBus[1].resize(kBlock * 2);
         for (auto& a : a_lpk) a = 0.f;
@@ -138,7 +145,7 @@ struct Session::Impl {
     // ---- free take ----
     void freeStart(int track) {
         for (auto& t : tracks) { releaseAll(*t); t->clip.clear(); t->clip.shrink_to_fit(); t->clipHas = false; t->clipRec = false; }
-        loopSamples = 0; a_loop = 0; tempoRate = 1.0;
+        loopSamples = 0; a_loop = 0; tempoRate = 1.0; a_tempoRate = 1.0; stretchHeads.reset(); stretchMix = 0.f;
         freeArmed = true; a_freeArmed = true; freeRec = false; freeTrack = track;
         freeBuf.clear(); freeBuf.reserve((size_t)sr * 2 * 30);
         freeN = 0; freeAcc = 0; freeCnt = 0;
@@ -157,7 +164,7 @@ struct Session::Impl {
         while (nb > 300.f && n > 1) { n--; nb = (float)(n * 240.0 * sr / len); }
         while (nb < 30.f && n < 32) { n++; nb = (float)(n * 240.0 * sr / len); }
         bpm = std::min(300.f, std::max(30.f, nb)); a_bpm = bpm; loopBars = n; a_bars = n;
-        loopSamples = (int32_t)std::lround(len); a_loop = loopSamples; tempoRate = 1.0;
+        loopSamples = (int32_t)std::lround(len); a_loop = loopSamples; tempoRate = 1.0; a_tempoRate = 1.0;
         Track& ft = *tracks[freeTrack];
         if (!freeBuf.empty()) { freeBuf.resize((size_t)loopSamples * 2, 0.f); ft.clip = std::move(freeBuf); ft.clipHas = true; }
         freeBuf = {};
@@ -165,7 +172,7 @@ struct Session::Impl {
     }
     void clearIfEmpty() {
         for (auto& t : tracks) if (t->clipHas) return;
-        loopSamples = 0; a_loop = 0; pos = 0; tapePos = 0; tempoRate = 1.0;
+        loopSamples = 0; a_loop = 0; pos = 0; tapePos = 0; tempoRate = 1.0; a_tempoRate = 1.0; stretchHeads.reset(); stretchMix = 0.f;
     }
 
     bool canEditTempo() const {
@@ -175,7 +182,7 @@ struct Session::Impl {
     }
     void publishTempo() {
         bpm = (float)(240.0 * loopBars * sr * tempoRate / loopSamples);
-        a_bpm = bpm; a_bars = loopBars;
+        a_bpm = bpm; a_bars = loopBars; a_tempoRate = tempoRate;
     }
 
     // ---- samples ----
@@ -300,7 +307,8 @@ struct Session::Impl {
         const int32_t p0 = (int32_t)(loopSamples > 0 && !freeRec ? tapePos : pos);
         const bool tl = playing && !freeRec && loopSamples > 0;
         updateLoopPeaks();
-        const double spd = tapeSpeed.load() * tempoRate;
+        const double pitchRate = tapeSpeed.load();
+        const double spd = pitchRate * tempoRate;
         if (!playing) { rate = 1.0; stopping = false; }
         bool ramp = false; double rateSum = n, tapeEnd = tapePos;
         const bool scrubbing = (scrubActive || scrubTail) && loopSamples > 0 && !freeRec;
@@ -347,6 +355,22 @@ struct Session::Impl {
         const bool locked = !ramp && std::fabs(spd - 1.0) < 1e-6;
         const double tb = loopSamples > 0 ? (locked ? (double)(p0 % loopSamples) : tapePos) : 0.0;
         if (loopSamples > 0) tapePos = ramp ? tapeEnd : !tl ? tapePos : locked ? (double)((p0 + n) % loopSamples) : std::fmod(tb + n * spd, (double)loopSamples);
+        // Stretch only the tempo factor; physical tape speed and scrubbing
+        // retain their varispeed character. Crossfade mode changes.
+        const bool useStretch = tl && !ramp && tempoStretch && std::fabs(tempoRate - 1.0) > 1e-5;
+        const std::vector<float>* reference = nullptr;
+        if (useStretch || stretchMix > 0.f) {
+            for (const auto& t : tracks) if (t->clipHas && t->clip.size() == (size_t)loopSamples * 2) { reference = &t->clip; break; }
+        }
+        const float mixStep = 1.f / std::max(1, sr / 50);
+        for (int i = 0; i < n; ++i) {
+            if ((tl || scrubbing) && (useStretch || stretchMix > 0.f)) {
+                const double nominal = ramp ? cpArr[(size_t)i] : LoopStretch::wrap(tb + i * spd, loopSamples);
+                stretchFrames[i] = stretchHeads.next(nominal, pitchRate, loopSamples, reference);
+                stretchMix = useStretch ? std::min(1.f, stretchMix + mixStep) : std::max(0.f, stretchMix - mixStep);
+                stretchGains[i] = stretchMix;
+            } else { stretchMix = 0.f; stretchGains[i] = 0.f; stretchHeads.reset(); }
+        }
         bool anyEvents;
         std::vector<Arp::Ev> evs;
         for (int ti = 0; ti < kTracks; ti++) {
@@ -400,10 +424,16 @@ struct Session::Impl {
                     const int32_t k = (int32_t)cp % loopSamples;
                     if (t.clipHas) {
                         auto& c = t.clip;
-                        if (locked) { bus[2 * i] += c[(size_t)2 * k]; bus[2 * i + 1] += c[(size_t)2 * k + 1]; }
-                        else {   // tape speed: its own read pointer, linear interpolation
-                            const int32_t k1 = (k + 1) % loopSamples; const float fr = (float)(cp - std::floor(cp));
-                            bus[2 * i] += (c[(size_t)2 * k] + (c[(size_t)2 * k1] - c[(size_t)2 * k]) * fr) * lg; bus[2 * i + 1] += (c[(size_t)2 * k + 1] + (c[(size_t)2 * k1 + 1] - c[(size_t)2 * k + 1]) * fr) * lg;
+                        for (int ch = 0; ch < 2; ++ch) {
+                            float value = locked ? c[2 * (size_t)k + ch] : LoopStretch::read(c, loopSamples, cp, ch);
+                            if (stretchGains[i] > 0.f) {
+                                const auto& f = stretchFrames[i];
+                                const float a = LoopStretch::read(c, loopSamples, f.a, ch);
+                                const float b = LoopStretch::read(c, loopSamples, f.b, ch);
+                                const float stretched = a + (b - a) * f.blend;
+                                value += (stretched - value) * stretchGains[i];
+                            }
+                            bus[2 * i + ch] += value * lg;
                         }
                     }
                     if (t.clipRec && !ramp) {
@@ -585,7 +615,10 @@ void Session::setRetLevel(int w, float v) { d->post([=] { d->ret[w & 1] = clampf
 
 // ---- looper ----
 void Session::freeRecord(int t, bool on) { if (t >= 0 && t < kTracks) d->post([=] { if (on) d->freeStart(t); else d->freeStop(); }); }
-void Session::clipRecord(int t, bool on) { if (t >= 0 && t < kTracks) d->post([=] { d->tracks[(size_t)t]->clipRec = on; }); }
+void Session::clipRecord(int t, bool on) { if (t >= 0 && t < kTracks) d->post([=] {
+    if (on && d->tempoStretch && std::fabs(d->tempoRate - 1.0) > 1e-5) return;
+    d->tracks[(size_t)t]->clipRec = on;
+}); }
 void Session::clipClear(int t) {
     if (t >= 0 && t < kTracks) d->post([=] { auto& tr = *d->tracks[(size_t)t]; tr.clipRec = false; tr.clip.clear(); tr.clipHas = false; d->clearIfEmpty(); });
 }
@@ -600,7 +633,7 @@ void Session::loopDouble() {
             if (t->clipHas && t->clip.size() == (size_t)L * 2) { auto& c = t->clip; c.resize((size_t)L * 4); std::copy(c.begin(), c.begin() + (size_t)L * 2, c.begin() + (size_t)L * 2); }
             else { t->clip.clear(); t->clipHas = false; }
         }
-        d->loopSamples = L * 2; d->a_loop = d->loopSamples;
+        d->loopSamples = L * 2; d->a_loop = d->loopSamples; d->stretchHeads.reset(); d->stretchMix = 0.f;
         d->loopBars = std::min(32, d->loopBars * 2); d->publishTempo();
     });
 }
@@ -609,7 +642,7 @@ void Session::loopHalve() {
         const int32_t L = d->loopSamples, h = L / 2;
         if (L <= 0 || h < d->sr / 4) return;
         for (auto& t : d->tracks) if (t->clipHas && t->clip.size() == (size_t)L * 2) t->clip.resize((size_t)h * 2);
-        d->loopSamples = h; d->a_loop = h;
+        d->loopSamples = h; d->a_loop = h; d->stretchHeads.reset(); d->stretchMix = 0.f;
         d->loopBars = std::max(1, d->loopBars / 2); d->publishTempo();
         if (d->pos >= h) d->pos = std::fmod(d->pos, (double)h);
         if (d->tapePos >= h) d->tapePos = std::fmod(d->tapePos, (double)h);
@@ -636,7 +669,7 @@ void Session::seek(float f) {
     d->post([this, f] {
         if (d->loopSamples <= 0 || d->freeRec) return;
         const double p = clampf(f, 0.f, 0.9999f) * d->loopSamples;
-        d->pos = p; d->tapePos = p;
+        d->pos = p; d->tapePos = p; d->stretchHeads.reset(); d->stretchMix = 0.f;
     });
 }
 void Session::setLoopBars(int bars, bool relative) {
@@ -650,9 +683,15 @@ void Session::setLoopBpm(float bpm, bool relative) {
     if (!std::isfinite(bpm)) return;
     d->post([this, bpm, relative] {
         if (!d->canEditTempo()) return;
-        const double target = std::max(30.f, std::min(300.f, relative ? d->bpm + bpm : bpm));
+        const double target = std::max(30.f, std::min(300.f, std::round(relative ? std::round(d->bpm) + bpm : bpm)));
         d->tempoRate = std::max(0.25, std::min(4.0, target * d->loopSamples / (240.0 * d->loopBars * d->sr)));
         d->publishTempo();
+    });
+}
+void Session::setTempoStretch(bool on) {
+    d->post([this, on] {
+        if (d->loopSamples > 0 && !d->canEditTempo()) return;
+        d->tempoStretch = on; d->a_tempoStretch = on;
     });
 }
 void Session::setLoopSpeed(float v) { d->tapeSpeed.store(clampf(v, 0.25f, 2.f)); }
@@ -751,7 +790,7 @@ int Session::sampleRate() const { return d->sr; }
 Session::Status Session::status() const {
     Status s{};
     s.playing = d->a_playing; s.pos = d->a_pos; s.loopSamples = d->a_loop;
-    s.bpm = d->a_bpm; s.loopBars = d->a_bars; s.master_peak = d->a_master; s.cpu_permille = d->a_cpu;
+    s.bpm = d->a_bpm; s.loopBars = d->a_bars; s.tempoStretch = d->a_tempoStretch; s.tempoRate = d->a_tempoRate; s.master_peak = d->a_master; s.cpu_permille = d->a_cpu;
     const uint32_t cm = d->a_clip_mask, rm = d->a_cliprec_mask;
     for (int i = 0; i < kTracks; i++) {
         s.track_peak[i] = d->tracks[(size_t)i]->peak;

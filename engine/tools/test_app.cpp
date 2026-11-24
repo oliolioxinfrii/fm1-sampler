@@ -3,6 +3,7 @@
 #include <SamplerApp.h>
 #include <SamplerUI.h>
 #include <Paul.h>
+#include <LoopStretch.h>
 #include <Common.h>
 #include <Stretch.h>
 #include <Wav.h>
@@ -117,6 +118,10 @@ int main() {
       const double advanced = std::fmod(later.clipPos[0] - edited.clipPos[0] + 1.0, 1.0);
       const double expectedAdvance = std::fmod((long)(0.1 * sr) / 256 * 256 * expectedRate / edited.loopSamples, 1.0);
       CHECK(std::fabs(advanced - expectedAdvance) < 0.02, "tempo edit changes actual tape rate (%.3f vs %.3f)", advanced, expectedAdvance);
+      app.knobs()[2].set(1.f); run(0.1);
+      CHECK(app.status().tempoStretch && app.knobs()[2].value == "STRETCH", "global pitch-preserving mode selected");
+      app.knobs()[2].set(0.f); run(0.1);
+      CHECK(!app.status().tempoStretch, "global tape mode restored");
       s.setLoopBars(recorded.loopBars); run(0.1);
       s.setLoopBpm(240.f * recorded.loopBars * sr / recorded.loopSamples); run(0.1);
       size_t m1 = all.size(); run(1.2); const double playing1 = rmsFrom(m1);
@@ -222,6 +227,22 @@ int main() {
           for (int j = 1; j < 17; ++j) reference.next(1.0, a, b);
       }
       CHECK(same, "Paulstretch high-rate FIFO matches reference"); }
+    { // Circular stretching preserves a sinusoid's pitch while the nominal head advances faster or slower.
+      const int L = sr * 2;
+      std::vector<float> clip(2 * L);
+      for (int i = 0; i < L; ++i) clip[2*i] = clip[2*i+1] = std::sin(2 * M_PI * 440 * i / sr);
+      for (double speed : {0.5, 1.5, 2.0}) {
+          LoopStretch heads(sr);
+          float last = 0; int crossings = 0;
+          for (int i = 0; i < 2 * sr; ++i) {
+              const auto f = heads.next(LoopStretch::wrap(i * speed, L), 1.0, L, &clip);
+              const float a = LoopStretch::read(clip, L, f.a, 0), b = LoopStretch::read(clip, L, f.b, 0);
+              const float v = a + (b - a) * f.blend;
+              if (i > sr && (v > 0) != (last > 0)) ++crossings;
+              last = v;
+          }
+          CHECK(std::abs(crossings / 2.0 - 440) < 12, "loop stretch %.1fx keeps tone near 440 Hz (%.1f)", speed, crossings / 2.0);
+      } }
     // DSP units: offline stretch / pitch and the slicer
     {
         const int N = 44100; std::vector<float> sine((size_t)N * 2);
