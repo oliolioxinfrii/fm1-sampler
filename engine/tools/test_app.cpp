@@ -136,8 +136,11 @@ int main() {
     CHECK(app.page()==SamplerApp::P_MOTION && app.knobs()[3].name=="LATCH","motion and latch page");
     app.knobs()[3].set(1); app.playNote(60,true); run(.4);app.playNote(60,false);run(3);
     CHECK(app.status().voiceN[0]>0,"granular latch sustains after key release");
-    app.knobs()[3].set(0);run(3);
-    CHECK(app.status().voiceN[0]==0,"disabling latch releases grains");
+    app.knobs()[3].set(0);
+    // ADSR release specifies the time to -40 dB; retirement is at -80 dB.
+    const float releaseSeconds = 5.f * app.state(0).r * app.state(0).r;
+    run(2.1 * releaseSeconds + .25);
+    CHECK(app.status().voiceN[0]==0,"disabling latch releases grains after envelope decay");
     app.setAlgo(0);
     app.gotoPage(SamplerApp::P_HOME);
     const SamplerApp::Page fxPages[]={SamplerApp::P_FX,SamplerApp::P_EFILTER,SamplerApp::P_EDELAY,SamplerApp::P_EREVERB,SamplerApp::P_FX};
