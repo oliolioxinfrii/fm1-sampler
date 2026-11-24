@@ -39,6 +39,7 @@ public:
     void onMidi(const uint8_t* msg, size_t n);
     void onSysex(const uint8_t* msg, size_t n);
     void tick(uint32_t nowMs);                    // ~30 Hz
+    void resetSurface();
 
     // ---- state for the phone UI (all of it can also be edited from there) ----
     Page page() const { return page_; }
@@ -143,7 +144,7 @@ private:
     float reverbSize_ = 0.7f, reverbDw_ = 0.35f, delayTime_ = 0.4f, delayFb_ = 0.45f;
     int loopSrc_ = 1;
     float exciter_ = 0.f, lofi_ = 0.f, wobble_ = 0.f, loopSpeed_ = 2.f / 3.f, micThr_ = 0.452f;   // loop speed is global
-    uint32_t repaintAt_ = 0; int repaintCount_ = 0;
+    uint32_t repaintAt_ = 0;
     // library
     std::vector<Entry> lib_;
     int libCursor_ = 0, loadedCursor_ = -1;
@@ -161,7 +162,7 @@ private:
     struct Frame { int key; std::vector<uint8_t> bytes; };
     std::deque<Frame> pending_; size_t pendingBytes_ = 0;
     uint32_t gap_ = 16, lastSend_ = 0, lastPing_ = 0, lastLoss_ = 0, lastRaise_ = 0, dropped_ = 0, healAt_ = 0, lastDraw_ = 0, nowMs_ = 0;
-    bool haveDropBase_ = false, needClear_ = true, needResend_ = false, linkSeen_ = false;
+    bool haveDropBase_ = false, needClear_ = true, linkSeen_ = false;
     int pingId_ = 0, healCursor_ = 0;
     uint64_t lastLed_ = ~0ull; uint32_t ledAt_ = 0;   // the firmware may light / clear a button LED by itself when it is pressed: resend after every button event and every 400 ms
     int knobMsb_ = 0;

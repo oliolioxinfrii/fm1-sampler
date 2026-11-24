@@ -425,7 +425,7 @@ void SamplerApp::onSysex(const uint8_t* m, size_t n) {
     }
     else if (m[6] == 0x40 && n >= 30) {   // PONG: frames the FM-1 had to drop
         uint32_t d = 0; for (int i = 0; i < 5; i++) d = d << 7 | (m[24 + i] & 127);
-        if (haveDropBase_ && d != dropped_) { gap_ = std::min<uint32_t>(250, gap_ * 16 / 10 + 1); lastLoss_ = nowMs_; needResend_ = true; pending_.clear(); pendingBytes_ = 0; }
+        if (haveDropBase_ && d != dropped_) { gap_ = std::min<uint32_t>(250, gap_ * 16 / 10 + 1); lastLoss_ = nowMs_; needClear_ = true; pending_.clear(); pendingBytes_ = 0; }
         if (!haveDropBase_) { needClear_ = true; repaintAt_ = nowMs_ + 1500; }   // first contact: whatever the firmware drew (its splash) goes
         if (!haveDropBase_) fwDirty_ = true;
         dropped_ = d; haveDropBase_ = true;
@@ -467,15 +467,24 @@ void SamplerApp::encoder(int i, int delta) {
 }
 
 // ---- tick ----
+void SamplerApp::resetSurface() {
+    pending_.clear(); pendingBytes_ = 0;
+    haveDropBase_ = false; dropped_ = 0; linkSeen_ = false;
+    gap_ = 50; lastLoss_ = lastRaise_ = nowMs_;
+    lastPing_ = lastSend_ = nowMs_;
+    repaintAt_ = 0;
+    needClear_ = fwDirty_ = true;
+    lastLed_ = ~0ull;
+}
 void SamplerApp::tick(uint32_t now) {
     nowMs_ = now;
     if (fwDirty_) { fwDirty_ = false; sysex(6, {7, (uint8_t)scale_.root, (uint8_t)(scale_.octave + 3), (uint8_t)scale_.mode}, true); }
-    if (repaintAt_ && now >= repaintAt_) { repaintAt_ = repaintAt_ + 2500 < now + 2500 && repaintCount_++ < 1 ? now + 2500 : 0; needClear_ = true; }
+    if (repaintAt_ && now >= repaintAt_) { repaintAt_ = 0; needClear_ = true; }
     st_ = s_.status();
     loopAny_ = false;
     for (int t = 0; t < kTracks; t++) loopAny_ |= st_.track_has_clip[t];
     if (now - lastLoss_ > 4000 && now - lastRaise_ > 2000 && gap_ > 16) { gap_ = std::max<uint32_t>(16, gap_ * 9 / 10); lastRaise_ = now; }
-    if (now - lastPing_ >= 500) { lastPing_ = now; pingId_ = (pingId_ + 1) & 0x3fff; sysex(5, n14(pingId_)); }
+    if (now - lastPing_ >= 500) { lastPing_ = now; pingId_ = (pingId_ + 1) & 0x3fff; sysex(5, n14(pingId_), true, 901); }
     // audition: the cursor rested, load the entry on the selected track and play it
     if (auditionAt_ && now >= auditionAt_) loadEntry(libCursor_);
     if (st_.sampleVersion != lastSampleVersion_) {   // a sample landed on a track: give it this track's settings
@@ -544,6 +553,8 @@ void SamplerApp::flush(uint32_t now) {
     int n = 0;
     while (!pending_.empty()) {
         const auto& f = pending_.front().bytes;
+        // A full-screen fill can be expensive; send it as its own frame.
+        if (f[6] == 2) break;
         const size_t sub = f.size() - 7;
         if (n > 0 && (batch.size() + 2 + sub + 1 > 290 || sub > 127)) break;
         if (n == 0 && sub > 127) break;
@@ -594,8 +605,7 @@ void SamplerApp::draw(uint32_t now) {
     static int lastHero = -1;
     const int heroKind = mic_ == 1 || mic_ == 2 ? 6 : page_ == P_ENV ? 1 : page_ == P_LFO ? 2 : page_ == P_MIX ? 3 : page_ == P_KEY ? 4 : page_ == P_LEN ? 5 : 0;
     if (heroKind != lastHero) { lastHero = heroKind; needClear_ = true; }
-    if (needClear_) { fwDirty_ = true; clear(BLACK); std::fill(cells_.begin(), cells_.end(), SurfaceCell()); std::fill(rects_.begin(), rects_.end(), ~0ull); needResend_ = false; }
-    else if (needResend_) { needResend_ = false; std::fill(cells_.begin(), cells_.end(), SurfaceCell()); std::fill(rects_.begin(), rects_.end(), ~0ull); }
+    if (needClear_) { fwDirty_ = true; clear(BLACK); std::fill(cells_.begin(), cells_.end(), SurfaceCell()); std::fill(rects_.begin(), rects_.end(), ~0ull); }
     char b[96];
     const Knobs k = knobs();
     // header: the track number and the sample name, the transport state as the same pictogram as on the phone
@@ -662,7 +672,7 @@ void SamplerApp::draw(uint32_t now) {
 void SamplerApp::hero(uint32_t now, const Knobs& k) {
     const int x0 = 12, y0 = 54, W = 216, H = 46;
     // one column: background (cleared only when the height changed) + bar
-    static uint32_t sig[100]; if (needClear_ || needResend_) for (auto& s : sig) s = ~0u;
+    static uint32_t sig[100]; if (needClear_) for (auto& s : sig) s = ~0u;
     auto column = [&](int idx, int x, int w, int h, uint16_t fg, bool fromBottom) {
         h = std::min(H, std::max(1, h));
         const uint32_t s = (uint32_t)h | (uint32_t)fg << 8 | (uint32_t)w << 24;

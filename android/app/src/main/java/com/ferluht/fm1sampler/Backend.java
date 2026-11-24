@@ -70,8 +70,9 @@ public class Backend {
             long lastRestart = 0;
             while (running) {
                 try {
+                    MidiInputPort port = toFm1;
                     byte[] out = Native.tick(engine, SystemClock.uptimeMillis() - t0);
-                    send(out);
+                    send(port, out);
                     Native.uiLink(engine, toFm1 != null, usbAudioId != 0);
                     if (Native.wantFile(engine)) { Runnable r = onFileRequest; if (r != null) main.post(r); }
                     if (Native.audioDead(engine) && SystemClock.uptimeMillis() - lastRestart > 700) {   // the system closed the stream (USB plugged / unplugged)
@@ -139,10 +140,12 @@ public class Backend {
                     MidiInputPort in = d.openInputPort(0);
                     MidiOutputPort outp = d.openOutputPort(0);
                     if (in == null) { d.close(); return; }
-                    device = d; fromFm1 = outp; toFm1 = in;
+                    device = d; fromFm1 = outp;
                     if (outp != null) outp.connect(new MidiReceiver() {
                         @Override public void onSend(byte[] data, int off, int count, long ts) { try { Native.midiIn(engine, data, off, count); } catch (Throwable t) { Log.w(TAG, "midiIn: " + t); } }
                     });
+                    Native.surfaceConnected(engine);
+                    toFm1 = in;
                     Log.i(TAG, "FM-1 MIDI connected");
                 } catch (Throwable t) { Log.w(TAG, "open ports: " + t); }
             }
@@ -154,9 +157,8 @@ public class Backend {
         try { if (device != null) device.close(); } catch (Exception ignored) { }
         fromFm1 = null; toFm1 = null; device = null;
     }
-    void send(byte[] b) {
-        MidiInputPort port = toFm1;
-        if (port == null || b.length == 0) return;
+    void send(MidiInputPort port, byte[] b) {
+        if (port == null || port != toFm1 || b.length == 0) return;
         int s = 0;
         for (int i = 0; i < b.length; i++) if ((b[i] & 0xff) == 0xf7) {
             try { port.send(b, s, i - s + 1); } catch (Exception e) { Log.w(TAG, "send: " + e); return; }

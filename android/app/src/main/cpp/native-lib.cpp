@@ -153,6 +153,12 @@ FN(void, midiIn)(JNIEnv* env, jclass, jlong h, jbyteArray a, jint off, jint n) {
     }
     env->ReleaseByteArrayElements(a, d, JNI_ABORT);
 }
+FN(void, surfaceConnected)(JNIEnv*, jclass, jlong h) {
+    auto& e = *E(h);
+    std::lock_guard<std::mutex> l(e.surfaceMtx);
+    e.out.clear(); e.sx.clear(); e.inSx = false; e.msgLen = 0;
+    e.app->resetSurface();
+}
 FN(jbyteArray, tick)(JNIEnv* env, jclass, jlong h, jlong nowMs) {
     auto& e = *E(h);
     std::lock_guard<std::mutex> l(e.surfaceMtx);

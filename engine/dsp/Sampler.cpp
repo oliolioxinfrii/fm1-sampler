@@ -206,7 +206,8 @@ int Sampler::voicePositions(float* out, int maxN, float* level) const {
         if (!v.on || n >= maxN) continue;
         if (v.mode == GRAIN) {
             for (auto& g : v.grain) if (g.on && n < maxN) {
-                if (level) level[n] = v.env.level * std::sin(3.14159265f * std::min(1.f, (float)g.age / (float)std::max(1, g.len))); out[n++] = originalPosOf(v, g.pos);
+                if (level) level[n] = v.env.level * std::sin(3.14159265f * std::min(1.f, (float)g.age / (float)std::max(1, g.len)));
+                out[n++] = originalPosOf(v, g.pos);
             }
         } else { if (level) level[n] = v.env.level * v.vel; out[n++] = originalPosOf(v, v.pos); }
     }
