@@ -163,13 +163,51 @@ void SamplerUI::topBar(Rect r) {
 // ---- cassette deck ----
 // The deck shares desktop controls with the editor; its diagrams occupy recessed signal displays.
 
-// A wheel of the tape loop: a hub ring with three spokes, turned by `ang`.
+// The reel flange stays inside the ribbon's contact radius. Cutouts,
+// index marks and the central spindle rotate together with the tape.
 void SamplerUI::reel(float cx, float cy, float r, float ang) {
-    const float h = r * 0.45f;
-    circle(cx, cy, h + 3.5f, GRID);
-    circle(cx, cy, h + 1.4f, WELL_TEXT);
-    circle(cx, cy, h - 1.4f, WELL);
-    for (int k = 0; k < 3; k++) { const float a = ang + k * 2 * kPi / 3; line(cx + h * std::cos(a), cy + h * std::sin(a), cx + h * 0.35f * std::cos(a), cy + h * 0.35f * std::sin(a), WELL_TEXT, 2.7f); }
+    const uint32_t metal = theme::light ? 0xff485362 : 0xff39304c;
+    const uint32_t lip = theme::light ? 0xff8b9295 : 0xff807194;
+    const uint32_t winding = theme::light ? 0xff605245 : 0xff574050;
+    const float edge = r - 3.f;
+    circle(cx, cy, edge, lip);
+    circle(cx, cy, edge - 1.2f, metal);
+    circle(cx, cy, r * 0.79f, GRID);
+    circle(cx, cy, r * 0.75f, winding);
+    circle(cx, cy, r * 0.69f, metal);
+
+    auto point = [&](float rad, float a, float& x, float& y) {
+        x = cx + rad * std::cos(a); y = cy + rad * std::sin(a);
+    };
+    // Three recessed, tapered openings in the rotating flange.
+    for (int k = 0; k < 3; ++k) {
+        const float a = ang + k * 2 * kPi / 3;
+        float x0, y0, x1, y1, x2, y2, x3, y3;
+        point(r * 0.30f, a - 0.27f, x0, y0);
+        point(r * 0.64f, a - 0.45f, x1, y1);
+        point(r * 0.64f, a + 0.45f, x2, y2);
+        point(r * 0.30f, a + 0.27f, x3, y3);
+        tri(x0, y0, x1, y1, x2, y2, WELL);
+        tri(x0, y0, x2, y2, x3, y3, WELL);
+        line(x1, y1, x2, y2, k == 0 ? TRACE_BLUE : lip, 1.3f);
+        line(x0, y0, x1, y1, GRID, 1.0f);
+    }
+    // Short index marks on the flange make rotation visible even on the
+    // smaller reel, without suggesting additional touch targets.
+    for (int k = 0; k < 12; ++k) {
+        const float a = ang + k * 2 * kPi / 12;
+        float x0, y0, x1, y1;
+        point(r * 0.83f, a, x0, y0);
+        point(r * 0.88f, a, x1, y1);
+        line(x0, y0, x1, y1, k == 0 ? TRACE_AMBER : lip, k == 0 ? 1.8f : 0.9f);
+    }
+    circle(cx, cy, r * 0.24f, lip);
+    circle(cx, cy, r * 0.20f, WELL_TEXT);
+    circle(cx, cy, r * 0.13f, metal);
+    float x0, y0, x1, y1;
+    point(r * 0.075f, ang, x0, y0);
+    point(r * 0.075f, ang + kPi, x1, y1);
+    line(x0, y0, x1, y1, WELL, 1.5f);
 }
 
 // The schematic of the active page, drawn where the sample is: ink lines (2.7), a dim tone for what is secondary, orange for what is live.
@@ -453,9 +491,8 @@ void SamplerUI::cassette(Rect wd) {
     const bool hasLoop = app_.loopExists() && st_.loopSamples > 0;
     const bool recNow = st_.freeRecording || st_.track_clip_rec[t];
     float lp = hasLoop ? loopPos() : 0.f;
-    // the tape loop: one closed ribbon round two rollers; it runs once round per loop, the orange dot is the splice = the start of the loop
-    // The ribbon runs over two wheels (a big and a small one) and one roller inside the loop that pushes it out into a bend.
-    // Between two posts it is a common tangent, round a post an arc: the path is built from those.
+    // One closed ribbon around two reels. Common tangents and circular
+    // arcs define both the drawing and the touch projection.
     struct Post { float x, y, r; int s; };   // s = -1: the post is inside the ribbon (it wraps round it), +1: outside
     const float W0 = wd.w, H0 = wd.h;
     const Post posts[2] = {
@@ -496,16 +533,25 @@ void SamplerUI::cassette(Rect wd) {
     };
     const float turn = hasLoop ? lp : 0.f;   // without a loop the tape stands still
     const uint32_t tapeCol = recNow ? TRACE_RED : hasLoop ? TRACE_AMBER : WELL_DIM;
-    for (const Seg& g : segs) {
-        if (!g.arc) { line(g.x0, g.y0, g.x1, g.y1, tapeCol, 2.7f); continue; }
-        const int n = std::max(2, (int)(std::fabs(g.da) / 0.2f));
-        for (int i = 0; i < n; i++) {
-            const float u0 = g.a0 + g.da * i / n, u1 = g.a0 + g.da * (i + 1) / n;
-            line(g.cx + g.r * std::cos(u0), g.cy + g.r * std::sin(u0), g.cx + g.r * std::cos(u1), g.cy + g.r * std::sin(u1), tapeCol, 2.7f);
-        }
-    }
     const int t0 = std::max(1, (int)std::lround(per / (2 * kPi * posts[0].r))), t1 = std::max(1, (int)std::lround(per / (2 * kPi * posts[1].r)));
-    reel(posts[0].x, posts[0].y, posts[0].r, -turn * 2 * kPi * t0); reel(posts[1].x, posts[1].y, posts[1].r, -turn * 2 * kPi * t1);
+    reel(posts[0].x, posts[0].y, posts[0].r, -turn * 2 * kPi * t0);
+    reel(posts[1].x, posts[1].y, posts[1].r, -turn * 2 * kPi * t1);
+    // Draw both edges of the ribbon on the original centerline, so the
+    // splice and the scrub projection still coincide with the visible tape.
+    const uint32_t tapeBody = theme::light ? 0xff57453c : 0xff60413b;
+    auto ribbon = [&](uint32_t color, float width) {
+        for (const Seg& g : segs) {
+            if (!g.arc) { line(g.x0, g.y0, g.x1, g.y1, color, width); continue; }
+            const int n = std::max(2, (int)std::ceil(std::fabs(g.da) / 0.12f));
+            for (int i = 0; i < n; i++) {
+                const float u0 = g.a0 + g.da * i / n, u1 = g.a0 + g.da * (i + 1) / n;
+                line(g.cx + g.r * std::cos(u0), g.cy + g.r * std::sin(u0),
+                     g.cx + g.r * std::cos(u1), g.cy + g.r * std::sin(u1), color, width);
+            }
+        }
+    };
+    ribbon(tapeBody, 5.0f);
+    ribbon(tapeCol, 2.0f);
     float x, y; at(turn * per, x, y);
     circle(x, y, 8, WELL); circle(x, y, 5.5f, recNow ? TRACE_RED : TRACE_GREEN);
     if (!hasLoop || recNow) return;
