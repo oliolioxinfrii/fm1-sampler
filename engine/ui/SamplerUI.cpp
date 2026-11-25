@@ -147,6 +147,8 @@ void SamplerUI::button(Rect r, const std::string& label, bool on, std::function<
 }
 
 // ---- frame ----
+#include "StudyGraphic.inc"
+
 const std::vector<UiOp>& SamplerUI::surfaceGraphic(uint32_t now) {
     using P=SamplerApp;
     now_=now;st_=app_.status();syncColors();
@@ -159,6 +161,7 @@ const std::vector<UiOp>& SamplerUI::surfaceGraphic(uint32_t now) {
     constexpr float top=22,bot=92,cy=57;
     const uint32_t ink=pageColor(pg,true);
     rrect({0,top,432,bot-top},0,WELL);
+    if(studyGraphic({0,top,432,bot-top},pg,true))return ops_;
     auto path=[&](const std::vector<std::pair<float,float>>& pts,uint32_t c,float width=3.f){
         for(size_t i=1;i<pts.size();++i)line(pts[i-1].first,pts[i-1].second,pts[i].first,pts[i].second,c,width);
     };
@@ -449,6 +452,7 @@ void SamplerUI::pageView(Rect r) {
     scope(panel);
     const Rect w{panel.x + 4, panel.y + 4, panel.w - 8, panel.h - 8};
     clip(w);
+    if(studyGraphic(w,pg,false)) { endClip(); strip({r.x,r.y,r.w,18},pageColor(pg),SamplerApp::pageName(pg),11); return; }
     const uint32_t signal = pageColor(pg, true);
     const float cy = w.y + w.h / 2, base = w.y + w.h - 4, H = w.h - 10;
     auto vbar = [&](float x, float y0, float y1, uint32_t c, float wd) { rrect({x - wd / 2, std::min(y0, y1), wd, std::max(1.f, std::fabs(y1 - y0))}, 0, c); };
@@ -987,8 +991,8 @@ void SamplerUI::sampleView(Rect r) {
     const int t = app_.track();
     const auto ts = app_.state(t);
     const int micS = app_.micState();
-    const bool echo = app_.page() == SamplerApp::P_ECHO || app_.page() == SamplerApp::P_GRAIN || app_.page() == SamplerApp::P_MOTION;
-    if (app_.page() != SamplerApp::P_HOME && !echo && micS == 0) { pageView(r); return; }
+
+    if (app_.page() != SamplerApp::P_HOME && micS == 0) { pageView(r); return; }
     const uint32_t header = micS ? RED : echo ? VIOLET : ACCENT;
     const std::string mode = ts.algo == 4 ? std::string("GRANULAR / ") + SamplerApp::echoModeName(ts.echo.mode) : SamplerApp::algoName(ts.algo);
     const float headerSpace = st_.voiceN[t] > 0 ? (ts.algo <= 1 ? 100.f : 80.f) : ts.algo <= 1 ? 30.f : 10.f;
@@ -1120,30 +1124,26 @@ void SamplerUI::echoPosition(Rect w, float inset) {
         [](float, float) {}, move);
 }
 
-// A knob of the app (drag up / down to turn): a ring, an orange arc for the value, a pointer, the value under it and its name.
+// Four horizontal parameter controls; choice/action parameters still use the native setters.
 void SamplerUI::knob(float cx, float cy, SamplerApp::Page page, int idx, bool) {
-    auto k = app_.knobs(page);
-    const auto& p = k[(size_t)idx];
-    if (!p.valid) return;
-    const float half = std::max(12.f, std::min(43.f, (W_ - 24 - 440) / 8 - 3));
-    const float R = std::min(25.f, half - 5), n = clamp01(p.norm);
-    const uint32_t col = encoderColor(idx);
-    bevel({cx - half, cy - 33, 2 * half, 99}, SURFACE);
-    auto pt = [&](float rad, float u, float& x, float& y) { const float a = (-135.f + u * 270.f) * kPi / 180; x = cx + std::sin(a) * rad; y = cy - std::cos(a) * rad; };
-    auto arc = [&](float u1, uint32_t c, float w) {
-        const int N = std::max(1, (int)std::ceil(u1 * 28)); float x0, y0; pt(R, 0, x0, y0); circle(x0, y0, w / 2, c);
-        for (int i = 1; i <= N; i++) { float x1, y1; pt(R, u1 * i / N, x1, y1); line(x0, y0, x1, y1, c, w); circle(x1, y1, w / 2, c); x0 = x1; y0 = y1; }
-    };
-    arc(1.f, kLine, 2.7f);
-    if (n > 0.004f) arc(n, col, 4.f);
-    float x, y; pt(R - 8, n, x, y);
-    line(cx, cy, x, y, kPaper, 3.3f); circle(x, y, 1.65f, kPaper); circle(cx, cy, 1.65f, kPaper);
-    rrect({cx - half + 4, cy + 29, 2 * half - 8, 20}, 0, WELL);
-    text(cx, cy + 39, T_VALUE, encoderTrace(idx), fit(p.value, 2 * half - 12, T_VALUE), 1, true);
-    text(cx, cy + 58, T_CAPTION, col, fit(p.name, 2 * half - 4, T_CAPTION), 1, true);
-    Rect hr{cx - half, cy - 33, 2 * half, 99};
-    hit(hr, [this, n](float, float y) { dragY_ = y; dragV_ = n; },
-        [this, page, idx](float, float y) { app_.knobs(page)[(size_t)idx].set(clamp01(dragV_ + (dragY_ - y) / 110.f)); });
+    const auto p=app_.knobs(page)[idx];
+    if(!p.valid)return;
+    const float half=std::max(12.f,(W_-24-440)/8-3);
+    const uint32_t c=encoderTrace(idx);
+    const Rect cell{cx-half,cy-20,2*half,48};
+    bevel(cell,SURFACE);
+    text(cx,cy-12,T_CAPTION,encoderColor(idx),fit(p.name,cell.w-6,T_CAPTION),1,true);
+    text(cx,cy+1,12,TEXT,fit(p.value,cell.w-6,12),1,true);
+    const Rect track{cell.x+5,cy+11,cell.w-10,11};
+    rrect(track,0,WELL);stroke(track,0,GRID,1);
+    rrect({track.x+1,track.y+1,(track.w-2)*clamp01(p.norm),track.h-2},0,c);
+    using P=SamplerApp;
+    if(page==P::P_LEN&&idx==3)return;
+    if(page==P::P_LEN&&(idx==1||idx==2)){tap(cell,[this,page,idx]{auto q=app_.knobs(page)[idx];if(q.step)q.step(1);});return;}
+    if(page==P::P_SAVE&&idx==0){tap(cell,[this,page,idx]{auto q=app_.knobs(page)[idx];if(q.step)q.step(q.norm>.5f?-1:1);});return;}
+    auto change=[this,page,idx,track](float x,float){auto q=app_.knobs(page)[idx];if(q.set)q.set(clamp01((x-track.x)/track.w));};
+    if(page==P::P_LEN&&idx==0)hit(cell,change);
+    else hit(cell,change,change);
 }
 
 // The tape loop: one closed ribbon over two wheels; it runs once round per loop. Without a loop it stands still.
@@ -1284,6 +1284,12 @@ void SamplerUI::timeline(Rect r) {
     scope(r, false);
     const int t = app_.track();
     const float tx = r.x + 3, tw = r.w - 6, rh = 18, wy = r.y + rh + 4, wh = r.h - rh - 8;
+    auto phosphor=[&](float x,float bw,float cy,float v,uint32_t c){
+        if(v<.005f)return;
+        const float h=std::max(.5f,v*(wh/2-3));
+        for(int j=0;j<4;++j){const float q=1.f-j*.23f;
+            rrect({x,cy-h*q,std::max(.5f,bw+.10f),2*h*q},0,withAlpha(c,58+j*58));}
+    };
     const bool hasLoop = app_.loopExists() && st_.loopSamples > 0;
     const float sr = (float)app_.session().sampleRate(), loopSec = hasLoop ? (float)(st_.loopSamples / sr) : 0.f;
     if (!hasLoop) {
@@ -1305,7 +1311,7 @@ void SamplerUI::timeline(Rect r) {
         for (int a = 0; a < cnt; a++) {
             float v = 0; for (int j = a * per; j < std::min(n, (a + 1) * per); j++) v = std::max(v, fp[j]);
             v = std::min(1.f, v / mx);
-            rrect({tx + a * bw, cy - std::max(0.5f, v * (wh / 2 - 3)), std::max(1.f, bw * 0.62f), std::max(1.f, v * (wh - 6))}, 0, TRACE_RED);
+            phosphor(tx+a*bw,bw,cy,v,TRACE_RED);
         }
         const float hx = tx + clamp01(n * 0.01f / secs) * tw;
         rrect({hx - 1, r.y + 2, 2.2f, r.h - 4}, 0, TRACE_RED);
@@ -1323,8 +1329,8 @@ void SamplerUI::timeline(Rect r) {
     const bool rec = st_.track_clip_rec[t];
     if (n > 0 && st_.track_has_clip[t]) {
         float mx = 0.08f; for (int i = 0; i < n; i++) mx = std::max(mx, pk[i]);
-        const float cy = wy + wh / 2, bw = tw / n, hx0 = tx + std::min(1.f, loopPos()) * tw;   // played = ink, still to come = dim
-        for (int i = 0; i < n; i++) { const float v = std::min(1.f, pk[i] / mx); if (v > 0.01f) rrect({tx + i * bw, cy - v * (wh / 2 - 3), std::max(1.f, bw * 0.62f), std::max(1.f, v * (wh - 6))}, 0, rec ? TRACE_RED : tx + i * bw < hx0 ? TRACE_GREEN : trackTrace(t)); }
+        const float cy = wy + wh / 2, bw = tw / n;
+        for (int i = 0; i < n; i++) phosphor(tx+i*bw,bw,cy,std::min(1.f,pk[i]/mx),rec?TRACE_RED:trackTrace(t));
     } else text(tx + tw / 2, wy + wh / 2, 10, WELL_DIM, "TRACK " + std::to_string(t + 1) + " HAS NO LOOP", 1, true);
     const float hx = tx + clamp01(loopPos()) * tw;
     rrect({hx - 1, r.y + 2, 2.2f, r.h - 4}, 0, TRACE_AMBER);
@@ -1403,10 +1409,10 @@ void SamplerUI::deck(Rect r) {
         const std::string info = hasLoop ? std::to_string(st_.loopBars) + "B  " + num("%.0f", st_.bpm) + " BPM  " + cnt : st_.freeRecording ? std::string(cnt) : "NO LOOP";
         text(M + 2, 67, T_BODY, !ts.empty() ? TRACE_GREEN : TRACE_AMBER, fit(!ts.empty() ? ts : info, 280, T_BODY), 0, true);
     }
-    scope({M - 4, 86, 292, 133});
+    scope({M - 4, 86, 292, 150});
     cassette({M - 4, 86, 292, 150});
     // transport: play, stop, record / overdub, clear the loop of this track; the active one is orange and underlined
-    const float ty = 248;
+    const float ty = 260;
     for (int i = 0; i < 4; i++) {
         const float cx = M + 20 + i * 64;
         const bool on = i == 0 ? st_.playing : i == 2 ? recOn : false;
@@ -1432,10 +1438,10 @@ void SamplerUI::deck(Rect r) {
     icon(6, mx, 184, ACCENT); tap({mx - 32, 156, 64, 56}, [this] { app_.requestFile(); });
     icon(7, mx, 248, projectOpen_ ? AMBER : ACCENT); tap({mx - 32, 220, 64, 56}, [this] { projectOpen_ = true; });
     // the sample of this track, its page and the four knobs of the page
-    sampleView({x0, 14, w0, 118});
-    deckMenus({x0, 133, w0, 42});
-    for (int i = 0; i < 4; i++) knob(x0 + (i + 0.5f) * w0 / 4, 212, app_.page(), i);
-    timeline({M, 288, W_ - 2 * M, H_ - 288 - 8});
+    sampleView({x0, 14, w0, 178});
+    deckMenus({x0, 193, w0, 42});
+    for (int i = 0; i < 4; i++) knob(x0 + (i + 0.5f) * w0 / 4, 258, app_.page(), i);
+    timeline({M, 298, W_ - 2 * M, H_ - 298 - 8});
 }
 
 void SamplerUI::deckMenus(Rect r) {

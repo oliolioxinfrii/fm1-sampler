@@ -875,7 +875,7 @@ void SamplerApp::leds() {
 // Layout (240x240): track tags, page and state, sample name, a 60 px picture that depends on the page, the loop strip, four knobs, a hint.
 void SamplerApp::draw(uint32_t now) {
     if ((int)theme::light != lastLight_) { lastLight_ = theme::light; setPalette(theme::light); needClear_ = true; }
-    const bool waveform=mic_==1||mic_==2||page_==P_HOME||page_==P_ECHO||page_==P_GRAIN||page_==P_MOTION;
+    const bool waveform=mic_==1||mic_==2||page_==P_HOME;
     const int layout=waveform?0:1;
     if (needClear_) {
         fwDirty_ = true; clear(BLACK);
@@ -1040,6 +1040,8 @@ void SamplerApp::picture(uint32_t now,const Knobs& k) {
     add(page_);add(track_);
     for(const auto& knob:k){add(std::lround(cl(knob.norm)*24));add(knob.valid);}
     if(page_==P_KEY)add(chordGhostMask());
+    if(page_==P_ECHO||page_==P_GRAIN||page_==P_MOTION){add(now/500);for(const auto& v:knobs(P_HOME))add(std::lround(cl(v.norm)*96));}
+    if(page_==P_EMIX)add(now/200); // refresh the real post-insert stereo snapshot at 5 Hz
     if(page_==P_MIX){add(std::lround(cl(st_.scLevel[track_])*12));add(std::lround(cl(st_.scGain[track_])*12));}
     if(page_==P_SAVE)add(std::lround(cl(st_.inputPeak*2)*24));
     if(page_==P_LEN||page_==P_TEMPO){add(st_.loopBars);add(st_.loopSamples>0);add(std::lround(cl(st_.track_has_clip[track_]?st_.clipPos[track_]:(st_.loopSamples>0?float(st_.pos/st_.loopSamples):0.f))*32));}

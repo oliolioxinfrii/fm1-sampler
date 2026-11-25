@@ -48,6 +48,7 @@ private:
     void cassette(Rect r);
     void sampleView(Rect r);
     void echoPosition(Rect w, float inset);
+    bool studyGraphic(Rect w, SamplerApp::Page pg, bool compact);
     void pageView(Rect r);   // the schematic of the active page in the place of the sample
     void knob(float cx, float cy, SamplerApp::Page page, int idx, bool unused = false);
     void timeline(Rect r);

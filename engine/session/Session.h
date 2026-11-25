@@ -17,6 +17,7 @@ public:
     static constexpr int kTracks = 8;
     static constexpr int kVoiceMax = 32;
     static constexpr int kLoopBins = 400;
+    static constexpr int kScopePoints = 48;
 
     struct Status {
         bool playing;
@@ -130,6 +131,8 @@ public:
     // ---- views ----
     std::vector<float> samplePeaksOf(int track, int bins) const;   // waveform of the track's sample (empty if none)
     std::string trackLabel(int track) const;                       // file name of the track's sample without extension
+    // Bounded, coherent snapshot of actual post-insert stereo samples.
+    int insertScope(int track, float* mid, float* side, int maxPoints) const;
     int sampleRate() const;
     uint32_t audioOverruns() const;
     Status status() const;

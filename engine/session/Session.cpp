@@ -52,7 +52,32 @@ struct Session::Impl {
         bool clipHas = false, clipRec = false;
         bool recPrevOk = false; double recPrevCp = 0; float recPrevL = 0, recPrevR = 0;   // tape-speed recording: previous write position and input
         std::atomic<float> peak{0.f};
-        explicit Track(int sr) : tape(sr), echoInsert(sr) {}
+        std::atomic<uint32_t> scopeData[Session::kScopePoints];
+        std::atomic<uint32_t> scopeSeq{0};
+        unsigned scopeBlock=0;
+        bool scopeSilent=true;
+        explicit Track(int sr) : tape(sr), echoInsert(sr) {
+            for(auto& v:scopeData)v.store(0x80008000u);
+        }
+        // Fixed storage, no allocations or locks on the audio thread.
+        // Publish paired M/S points at a bounded cadence; never synthesize a trace.
+        void publishScope(const float* stereo,int frames) {
+            if(!stereo && scopeSilent)return;
+            if(stereo && (++scopeBlock%4)!=0)return;
+            scopeSeq.fetch_add(1);
+            auto pack=[](float x)->uint32_t {
+                if(!std::isfinite(x))x=0.f;
+                return uint32_t(std::lround(std::clamp(x,-1.f,1.f)*32767.f)+32768);
+            };
+            for(int j=0;j<Session::kScopePoints;++j){
+                const int i=frames>0?j*(frames-1)/(Session::kScopePoints-1):0;
+                const float l=stereo&&frames>0?stereo[2*i]:0.f;
+                const float r=stereo&&frames>0?stereo[2*i+1]:0.f;
+                scopeData[j].store(pack(.5f*(l+r)) | (pack(.5f*(l-r))<<16));
+            }
+            scopeSilent=!stereo;
+            scopeSeq.fetch_add(1);
+        }
     };
 
     int sr;
@@ -421,7 +446,7 @@ struct Session::Impl {
         std::vector<Arp::Ev> evs;
         for (int ti = 0; ti < kTracks; ti++) {
             Track& t = *tracks[(size_t)ti];
-            if (!t.sampler && !t.clipHas && !t.clipRec && t.pending.empty()) { t.peak.store(t.peak.load() * 0.9f); t.scEnv *= 0.8f; t.scGain = 1.f; a_voiceN[ti].store(0); continue; }
+            if (!t.sampler && !t.clipHas && !t.clipRec && t.pending.empty()) { t.peak.store(t.peak.load() * 0.9f); t.scEnv *= 0.8f; t.scGain = 1.f; a_voiceN[ti].store(0); t.publishScope(nullptr,0); continue; }
             std::fill(bus.begin(), bus.begin() + n * 2, 0.f);
             // LFO: one value per block (about 170 Hz)
             float lfoGain = 1.f, lfoPan = 0.f, bend = 0.f; bool filterOn = false;
@@ -511,6 +536,7 @@ struct Session::Impl {
             }
             t.tape.process(bus.data(), n);
             t.echoInsert.process(bus.data(), n);
+            t.publishScope(bus.data(),n);
             {   // this track's level for the others (peak with a ~120 ms release) ...
                 float bp = 0.f; for (int i = 0; i < n * 2; i++) bp = std::max(bp, std::fabs(bus[(size_t)i]));
                 t.scEnv = std::max(bp, t.scEnv * std::exp(-(float)n / (0.12f * sr)));
@@ -868,6 +894,20 @@ std::string Session::trackLabel(int t) const {
     if (t < 0 || t >= kTracks) return "";
     std::lock_guard<std::mutex> l(d->tracks[(size_t)t]->infoMtx);
     return d->tracks[(size_t)t]->label;
+}
+int Session::insertScope(int track,float* mid,float* side,int maxPoints) const {
+    if(track<0||track>=kTracks||!mid||!side||maxPoints<=0)return 0;
+    const auto& t=*d->tracks[track];
+    const int n=std::min(maxPoints,kScopePoints);
+    const auto before=t.scopeSeq.load();
+    if(before&1u)return 0;
+    for(int j=0;j<n;++j){
+        const int i=n==1?0:j*(kScopePoints-1)/(n-1);
+        const uint32_t v=t.scopeData[i].load();
+        mid[j]=(int(v&65535u)-32768)/32767.f;
+        side[j]=(int(v>>16)-32768)/32767.f;
+    }
+    return t.scopeSeq.load()==before?n:0;
 }
 int Session::sampleRate() const { return d->sr; }
 Session::Status Session::status() const {
