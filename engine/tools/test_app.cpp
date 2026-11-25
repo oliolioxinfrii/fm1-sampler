@@ -190,6 +190,18 @@ int main() {
         tap(804,130);CHECK(app.page()==SamplerApp::P_EMIX,"editor selects EF MIX directly");
         ui.setEditor(false);
     }
+    { // Region edits preserve the source coordinate in both directions.
+        app.setAlgo(4);app.gotoPage(SamplerApp::P_HOME);
+        app.knobs()[0].set(0);app.knobs()[1].set(1);app.knobs()[3].set(.25f);
+        auto absolute=[&](){const auto& v=app.state(0);return v.start+v.echo.position*(v.end-v.start);};
+        app.knobs()[0].set(.12f);
+        CHECK(std::fabs(absolute()-.25f)<1e-6f,"granular anchor survives START edit");
+        app.knobs()[1].set(.75f);
+        CHECK(std::fabs(absolute()-.25f)<1e-6f,"granular anchor survives END edit");
+        app.knobs()[0].set(.4f);
+        CHECK(std::fabs(absolute()-.4f)<1e-6f,"granular anchor clamps when excluded");
+        app.knobs()[0].set(0);app.knobs()[1].set(1);app.knobs()[3].set(.35f);app.setAlgo(0);
+    }
     { // Timing-sensitive continuous controls without changing discrete choices.
         app.gotoPage(SamplerApp::P_EFILTER);
         app.knobs()[3].set(.2f);
@@ -209,9 +221,14 @@ int main() {
         const float idle=app.knobs()[3].norm;
         now+=200;app.tick(now);enc(5,-1);
         CHECK(std::fabs(idle-app.knobs()[3].norm-step)<.0001f,"idle resets acceleration");
+        app.knobs()[3].set(.1f);
+        now+=200;app.tick(now);enc(5,1);
+        const float burstStart=app.knobs()[3].norm;
+        now+=25;app.tick(now);enc(5,5);
+        CHECK(app.knobs()[3].norm-burstStart>5*step,"coalesced detents retain acceleration");
         app.knobs()[0].set(0);
-        now+=20;app.tick(now);enc(2,1);
-        CHECK(app.state(0).echoInsert.filter==1,"discrete selector advances one choice");
+        now+=20;app.tick(now);enc(2,2);
+        CHECK(app.state(0).echoInsert.filter==2,"discrete selector preserves coalesced detents");
         app.knobs()[0].set(0);app.knobs()[3].set(.05f);
     }
     // LFO on each target

@@ -160,12 +160,25 @@ void SamplerApp::applyLfo(int t) {
 }
 void SamplerApp::applyHome(int t, bool commit) {
     const TrackState& x = ts_[t];
-    s_.setSampleRange(t, x.start, x.end);
+    if(x.algo==4)s_.setGranularRange(t,x.start,x.end,x.echo);
+    else s_.setSampleRange(t,x.start,x.end);
     const float semis = std::round((x.pitch - 0.5f) * 48.f);
     if (x.algo == 3) { s_.setStretch(t, 1.f, 0.f, commit); s_.setSliceThreshold(t, x.kitThr); s_.setKitPitch(t, semis); }   // KIT: threshold instead of speed, the pitch moves every slice
-    else if (x.algo == 4) { s_.setStretch(t, 1.f, 0.f, commit); s_.setEchoParams(t, x.echo); s_.setEchoLatch(t,x.echoLatch!=0); }
+    else if (x.algo == 4) { s_.setStretch(t, 1.f, 0.f, commit); s_.setEchoLatch(t,x.echoLatch!=0); }
     else if (x.algo == 5) { s_.setStretch(t, 1.f, 0.f, commit); s_.setPaul(t, paulFactor(x.paulStretch), x.paulWidth * 2.f); }
     else s_.setStretch(t, speedOf(x.speed), semis, commit);
+}
+void SamplerApp::editRange(int t,int edge,float value) {
+    auto& x=ts_[t];
+    const double anchor=x.start+double(x.echo.position)*(x.end-x.start);
+    if(edge==0)x.start=std::clamp(value,0.f,x.end-.02f);
+    else x.end=std::clamp(value,x.start+.02f,1.f);
+    // Keep the absolute source coordinate whenever it lies inside the
+    // new region. Clamp only when the edited boundary crosses it.
+    x.echo.position=cl(float((anchor-x.start)/(x.end-x.start)));
+    echoSaveAt_=nowMs_+350;
+    if(x.algo==4)s_.setGranularRange(t,x.start,x.end,x.echo);
+    else {applyHome(t);queueCommit(t);}
 }
 void SamplerApp::applyArp(int t) {
     const TrackState& x = ts_[t];
@@ -309,7 +322,7 @@ SamplerApp::Knob SamplerApp::choice(const char* name, int* v, std::vector<std::s
     const int n = (int)opts.size();
     *v = std::min(n - 1, std::max(0, *v));
     k.value = opts[(size_t)*v]; k.norm = n > 1 ? *v / (float)(n - 1) : 0.f;
-    k.step = [=](int d) { *v = std::min(n - 1, std::max(0, *v + (d > 0 ? 1 : -1))); apply(); };
+    k.step = [=](int d) { *v = std::min(n - 1, std::max(0, *v + d)); apply(); };
     k.set = [=](float x) { *v = std::min(n - 1, std::max(0, (int)std::lround(x * (n - 1)))); apply(); };
     return k;
 }
@@ -322,8 +335,12 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
     auto sec = [](float s) { return fmt(s < 1 ? "%.2fS" : "%.1fS", s); };
     switch (p) {
     case P_HOME:
-        k[0] = cont("START", &x.start, [](float v) { return pct(v); }, [=] { if (ts_[t].start > ts_[t].end - 0.02f) ts_[t].start = ts_[t].end - 0.02f; applyHome(t); }, 0.01f, true);
-        k[1] = cont("END", &x.end, [](float v) { return pct(v); }, [=] { if (ts_[t].end < ts_[t].start + 0.02f) ts_[t].end = ts_[t].start + 0.02f; applyHome(t); }, 0.01f, true);
+        for(int i=0;i<2;++i){
+            const float value=i?x.end:x.start;
+            k[i].name=i?"END":"START";k[i].valid=true;k[i].norm=value;k[i].value=pct(value);
+            k[i].step=[this,t,i](int d){editRange(t,i,(i?ts_[t].end:ts_[t].start)+d*.01f);};
+            k[i].set=[this,t,i](float v){editRange(t,i,v);};
+        }
         if (x.algo == 3) {   // KIT: the threshold the sample is cut at, the pitch of every slice
             k[2] = cont("THRESHOLD", &x.kitThr, [](float v) { return pct(v); }, [=] { applyHome(t); }, 0.01f);
             k[3] = cont("PITCH", &x.pitch, [](float v) { return fmt("%+.0f ST", std::round((v - 0.5f) * 48.f)); }, [=] { applyHome(t); }, 1.f / 48.f);
@@ -593,14 +610,15 @@ std::vector<float> SamplerApp::peaks(int t, int bins) {
 }
 
 // ---- input ----
-void SamplerApp::onMidi(const uint8_t* m, size_t n) {
+void SamplerApp::onMidi(const uint8_t* m, size_t n) { onMidi(m,n,nowMs_); }
+void SamplerApp::onMidi(const uint8_t* m, size_t n, uint32_t eventMs) {
     if (n < 3) return;
     linkSeen_ = true;
     const int type = m[0] & 0xf0, ch = m[0] & 15, a = m[1], b = m[2];
     if (ch == 0 && (type == 0x90 || type == 0x80)) keyEvent(a, type == 0x90 && b > 0);
     else if (ch == 1 && (type == 0x90 || type == 0x80)) button(a, type == 0x90 && b > 0);
     else if (ch == 0 && type == 0xb0) {
-        if (a >= 16 && a < 23) encoder(a - 16, b - 64);
+        if (a >= 16 && a < 23) encoder(a - 16, b - 64, eventMs);
         else if (a == 7) knobMsb_ = b;
         else if (a == 39) s_.setMasterVolume(((knobMsb_ << 3) | (b >> 4)) / 1023.f * 1.2f);
     }
@@ -662,25 +680,27 @@ void SamplerApp::button(int b, bool down) {
 }
 SamplerApp::~SamplerApp() = default;
 
-void SamplerApp::encoder(int i, int delta) {
+void SamplerApp::encoder(int i, int delta, uint32_t eventMs) {
     if (!delta || i < 0 || i > 6) return;
-    if (i == 0) { selectTrack(track_ + (delta > 0 ? 1 : -1)); return; }
+    if (i == 0) { selectTrack(track_ + delta); return; }
     if (i == 6) { browse(delta); return; }
-    if (i == 1) { setAlgo(ts_[track_].algo + (delta > 0 ? 1 : -1)); return; }
+    if (i == 1) { setAlgo(ts_[track_].algo + delta); return; }
     if (i == 2 && mic_ == 1 && page_ != P_SAVE) { setMicThreshold01(micThr_ + (delta > 0 ? 0.03f : -0.03f)); touchedKnob_ = 0; touchedAt_ = nowMs_; return; }   // K1 = trigger level while the microphone listens
     Knobs k = knobs();
     const int idx = i - 2;
     if (idx < 4 && k[(size_t)idx].valid && k[(size_t)idx].step) {
         auto& m=motion_[idx];
         const int sign=delta>0?1:-1;
-        const uint32_t elapsed=nowMs_-m.at;
-        const bool same=m.sign==sign&&m.track==track_&&m.page==page_&&elapsed<=120;
-        // A burst of single detents ramps up gradually. Preserve
-        // coalesced MIDI deltas, and never accelerate enum/action knobs.
-        m.streak=same&&elapsed<=65?std::min(12,m.streak+1):0;
-        m.at=nowMs_;m.sign=sign;m.track=track_;m.page=page_;
-        if(!k[idx].isChoice&&std::abs(delta)<=4&&same&&elapsed<=65) {
-            const int multiplier=m.streak>=6?5:m.streak>=3?3:m.streak>=1?2:1;
+        const uint32_t elapsed=eventMs-m.at;
+        const bool same=m.sign==sign&&m.track==track_&&m.page==page_&&elapsed<=150;
+        const int detents=std::abs(delta);
+        // MIDI can combine adjacent detents in one signed CC. Estimate
+        // rate per detent rather than disabling acceleration for bursts.
+        const bool fast=same&&elapsed/std::max(1,detents)<=65;
+        m.streak=fast?std::min(12,m.streak+detents):0;
+        m.at=eventMs;m.sign=sign;m.track=track_;m.page=page_;
+        if(!k[idx].isChoice&&fast) {
+            const int multiplier=m.streak>=6?5:m.streak>=3?3:2;
             delta*=multiplier;
         }
         k[idx].step(delta); touchedKnob_=idx; touchedAt_=nowMs_;
@@ -798,6 +818,7 @@ void SamplerApp::drawText(int id, int x, int y, int scale, uint16_t fg, uint16_t
 void SamplerApp::flush(uint32_t now) {
     // ONE frame per call, at least gap_ ms apart: the FM-1 has a 4-frame queue. Small commands are packed into one batch frame.
     if (pending_.empty() || now - lastSend_ < gap_) return;
+    if(pending_.front().key>=2000&&pending_.front().key<=2041&&touchedKnob_>=0&&now-touchedAt_<100&&now-lastSend_<80)return;
     lastSend_ = now;
     std::vector<uint8_t> batch = {0xf0, 0x7d, 'D', 'A', 'W', 1, 10};
     int n = 0;
@@ -1001,7 +1022,8 @@ void SamplerApp::menuMarkers() {
 void SamplerApp::picture(uint32_t now) {
     // Coalesce changes while the USB display catches up. Static tiles
     // are never resent merely because a frame was drawn on the phone.
-    if(!needClear_&&picturePage_==page_&&now-pictureAt_<100)return;
+    const bool turning=touchedKnob_>=0&&now-touchedAt_<100;
+    if(!needClear_&&picturePage_==page_&&now-pictureAt_<(turning?180u:100u))return;
     pictureAt_=now;picturePage_=page_;
     if(!graphic_)graphic_=std::make_unique<SamplerUI>(*this,false);
     const auto& ops=graphic_->surfaceGraphic(now);

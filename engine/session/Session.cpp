@@ -637,6 +637,13 @@ float Session::detectRoot(int t) const {
     const float hz = detectPitchHz(*o);
     return hz > 20.f ? 69.f + 12.f * std::log2(hz / 440.f) : -1.f;
 }
+void Session::setGranularRange(int t,float a,float b,const EchoParams& p) {
+    if(t<0||t>=kTracks)return;
+    d->post([=]{
+        auto& tr=*d->tracks[t];tr.rangeA=a;tr.rangeB=b;tr.echo=p;
+        if(tr.sampler){tr.sampler->setRange(a,b);tr.sampler->setEchoParams(p);}
+    });
+}
 void Session::setSampleRange(int t, float a, float b) {
     if (t < 0 || t >= kTracks) return;
     d->post([=] { auto& tr = *d->tracks[(size_t)t]; tr.rangeA = clampf(a, 0.f, 1.f); tr.rangeB = clampf(b, 0.f, 1.f); if (tr.sampler) { tr.sampler->setRange(a, b); d->applyModeParams(tr); } });

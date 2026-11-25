@@ -46,6 +46,7 @@ private:
     uint32_t rng_ = 0x1234567u;
     int untilControl_ = 0, tapeHeadIndex_ = 0, pulseStep_ = 0, pulseRot_ = 0, stutterLeft_ = 0;
     bool initial_ = true;
+    double previousStart_=0,previousEnd_=0;
     float spawnWait_ = 0, pulseWait_ = 0, stutterPos_ = 0;
     float lfo1_ = 0, lfo2Time_ = 0, lfo2Target_ = 0, lfo2Cur_ = 0;
     float walkV1_ = 0, walkV2_ = 0, walkPos_ = 0, walkPitch_ = 0, walkSize_ = 0;

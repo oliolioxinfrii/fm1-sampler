@@ -145,7 +145,7 @@ FN(jint, xruns)(JNIEnv*, jclass, jlong h) {
     return r ? r.value() : -1;
 }
 
-FN(void, midiIn)(JNIEnv* env, jclass, jlong h, jbyteArray a, jint off, jint n) {
+FN(void, midiIn)(JNIEnv* env, jclass, jlong h, jbyteArray a, jint off, jint n, jlong eventMs) {
     if (!a || off < 0 || n <= 0 || off + n > env->GetArrayLength(a)) return;
     jbyte* d = env->GetByteArrayElements(a, nullptr);
     if (!d) return;
@@ -165,7 +165,7 @@ FN(void, midiIn)(JNIEnv* env, jclass, jlong h, jbyteArray a, jint off, jint n) {
         if (s >= 0x80) { e.msg[0] = s; e.msgLen = 1; e.msgNeed = ((s & 0xf0) == 0xc0 || (s & 0xf0) == 0xd0) ? 2 : 3; continue; }
         if (e.msgLen == 0) continue;                    // a data byte without a status
         e.msg[e.msgLen++] = s;
-        if (e.msgLen == e.msgNeed) { if (e.msgNeed == 3) e.app->onMidi(e.msg, 3); e.msgLen = 1; }   // running status: the status stays
+        if (e.msgLen == e.msgNeed) { if (e.msgNeed == 3) e.app->onMidi(e.msg, 3, (uint32_t)eventMs); e.msgLen = 1; }   // running status: the status stays
     }
     env->ReleaseByteArrayElements(a, d, JNI_ABORT);
 }

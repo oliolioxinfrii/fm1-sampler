@@ -41,6 +41,7 @@ public:
     ~SamplerApp();
 
     void onMidi(const uint8_t* msg, size_t n);
+    void onMidi(const uint8_t* msg, size_t n, uint32_t eventMs);
     void onSysex(const uint8_t* msg, size_t n);
     void tick(uint32_t nowMs);                    // ~30 Hz
     void resetSurface();
@@ -159,7 +160,8 @@ private:
     void menuMarkers();
     // ---- input ----
     void button(int b, bool down);
-    void encoder(int i, int delta);
+    void encoder(int i, int delta, uint32_t eventMs);
+    void editRange(int track, int edge, float value);
     // ---- parameters ----
     void applyAll(int t);
     void applyAlgo(int t); void applyEnv(int t); void applyLfo(int t); void applyHome(int t, bool commit = false); void applyArp(int t); void applyRoot(int t); void applySeq(int t); void applyMix(int t);

@@ -166,7 +166,7 @@ public class Backend {
                     if (in == null) { d.close(); return; }
                     device = d; fromFm1 = outp;
                     if (outp != null) outp.connect(new MidiReceiver() {
-                        @Override public void onSend(byte[] data, int off, int count, long ts) { try { Native.midiIn(engine, data, off, count); } catch (Throwable t) { Log.w(TAG, "midiIn: " + t); } }
+                        @Override public void onSend(byte[] data, int off, int count, long ts) { try { Native.midiIn(engine, data, off, count, SystemClock.uptimeMillis()); } catch (Throwable t) { Log.w(TAG, "midiIn: " + t); } }
                     });
                     Native.surfaceConnected(engine);
                     toFm1 = in;

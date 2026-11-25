@@ -60,7 +60,7 @@ std::vector<float> Sampler::sliceFractions() const {
 }
 void Sampler::setMode(int m) { mode_ = std::min(kModes - 1, std::max(0, m)); }
 void Sampler::setEnv(float a, float d, float s, float r) { atk_ = a; dec_ = d; sus_ = s; rel_ = r; }
-void Sampler::setRange(float a, float b) { rangeA_ = clampf(a, 0.f, 1.f); rangeB_ = clampf(b, 0.f, 1.f); if (rangeB_ < rangeA_ + 0.005f) rangeB_ = std::min(1.f, rangeA_ + 0.005f); reslice(); }
+void Sampler::setRange(float a, float b) { rangeA_ = clampf(a, 0.f, 1.f); rangeB_ = clampf(b, 0.f, 1.f); if (rangeB_ < rangeA_ + 0.005f) rangeB_ = std::min(1.f, rangeA_ + 0.005f); if(mode_!=GRAIN)reslice(); }
 void Sampler::setProcessed(std::shared_ptr<const SampleBuf> p, float a, float b) {
     if (proc_ && proc_ != p) retired_.push_back(std::move(proc_));
     proc_ = std::move(p); procA_ = a; procB_ = std::max(a + 0.001f, b);
@@ -156,6 +156,12 @@ void Sampler::renderVoice(Voice& v, float* out, int n, int& trackGrains) {
         r = d[(size_t)i0 * 2 + 1] + (d[(size_t)i0 * 2 + 3] - d[(size_t)i0 * 2 + 1]) * f;
     };
     const float gain = 0.8f * v.vel;
+    // Current-source granular notes use the edited region for new
+    // grains; already sounding grains finish their original windows.
+    if(v.mode==GRAIN&&v.buf==orig_){
+        v.we=std::min<double>(rangeB_*frames,frames-2);
+        v.ws=std::max(0.0,std::min<double>(rangeA_*frames,v.we-16));
+    }
     for (int i = 0; i < n; i++) {
         float l = 0.f, r = 0.f;
         const float e = v.env.next();

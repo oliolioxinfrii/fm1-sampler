@@ -156,7 +156,7 @@ void EchoGrains::control(const EchoParams& p, float dt, double regionSeconds) {
     c_.center += scan_;
     c_.reverse = unit(c_.reverse); c_.scatter = unit(c_.scatter);
     c_.size = clip(c_.size, 0.004f, 2.5f); c_.density = clip(c_.density, 0.f, 400.f);
-    c_.center = wrap(c_.center);
+    if(c_.center!=1.f)c_.center = wrap(c_.center);
 }
 
 void EchoGrains::spawn(int sr, int sourceRate, double start, double end, float pitch,
@@ -191,7 +191,7 @@ void EchoGrains::spawn(int sr, int sourceRate, double start, double end, float p
     const bool rev = random() < c_.reverse;
     float center = overridePos >= 0 ? overridePos : c_.center + bipolar() * c_.scatter * 0.5f;
     if (c_.tape) center = c_.center + float(head) / 3.f + bipolar() * c_.scatter;
-    const double cp = start + wrap(center) * room;
+    const double cp = start + (center==1.f?1.f:wrap(center)) * room;
     const double p = rev ? std::clamp(cp + span * 0.5, start + span, end)
                          : std::clamp(cp - span * 0.5, start, end - span);
     float pan = 0.5f + bipolar() * 0.5f * c_.width;
@@ -217,6 +217,13 @@ void EchoGrains::next(const EchoParams& params, const float* pcm, int frames, in
     if (!pcm || frames < 2 || sr <= 0 || sourceRate <= 0) return;
     start = std::clamp(start, 0.0, double(frames - 2));
     end = std::clamp(end, start, double(frames - 2));
+    if(!initial_&&(start!=previousStart_||end!=previousEnd_)&&end>start){
+        auto remap=[&](float p){return unit(float((previousStart_+p*(previousEnd_-previousStart_)-start)/(end-start)));};
+        sm_.position=remap(sm_.position);
+        tapeHead_=remap(tapeHead_);
+        untilControl_=0;
+    }
+    previousStart_=start;previousEnd_=end;
     if (untilControl_-- <= 0) {
         control(params, float(kControl) / sr, (end - start) / sourceRate);
         untilControl_ = kControl - 1;
@@ -263,7 +270,7 @@ void EchoGrains::next(const EchoParams& params, const float* pcm, int frames, in
     }
     for (auto& g : grains_) {
         if (!g.active) continue;
-        if (g.age >= g.len || g.pos < start - 1e-6 || g.pos > end + 1e-6) {
+        if (g.age >= g.len || g.pos < 0 || g.pos > frames - 2) {
             g.active = false; --trackGrains; continue;
         }
         const int i = std::clamp(int(g.pos), 0, frames - 2);
