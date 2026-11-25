@@ -31,7 +31,7 @@ constexpr MenuGroup kMenus[] = {
     {"E", "ENV", 1, {Page::P_ENV}, {"ENV"}},
     {"L", "LFO", 1, {Page::P_LFO}, {"LFO"}},
     {"A", "ARP", 1, {Page::P_ARP}, {"ARP"}},
-    {"T", "TAPE", 3, {Page::P_SEQ, Page::P_ETAPE, Page::P_EMIX}, {"SPEED", "EF TAPE", "EF MIX"}},
+    {"T", "TAPE", 2, {Page::P_ETAPE, Page::P_EMIX}, {"EF TAPE", "EF MIX"}},
     {"M", "MIX", 1, {Page::P_MIX}, {"MIX"}},
     {"K", "KEY", 1, {Page::P_KEY}, {"KEY"}},
     {"R", "LOOP", 1, {Page::P_SAVE}, {"LOOP"}},
@@ -526,14 +526,14 @@ void SamplerUI::pageView(Rect r) {
         const float available=std::max(10.f,left+width-origin-5);
         const float pitch=std::max(9.f,available*(.035f+.22f*time));
         const float r0=std::min({hh*.27f,pitch*.36f,17.f});
-        for(int k=0;k<2;++k)arc(origin-2,y,4+k*4,-.7f,.7f,DRIVE_TRACE,1.6f);
+        for(int k=0;k<2;++k)arc(origin-2,y,4+k*4,-.7f,.7f,encoderTrace(2),1.6f);
         for(int j=0;j<32;++j){
             const float x=origin+pitch*(j+.6f);
             if(x+r0+4>left+width)break;
             const float level=std::pow(std::max(.025f,feedback),float(j));
             const float rr=std::max(2.f,r0*(.25f+.75f*std::sqrt(level)));
             const float yy=y+(ping?(j%2?1:-1)*hh*.19f:0);
-            const uint32_t c=ping&&j%2?TRACE_BLUE:TRACE_VIOLET;
+            const uint32_t c=ping&&j%2?encoderTrace(3):encoderTrace(0);
             const uint32_t face=withAlpha(c,int(65+190*std::sqrt(level)*(.35f+.65f*send)));
             // One solid pulse disc, with a narrow metallic flange. No
             // offset outline or connecting trace behind the pulses.
@@ -542,12 +542,12 @@ void SamplerUI::pageView(Rect r) {
             circle(x,yy,std::max(1.f,rr*.18f),WELL_TEXT);
             if(rr>=4 && send>.001f) {
                 const int marks=1+int(6*send);
-                burst(x,yy,rr+2,-kPi/2,marks,2+4*send,j==0?DRIVE_TRACE:c);
-                if(send>.35f)burst(x,yy,rr+2,kPi/2,1+int(4*send),2+3*send,c);
+                burst(x,yy,rr+2,-kPi/2,marks,2+4*send,encoderTrace(2));
+                if(send>.35f)burst(x,yy,rr+2,kPi/2,1+int(4*send),2+3*send,encoderTrace(2));
             }
         }
         meter(left+4,bottom+5,width-8,send,TRACE_GREEN,"SEND");
-        if(full)meter(left+4,w.y+5,std::min(width*.45f,138.f),feedback,TRACE_VIOLET,"FB");
+        if(full)meter(left+4,w.y+5,std::min(width*.45f,138.f),feedback,encoderTrace(1),"FB");
     };
     auto roomDiagram=[&](float left,float width,float send,float size,float damp,float shimmer,bool full){
         const float x=left+4,y=w.y+4,ww=width-8,hh=w.h-21;
@@ -574,7 +574,7 @@ void SamplerUI::pageView(Rect r) {
             const float amplitude=std::min(hh*.5f-wall-4,hh*(.10f+.25f*q))*(1.f-.52f*damp);
             const float bow=std::min(8.f,std::max(2.f,reach/14));
             const float fade=(1.f-.85f*damp)*(.96f-.50f*q);
-            const uint32_t c=j<2?DRIVE_TRACE:withAlpha(TRACE_VIOLET,int(60+195*fade*(.35f+.65f*send)));
+            const uint32_t c=j<2?encoderTrace(0):withAlpha(encoderTrace(1),int(60+195*fade*(.35f+.65f*send)));
             std::vector<std::pair<float,float>> points;
             for(int k=0;k<=12;++k){
                 const float a=-kPi*.40f+k*kPi*.8f/12;
@@ -582,16 +582,23 @@ void SamplerUI::pageView(Rect r) {
             }
             poly(points,c,1.8f+1.3f*fade);
         }
-        if(shimmer>.001f)for(int i=0;i<14;++i){
-            const float q=(i+1)/14.f;
-            if(q>shimmer+.12f)break;
-            const float xx=ox+span*(.46f+.48f*std::fmod(i*.618f,1.f));
-            const float yy=y+wall+5+(hh-2*wall-10)*std::fmod(i*.381f+.18f,1.f);
-            sparkle(xx,yy,2.f+3.f*shimmer*(1-q*.45f),i%2?TRACE_VIOLET:DRIVE_TRACE);
+        // Stable pseudorandom positions across the room; increasing shimmer
+        // reveals more stars without moving existing stars on every frame.
+        if(shimmer>.001f) {
+            uint32_t seed=0x9e3779b9u;
+            auto random=[&](){seed^=seed<<13;seed^=seed>>17;seed^=seed<<5;return float(seed&0xffffffu)/16777215.f;};
+            const int count=1+int(23*shimmer);
+            const float left=ox+5,right=std::max(left,x+ww-wall-7);
+            const float upper=y+wall+6,lower=std::max(upper,y+hh-wall-6);
+            for(int i=0;i<count;++i) {
+                const float xx=left+(right-left)*random(),yy=upper+(lower-upper)*random();
+                const float rad=1.5f+3.f*shimmer*random();
+                sparkle(xx,yy,rad,encoderTrace(3));
+            }
         }
         const float my=y+hh+6;
-        meter(left+4,my,full?width*.54f-8:width-8,send,TRACE_GREEN,"SEND");
-        if(full)meter(left+width*.56f,my,width*.44f-4,damp,TRACE_BLUE,"DAMP");
+        meter(left+4,my,full?width*.54f-8:width-8,send,encoderTrace(0),"SEND");
+        if(full)meter(left+width*.56f,my,width*.44f-4,damp,encoderTrace(2),"DAMP");
     };
     auto tapeDiagram=[&](bool echo){
         const float hh=w.h-12,ww=w.w,mid=w.y+hh*.49f;
@@ -630,8 +637,8 @@ void SamplerUI::pageView(Rect r) {
         const float capPhase=ph*r1/std::max(1.f,capR)+(echo?c*2*kPi:0.f);
         line(p[2].x,p[2].y,p[2].x+capR*.7f*std::cos(capPhase),p[2].y+capR*.7f*std::sin(capPhase),WELL_TEXT,1.5f);
         if(echo&&c>.001f) {
-            burst(p[2].x,p[2].y,capR+3,kPi/2,1+int(5*c),2+5*c,TRACE_AMBER);
-            burst(p[0].x,p[0].y,r1+3,-kPi/2,1+int(4*c),2+4*c,TRACE_AMBER);
+            burst(p[2].x,p[2].y,capR+3,kPi/2,1+int(5*c),2+5*c,encoderTrace(2));
+            burst(p[0].x,p[0].y,r1+3,-kPi/2,1+int(4*c),2+4*c,encoderTrace(2));
         }
         const float hx=(p[0].x+p[1].x)*.5f,hy=(p[0].y+p[1].y)*.5f-(r1+r2)*.5f;
         const float hw=std::min(24.f,ww*.10f), ht=std::min(24.f,hh*.32f);
@@ -641,24 +648,35 @@ void SamplerUI::pageView(Rect r) {
         for(float dx:{-hw*.32f,hw*.32f})for(float dy:{-.13f,.62f})circle(hx+dx,hy+ht*dy,1.2f,lip);
         // Energy marks are outside the tape belt, not distortions of it.
         const float motion=echo?a:a*.65f+.35f*d;
-        if(motion>.001f)for(int j=0;j<2;++j)arc(p[0].x,p[0].y,r1+3+j*4,2.9f,3.1f+.9f*motion,TRACE_BLUE,1.5f+motion);
+        if(motion>.001f)for(int j=0;j<2;++j)arc(p[0].x,p[0].y,r1+3+j*4,2.9f,3.1f+.9f*motion,encoderTrace(0),1.5f+motion);
         const float accent=echo?b:c;
-        if(accent>.001f)burst(p[1].x,p[1].y,r2+3,-.85f,2+int(4*accent),3+6*accent,TRACE_VIOLET);
+        if(accent>.001f)burst(p[1].x,p[1].y,r2+3,-.85f,2+int(4*accent),3+6*accent,encoderTrace(1));
         if(d>.001f) {
             if(!echo){for(int j=0;j<2;++j)arc(p[2].x,p[2].y,capR+3+j*3,-2.65f,-.5f,TRACE_GREEN,1.2f+d);}
-            else for(int j=0;j<int(36*d);++j){
-                const float xx=w.x+ww*(.34f+.32f*std::fmod(j*.618f,1.f)),yy=w.y+hh*(.28f+.28f*std::fmod(j*.381f,1.f));
-                const float z=1.5f+2*d;
-                poly({{xx-z,yy+z},{xx,yy-z},{xx+z*.45f,yy+z*.4f},{xx+z*1.6f,yy-z*.6f}},TRACE_PINK,1.2f);
+            else {
+                // One zigzag per cell, distributed across the tape window.
+                // A coprime stride spreads the first marks out at low hiss.
+                const int count=1+int(19*d);
+                for(int j=0;j<count;++j){
+                    const int cell=(j*7+3)%20;
+                    const float xx=w.x+ww*(.08f+.84f*((cell%5+.5f)/5.f));
+                    const float yy=w.y+hh*(.10f+.78f*((cell/5+.5f)/4.f));
+                    const float z=2.f+2.f*d;
+                    if(std::hypot(xx-p[0].x,yy-p[0].y)<r1+z ||
+                       std::hypot(xx-p[1].x,yy-p[1].y)<r2+z ||
+                       std::hypot(xx-p[2].x,yy-p[2].y)<capR+z)continue;
+                    const float sign=j%2?1.f:-1.f;
+                    poly({{xx-1.5f*z,yy+sign*z},{xx-.5f*z,yy-sign*z},{xx+.4f*z,yy+sign*.5f*z},{xx+1.5f*z,yy-sign*.7f*z}},encoderTrace(3),1.3f);
+                }
             }
         }
         if(echo&&c>.001f)for(int j=0;j<int(12*c);++j){
             const float angle=j*2.39f;const float rr=r1*(.78f+.07f*std::fmod(j*.37f,1.f));
-            line(p[0].x+rr*std::cos(angle),p[0].y+rr*std::sin(angle),p[0].x+(rr+2)*std::cos(angle+.08f),p[0].y+(rr+2)*std::sin(angle+.08f),TRACE_AMBER,1);
+            line(p[0].x+rr*std::cos(angle),p[0].y+rr*std::sin(angle),p[0].x+(rr+2)*std::cos(angle+.08f),p[0].y+(rr+2)*std::sin(angle+.08f),encoderTrace(2),1);
         }
         const float my=w.y+w.h-6;
-        meter(w.x+3,my,ww*.48f-5,echo?c:b,echo?TRACE_AMBER:DRIVE_TRACE,echo?"AGE":"DRIVE");
-        meter(w.x+ww*.51f,my,ww*.49f-3,echo?d:c,echo?TRACE_PINK:TRACE_VIOLET,echo?"HISS":"LO-FI");
+        meter(w.x+3,my,ww*.48f-5,echo?c:b,echo?encoderTrace(2):DRIVE_TRACE,echo?"AGE":"DRIVE");
+        meter(w.x+ww*.51f,my,ww*.49f-3,echo?d:c,echo?encoderTrace(3):TRACE_VIOLET,echo?"HISS":"LO-FI");
     };
     std::string head;
     switch (pg) {
@@ -673,24 +691,40 @@ void SamplerUI::pageView(Rect r) {
             const float f=i/64.f,delta=(f-cutoff)*16,low=1/(1+std::exp(delta)),band=std::exp(-delta*delta*.14f);
             float v=ts.echoInsert.filter==0?low:ts.echoInsert.filter==1?band:1-low;
             v=clamp01(v+.35f*res*band);
-            const float x=x0+7+f*(x1-x0-14),y=y1-7-v*(y1-y0-14);
+            const float x=x0+13+f*std::max(1.f,x1-x0-26);
+            const float lo=y0+std::min(22.f,(y1-y0)*.40f),hi=y1-std::min(12.f,(y1-y0)*.23f);
+            const float y=hi-v*std::max(1.f,hi-lo);
             pts.push_back({x,y});
             if(i%8==0)line(x,y0+5,x,y1-5,GRID,.8f);
         }
         poly(pts,signal,2.5f);
         if(drive>.001f) {
-            const int stride=std::max(3,9-int(6*drive));
-            for(int i=1;i+2<int(pts.size());i+=stride) {
-                const float dx=pts[i+2].first-pts[i].first,dy=pts[i+2].second-pts[i].second;
-                const float len=std::max(1.f,std::hypot(dx,dy)),gap=3+5*drive;
-                for(float side:{-1.f,1.f}) {
+            // Localized nested contours around the cutoff and shoulders,
+            // not a repeating dash pattern along the entire response.
+            const int center=std::clamp(int(cutoff*64.f),5,59);
+            const int anchors[]={center,std::clamp(center-9,5,59),std::clamp(center+10,5,59)};
+            const int groups=1+int(drive>.30f)+int(drive>.65f);
+            for(int g=0;g<groups;++g) {
+                if(g>0 && std::abs(anchors[g]-center)<5)continue;
+                const int layers=1+int(3*drive),half=3+int(2*drive);
+                for(int layer=1;layer<=layers;++layer)for(float side:{-1.f,1.f}){
+                    const float gap=layer*(2.1f+drive*.7f);
                     std::vector<std::pair<float,float>> contour;
-                    for(int j=i;j<=i+2;++j)contour.push_back({pts[j].first-side*dy/len*gap,pts[j].second+side*dx/len*gap});
-                    poly(contour,DRIVE_TRACE,1.2f+drive);
+                    for(int j=std::max(1,anchors[g]-half);j<=std::min(63,anchors[g]+half);++j){
+                        const float dx=pts[j+1].first-pts[j-1].first,dy=pts[j+1].second-pts[j-1].second;
+                        const float len=std::max(1.f,std::hypot(dx,dy));
+                        const float xx=pts[j].first-side*dy/len*gap,yy=pts[j].second+side*dx/len*gap;
+                        if(xx<x0+5||xx>x1-5||yy<y0+5||yy>y1-5){
+                            if(contour.size()>1)poly(contour,encoderTrace(3),1.1f+drive*.4f);
+                            contour.clear();continue;
+                        }
+                        contour.push_back({xx,yy});
+                    }
+                    if(contour.size()>1)poly(contour,encoderTrace(3),1.1f+drive*.4f);
                 }
             }
         }
-        meter(w.x+4,w.y+w.h-6,w.w-8,drive,DRIVE_TRACE,"DRIVE");
+        meter(w.x+4,w.y+w.h-6,w.w-8,drive,encoderTrace(3),"DRIVE");
         break; }
     case P::P_EDELAY:
         head="ECHOFIELD DELAY";
@@ -709,7 +743,7 @@ void SamplerUI::pageView(Rect r) {
         const float mw=ww*.29f,x1=x+ww*.09f,x2=x+ww*.44f;
         line(x+3,mid,x+ww*.82f,mid,lip,2.2f);
         for(int j=0;j<2;++j){
-            const float xx=j?x2:x1;const uint32_t c=j?TRACE_AMBER:TRACE_VIOLET;
+            const float xx=j?x2:x1;const uint32_t c=encoderTrace(j+2);
             rrect({xx,y,mw,h},2,metal);stroke({xx,y,mw,h},2,lip,1.2f);
             for(float dx:{3.f,mw-3})for(float dy:{3.f,h-3})circle(xx+dx,y+dy,1.2f,lip);
             circle(xx,mid,3,lip);circle(xx,mid,1.5f,WELL);
@@ -854,8 +888,18 @@ void SamplerUI::pageView(Rect r) {
             const uint32_t c=rel==0?DRIVE_TRACE:legal?chord:WELL_DIM;
             const float x=w.x+4+i*pitch;
             if(ghost) {
-                burst(x+pitch/2,ky,2,-kPi/2,3,4,c);
-                burst(x+pitch/2,ky+kh,2,kPi/2,3,3,c);
+                // Sweeping, nested motion strokes above the chord key.
+                const float cx=x+pitch*.5f,span=std::min(pitch*.37f,8.f);
+                const float room=std::max(0.f,ky-w.y-10);
+                for(int j=0;j<3;++j) {
+                    const float lift=2.f+j*std::min(3.f,room/4);
+                    if(lift+2>room)break;
+                    const float shift=std::sin(now_*.008f+i*.5f+j*.4f)*span*.18f;
+                    poly({{cx-span+shift,ky-lift},{cx-span*.65f+shift,ky-lift-2},
+                          {cx+span*.15f+shift,ky-lift-3},{cx+span*.65f+shift,ky-lift-1}},c,1.35f);
+                }
+                const float dy=std::min(5.f,kh*.15f);
+                poly({{cx-span,ky+kh-dy},{cx-span*.6f,ky+kh+1},{cx+span*.25f,ky+kh+3}},c,1.3f);
             }
             rrect({x+2,ky,pitch-4,kh},2,legal?withAlpha(c,185):metal);
             stroke({x+2,ky,pitch-4,kh},2,legal?c:lip,1);
@@ -1009,14 +1053,14 @@ void SamplerUI::echoPosition(Rect w, float inset) {
         const float top=w.y+22,mid=w.y+w.h*.5f;
         const float radius=available*(.025f+.24f*(pg==SamplerApp::P_GRAIN?k[0].norm:ts.echo.scatter));
         const float lo=std::max(rangeStart,x-radius),hi=std::min(rangeEnd,x+radius);
-        line(lo,top,hi,top,TRACE_VIOLET,2);
-        for(float xx:{lo,hi})line(xx,top-4,xx,top+5,TRACE_VIOLET,1.6f);
+        line(lo,top,hi,top,encoderTrace(pg==SamplerApp::P_GRAIN?0:1),2);
+        for(float xx:{lo,hi})line(xx,top-4,xx,top+5,encoderTrace(pg==SamplerApp::P_GRAIN?0:1),1.6f);
         const int n=3+int(13*(pg==SamplerApp::P_GRAIN?k[1].norm:ts.echo.texture));
         for(int i=0;i<n;++i) {
             const float xx=lo+(hi-lo)*(i+.5f)/n;
             const float h=3+std::min(9.f,w.h*.12f)*(pg==SamplerApp::P_ECHO?ts.echo.evolve:.5f);
-            line(xx,mid-h,xx,mid+h,TRACE_BLUE,1.4f);
-            circle(xx,mid-h,1.7f,TRACE_BLUE);
+            line(xx,mid-h,xx,mid+h,encoderTrace(pg==SamplerApp::P_GRAIN?1:0),1.4f);
+            circle(xx,mid-h,1.7f,encoderTrace(pg==SamplerApp::P_GRAIN?1:0));
         }
         const float row=bottom-13;
         for(int i=0;i<4;++i) {
@@ -1028,9 +1072,9 @@ void SamplerUI::echoPosition(Rect w, float inset) {
         }
         if(pg==SamplerApp::P_MOTION) {
             const float target=std::clamp(x+(k[0].norm-.5f)*available,rangeStart,rangeEnd);
-            line(x,mid-12,target,mid-12,TRACE_PINK,2);
+            line(x,mid-12,target,mid-12,encoderTrace(0),2);
             const float dir=target<x?-1.f:1.f;
-            tri(target,mid-12,target-dir*5,mid-15,target-dir*5,mid-9,TRACE_PINK);
+            tri(target,mid-12,target-dir*5,mid-15,target-dir*5,mid-9,encoderTrace(0));
         }
     }
     const std::string label = "POS " + num("%.1f%%", ts.echo.position * 100.f);
