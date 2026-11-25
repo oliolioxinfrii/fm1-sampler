@@ -1,245 +1,74 @@
-// Revision X: a common visual grammar for the phone and the FM-1's 216x35 plot.
-// The compact renderer uses the same geometry, with fewer strokes and no labels.
-// All illustrative trajectories are parameter diagrams, not fabricated audio telemetry.
-bool SamplerUI::studyGraphic(Rect w, SamplerApp::Page pg, bool compact) {
-    using P=SamplerApp;
-    const int t=app_.track();
-    const auto& ts=app_.state(t);
-    const auto k=app_.knobs(pg);
-    auto n=[&](int i){return clamp01(k[i].norm);};
-    auto X=[&](float x){return w.x+w.w*x/96.f;};
-    auto Y=[&](float y){return w.y+w.h*y/48.f;};
-    const float scale=std::min(w.w/96.f,w.h/48.f);
-    auto sw=[&](float v){return std::max(compact?2.2f:1.f,v*scale);};
-    auto L=[&](float x,float y,float xx,float yy,uint32_t c,float thick=0.55f){line(X(x),Y(y),X(xx),Y(yy),c,sw(thick));};
-    auto B=[&](float x,float y,float ww,float hh,uint32_t c){if(ww<=0||hh<=0)return;rrect({X(x),Y(y),w.w*ww/96.f,w.h*hh/48.f},0,c);};
-    auto O=[&](float x,float y,float ww,float hh,uint32_t c){stroke({X(x),Y(y),w.w*ww/96.f,w.h*hh/48.f},0,c,sw(.6f));};
-    auto D=[&](float x,float y,float rr,uint32_t c){circle(X(x),Y(y),std::max(compact?2.f:1.f,rr*scale),c);};
-    auto label=[&](float x,float y,const std::string& txt,uint32_t c=WELL_DIM){if(!compact)text(X(x),Y(y),std::min(11.f,std::max(7.f,scale*2.7f)),c,txt,1,true);};
-    auto tint=[](uint32_t a,uint32_t b,float z){
-        z=clamp01(z);uint32_t out=0xff000000u;
-        for(int sh=0;sh<=16;sh+=8)out|=uint32_t(std::lround(float((a>>sh)&255)*(1-z)+float((b>>sh)&255)*z))<<sh;
-        return out;
-    };
-    auto bar=[&](float x,float y,float ww,float hh,float v,uint32_t c){
-        B(x,y,ww,hh,GRID); B(x,y,ww*clamp01(v),hh,c); O(x,y,ww,hh,WELL_DIM);
-    };
-    auto arrow=[&](float x,float y,float xx,float yy,uint32_t c){
-        L(x,y,xx,yy,c);const float dx=xx-x,dy=yy-y,len=std::hypot(dx,dy);
-        if(len>.01f){const float ux=dx/len,uy=dy/len;
-            L(xx,yy,xx-2.5f*ux+1.3f*uy,yy-2.5f*uy-1.3f*ux,c);
-            L(xx,yy,xx-2.5f*ux-1.3f*uy,yy-2.5f*uy+1.3f*ux,c);}
-    };
-    auto jack=[&](float x,float y,uint32_t c){D(x,y,1.9f,c);D(x,y,.8f,WELL);};
-    auto base=[&](){B(0,0,96,48,WELL);};
-    auto source=[&](float x,float y,float ww,float hh){
-        const int bins=compact?40:80;const auto p=app_.peaks(t,bins);
-        L(x,y+hh*.5f,x+ww,y+hh*.5f,GRID);
-        if(p.empty()){label(x+ww*.5f,y+hh*.5f,"NO SAMPLE");return;}
-        const float step=ww/std::max(1,(int)p.size());
-        for(size_t i=0;i<p.size();++i){float v=clamp01(p[i])*hh*.47f;
-            B(x+i*step,y+hh*.5f-v,step+.02f,2*v,TRACE_GREEN);}
-    };
-    auto pos=[&](){
-        const auto home=app_.knobs(P::P_HOME);const float p=clamp01(home[3].norm);
-        const float left=clamp01(home[0].norm),right=clamp01(home[1].norm);
-        const float absolute=left+(right-left)*p;
-        const float x=4+88*absolute;
-        L(x,2,x,14,TRACE_AMBER,.75f);D(x,14,1.3f,TRACE_AMBER);
-        label(76,4,"POS "+num("%.1f",p*100)+"%",TRACE_AMBER);
-        if(!compact){
-            Rect hr{X(4),Y(0),X(92)-X(4),Y(15)-Y(0)};
-            auto set=[this,hr,left,right](float px,float){if(right>left)app_.knobs(P::P_HOME)[3].set(clamp01(((px-hr.x)/hr.w-left)/(right-left)));};
-            hit(hr,set,set);
-        }
-    };
-    switch(pg) {
-    case P::P_ECHO:{
-        base();source(4,2,88,12);pos();
-        // Successive offset readings of one source: texture/scatter/drift/evolve.
-        const auto peaks=app_.peaks(t,compact?32:64);
-        const int layers=compact?4:6;
-        for(int j=0;j<layers;++j){
-            float y=19+j*25.f/layers,off=(j-(layers-1)*.5f)*n(2)*2.2f;
-            float len=78-12*n(1)*j/layers;
-            float x=9+off+4*n(1)*std::sin(j*2.1f);
-            O(x,y-1.4f,len,3.8f,j%2?TRACE_BLUE:TRACE_VIOLET);
-            for(size_t i=0;i<peaks.size();++i){
-                float v=clamp01(peaks[(i+j*size_t(1+int(n(1)*5)))%peaks.size()]);
-                float xx=x+(i+.5f)*len/peaks.size(),amp=v*(.7f+1.2f*n(0));
-                L(xx,y+0.5f-amp,xx,y+0.5f+amp,tint(TRACE_BLUE,TRACE_VIOLET,clamp01(n(3)*j/layers)),.38f);
-            }
-        }return true;}
+// Compact pictographs transcribed independently from the R10 96x48 SVG
+// library. Fit, rather than stretch, into the actual 216x35 FM-1 plot.
+// Parameter readouts/meters are drawn separately by SamplerApp.
+bool SamplerUI::studyGraphic(Rect w,SamplerApp::Page pg,bool) {
+    using P=SamplerApp;using Pt=std::pair<float,float>;using Path=std::vector<Pt>;
+    const int t=app_.track();const auto& ts=app_.state(t);const auto k=app_.knobs(pg);
+    const float a=clamp01(k[0].norm),b=clamp01(k[1].norm),c=clamp01(k[2].norm),d=clamp01(k[3].norm);
+    const float s=std::min(w.w/96.f,w.h/48.f),ox=w.x+(w.w-96*s)/2,oy=w.y+(w.h-48*s)/2;
+    const uint32_t B=TRACE_BLUE,V=TRACE_VIOLET,A=TRACE_AMBER,G=TRACE_GREEN,D=WELL_DIM,F=GRID,W=WELL_TEXT;
+    auto X=[&](float x){return ox+x*s;};auto Y=[&](float y){return oy+y*s;};
+    auto L=[&](float x,float y,float xx,float yy,uint32_t col,float thick=1.6f){line(X(x),Y(y),X(xx),Y(yy),col,std::max(2.f,thick*s));};
+    auto path=[&](const Path& q,uint32_t col,float thick=2.f){for(size_t i=1;i<q.size();i++)L(q[i-1].first,q[i-1].second,q[i].first,q[i].second,col,thick);};
+    auto rect=[&](float x,float y,float ww,float hh,uint32_t col,uint32_t fill=0,float sw=1.5f){if(ww<=0||hh<=0)return;Rect z{X(x),Y(y),ww*s,hh*s};if(fill)rrect(z,0,fill);stroke(z,0,col,std::max(2.f,sw*s));};
+    auto ring=[&](float x,float y,float rr,uint32_t col,uint32_t fill=0,float sw=1.5f){if(fill)circle(X(x),Y(y),rr*s,fill);Path q;for(int i=0;i<=20;i++){float ph=2*kPi*i/20;q.push_back({x+rr*std::cos(ph),y+rr*std::sin(ph)});}path(q,col,sw);};
+    auto jack=[&](float x,float y,uint32_t col){ring(x,y,2.4f,col,WELL);};
+    auto grid=[&](float x,float y,float ww,float hh,int n,int m){for(int i=0;i<=n;i++)L(x+ww*i/n,y,x+ww*i/n,y+hh,F,1);for(int j=0;j<=m;j++)L(x,y+hh*j/m,x+ww,y+hh*j/m,F,1);};
+    auto cubic=[&](Pt p,Pt q,Pt r,Pt z,uint32_t col,float sw=1.6f){Path out;for(int i=0;i<=20;i++){float v=i/20.f,u=1-v;out.push_back({u*u*u*p.first+3*u*u*v*q.first+3*u*v*v*r.first+v*v*v*z.first,u*u*u*p.second+3*u*u*v*q.second+3*u*v*v*r.second+v*v*v*z.second});}path(out,col,sw);};
+    auto arrow=[&](float x,float y,float xx,float yy,uint32_t col){L(x,y,xx,yy,col);float q=std::atan2(yy-y,xx-x);path({{xx-4*std::cos(q-.65f),yy-4*std::sin(q-.65f)},{xx,yy},{xx-4*std::cos(q+.65f),yy-4*std::sin(q+.65f)}},col,1.6f);};
+    auto wave=[&](float x,float y,float ww,float hh,const std::vector<float>& p){if(p.empty()){L(x,y,x+ww,y,F);return;}Path top,bot;for(size_t i=0;i<p.size();i++){float xx=x+ww*i/std::max<size_t>(1,p.size()-1),v=hh*clamp01(p[i]);top.push_back({xx,y-v});bot.push_back({xx,y+v});}path(top,B,1.3f);path(bot,B,1.3f);};
+    auto mix=[](uint32_t x,uint32_t y,float v){uint32_t o=0xff000000u;v=clamp01(v);for(int sh=0;sh<=16;sh+=8)o|=uint32_t(std::lround(float(x>>sh&255)*(1-v)+float(y>>sh&255)*v))<<sh;return o;};
+    switch(pg){
+    case P::P_ECHO:
+        for(int j=0;j<4;j++){float dx=(j==0?0:j==1?5:j==2?-3:8)*b*1.8f,y=7+j*10.f+(j-1.5f)*c;uint32_t col=j==0?D:j==3?V:B;float ww=62+6*d*(j-1);rect(16+dx,y,ww,6,col);int n=3+int(a*4);for(int i=1;i<n;i++)L(16+dx+ww*i/n,y,16+dx+ww*i/n,y+6,col,1.2f);}return true;
     case P::P_GRAIN:{
-        base();source(4,2,88,12);pos();
-        const int shape=int(std::lround(n(2)*5));
-        // AUTO is a representative Hann window; explicit choices follow the DSP formula.
-        auto perc=[](float x){
-            float v=x<.03f?std::sin(.5f*kPi*x/.03f):std::exp(-5.f*(x-.03f)/.97f);
-            if(x>.92f)v*=.5f+.5f*std::cos(kPi*(x-.92f)/.08f);
-            return v;
-        };
-        auto window=[&](float x){
-            x=clamp01(x);
-            if(x==0.f||x==1.f)return 0.f;
-            switch(shape){
-            case 2:return x<.15f?.5f*(1-std::cos(2*kPi*x/.3f)):x>.85f?.5f*(1-std::cos(2*kPi*(1-x)/.3f)):1.f;
-            case 3:return perc(x);
-            case 4:return perc(1.f-x);
-            case 5:{float d=(x-.5f)/.16f;return clamp01((std::exp(-.5f*d*d)-.00752f)/(1.f-.00752f));}
-            default:return .5f*(1-std::cos(2*kPi*x));
-            }
-        };
-        L(4,42,92,42,GRID);
-        const int count=3+int(n(1)*(compact?5:8));
-        const float width=8+34*n(0);
-        for(int j=0;j<count;++j){
-            const float start=5+(86-width)*j/std::max(1,count-1);
-            const uint32_t c=j%2?TRACE_VIOLET:TRACE_BLUE;
-            const int steps=compact?12:24;
-            for(int i=0;i<steps;++i){float x=float(i)/steps,xx=float(i+1)/steps;
-                L(start+width*x,42-19*window(x),start+width*xx,42-19*window(xx),c,.65f);}
-        }
-        if(n(3)>.5f){L(6,45,90,45,TRACE_AMBER);label(48,46,"FREEZE",TRACE_AMBER);}
-        return true;}
+        L(7,36,89,36,D);int count=3+int(b*4);float width=16+15*a;
+        for(int j=0;j<count;j++){float x=8+(80-width)*j/std::max(1,count-1);uint32_t col=j%3==0?D:j%3==2?V:B;Path q;for(int i=0;i<=24;i++){float z=i/24.f;float v=0.5f*(1-std::cos(2*kPi*z));if(ts.echo.window==2)v=std::min({1.f,z/.15f,(1-z)/.15f});if(ts.echo.window==3||ts.echo.window==4){float u=ts.echo.window==4?1-z:z;v=u<.03f?std::sin(.5f*kPi*u/.03f):std::exp(-5*(u-.03f)/.97f);if(u>.92f)v*=.5f+.5f*std::cos(kPi*(u-.92f)/.08f);}if(ts.echo.window==5){float u=(z-.5f)/.16f;v=clamp01((std::exp(-.5f*u*u)-.00752f)/(1-.00752f));}q.push_back({x+width*z,36-26*v});}path(q,col);}
+        if(d>.5f)L(7,43,89,43,A,2);return true;}
     case P::P_MOTION:{
-        base();source(4,2,88,12);pos();
-        const float scan=2*n(0)-1;
-        for(int lane=0;lane<3;++lane){
-            const float y=21+10.f*lane;L(4,y,92,y,GRID);
-            const int count=compact?4:7;
-            for(int j=0;j<count;++j){
-                float x=7+j*80.f/count;
-                const bool back=(float(j)+.5f)/count<n(1);
-                const float dx=(back?-1.f:(scan<0?-1.f:1.f))*(5+9*std::abs(scan));
-                float yy=y+std::sin(j*2.3f+lane*1.4f)*n(2)*3;
-                arrow(std::clamp(x,4.f,92.f),yy,std::clamp(x+dx,4.f,92.f),yy+(lane-1)*n(2)*2,back?TRACE_VIOLET:TRACE_BLUE);
-            }
-        }if(n(3)>.5f){O(3,17,90,29,TRACE_AMBER);label(80,45,"LATCH",TRACE_AMBER);}return true;}
+        rect(7,7,82,34,D);L(7,24,89,24,F,1);float travel=10+24*std::abs(2*a-1),sign=a<.5f?-1.f:1.f,ex=48+sign*travel,ey=12+9*c;
+        cubic({13,24},{30,9},{47,10},{ex,ey},B,2);arrow(ex-sign*5,ey+4,ex,ey,B);
+        cubic({13,24},{32,37},{52,38},{ex,31},B,2);arrow(ex-sign*5,31,ex,31,B);
+        if(b>.01f){cubic({73,15},{57,26},{44,31},{17,33},V,1.5f+1.3f*b);arrow(23,31,17,33,V);}
+        if(d>.5f)rect(7,7,82,34,A);return true;}
+    case P::P_EFILTER:{
+        grid(7,7,82,34,4,2);Path p;for(int i=0;i<=36;i++){float q=i/36.f,z=(q-b)*14,low=1/(1+std::exp(z)),band=std::exp(-z*z*.22f),v=ts.echoInsert.filter==0?low:ts.echoInsert.filter==1?band:1-low;p.push_back({8+80*q,40-32*clamp01(.08f+.73f*v+.24f*c*band)});}path(p,A,2.2f);L(8+80*b,6,8+80*b,41,D,1.3f);return true;}
     case P::P_EDELAY:{
-        base();const bool ping=n(3)>.5f;
-        const int repeats=compact?5:7; const float pitch=7+5*n(0);
-        float first=12,last=first;
-        const float y1=11,y2=25;
-        L(3,y1,93,y1,GRID);L(3,y2,93,y2,GRID);
-        for(int j=0;j<repeats;++j){
-            const float x=first+j*pitch;if(x+5>94)break;last=x;
-            const float y=ping&&j%2?y2:y1;
-            const float strength=n(2)*std::pow(std::min(.92f,n(1)),float(j));
-            const uint32_t c=tint(GRID,TRACE_VIOLET,.12f+.88f*strength);
-            B(x-4,y-4,8,8,c);O(x-4,y-4,8,8,tint(WELL_DIM,TRACE_VIOLET,n(2)));
-            if(j>0){const float py=ping&&(j-1)%2?y2:y1;L(x-pitch+4,py,x-4,y,TRACE_BLUE);}
-        }
-        const float ly=ping&&int(std::lround((last-first)/pitch))%2?y2:y1;
-        const uint32_t fb=tint(GRID,TRACE_GREEN,n(1));
-        L(first,y1+4,first,39,fb,.85f);L(last,ly+4,last,39,fb,.85f);
-        arrow(last,39,first,39,fb);label(48,44,"FEEDBACK",TRACE_GREEN);
-        label(5,7,"L");label(5,21,"R");return true;}
+        L(9,13,88,13,F,1);L(9,31,88,31,F,1);
+        float step=14+10*a;int count=std::min(5,1+int(70/step));uint32_t fb=mix(D,G,b);
+        for(int i=0;i<count;i++){float x=12+i*step,y=d>.5f?(i%2?26.f:8.f):17.f;rect(x,y,11,10,mix(D,V,i==0?.25f+.75f*c:c*std::pow(.86f,float(i))),0,1.8f);if(i<count-1)arrow(x+11,y+5,x+step,d>.5f?(i%2?13.f:31.f):22.f,fb);}
+        float end=12+(count-1)*step+5.5f,yy=d>.5f?((count-1)%2?36.f:18.f):27.f;path({{end,yy},{end,43},{9,43},{9,d>.5f?13.f:22.f}},fb,1.6f);arrow(9,18,9,13,fb);return true;}
     case P::P_EREVERB:{
-        base();const int nx=compact?10:18,ny=compact?6:10,steps=compact?16:32;
-        const float size=n(1),send=n(0);
-        auto warp=[&](float x,float y){float taper=std::sin(kPi*x/96)*std::sin(kPi*y/48);
-            return std::pair<float,float>{x+size*6*taper*std::sin(y*.22f+x*.10f),y+size*5*taper*std::cos(x*.15f-y*.12f)};};
-        for(int family=0;family<2;++family){
-            const int count=family?ny:nx;
-            for(int j=0;j<=count;++j){
-                auto point=[&](float q){return warp(family?4+88*q:4+88.f*j/count,family?4+40.f*j/count:4+40*q);};
-                uint32_t c=tint(GRID,TRACE_BLUE,.25f+.75f*send);
-                if(j%3==1&&float(j)/count<n(2))c=tint(c,TRACE_VIOLET,.85f);
-                if(j%5==2&&float(j)/count<n(3))c=tint(c,TRACE_AMBER,.85f);
-                for(int i=0;i<steps;++i){auto p=point(float(i)/steps),q=point(float(i+1)/steps);L(p.first,p.second,q.first,q.second,c,.5f);}
-            }
-        }return true;}
+        for(int j=0;j<4;j++){float y=10+9*j;Path q;for(int i=0;i<=40;i++){float u=i/40.f;q.push_back({7+82*u,y+5*b*std::sin(4*kPi*u+j*.5f)});}path(q,mix(D,B,.25f+.75f*a),1.6f);}
+        for(int i=0;i<5;i++){float x=18+16*i;uint32_t col=i%2==0?mix(D,V,c):i==1?mix(D,A,d):D;Path q;for(int j=0;j<=24;j++){float u=j/24.f;q.push_back({x+6*b*std::sin(2*kPi*u+i*.4f),5+38*u});}path(q,col,1.4f);}return true;}
     case P::P_ETAPE:{
-        base();const int steps=compact?40:80;
-        auto center=[&](float x){return 24+3.8f*n(0)*std::sin(x*.085f)+1.5f*n(1)*std::sin(x*.62f);};
-        for(int i=0;i<steps;++i){float x=3+i*90.f/steps,xx=3+(i+1)*90.f/steps;
-            const float y=center(x),yy=center(xx);
-            L(x,y+3,xx,yy+3,TRACE_BLUE,2.0f);
-            L(x,y,xx,yy,tint(TRACE_VIOLET,WELL_DIM,n(2)*.6f),2.2f);
-            if((i*17%steps)/float(steps)>n(2))L(x,y-2,xx,yy-2,TRACE_AMBER,.8f);
-        }
-        for(int i=0;i<(compact?24:50);++i){const float q=(i*37%101)/101.f;if(q>n(3))continue;
-            const float x=5+(i*29%89),y=center(x)-5-(i*13%7);D(x,y,.46f,WELL_DIM);}
-        const float contact=center(48)-2.f;
-        B(42,4,12,contact-4,WELL_DIM);B(45,7,6,contact-7,GRID);L(42,contact,54,contact,TRACE_AMBER,1);
-        label(48,3,"TAPE HEAD",TRACE_AMBER);return true;}
+        Path top,bot;for(int i=0;i<=48;i++){float q=i/48.f,xx=7+82*q,y=28-6*a*std::sin(2*kPi*q)+2*b*std::sin(10*kPi*q);top.push_back({xx,y});bot.push_back({xx,y+11});if(i>0){auto p=top[i-1],z=bot[i-1];tri(X(p.first),Y(p.second),X(xx),Y(y),X(xx),Y(y+11),F);tri(X(p.first),Y(p.second),X(xx),Y(y+11),X(z.first),Y(z.second),F);}}
+        path(top,A,2.4f);path(bot,B,1.7f);float head=28-6*a*std::sin(2*kPi*43/82.f)+2*b*std::sin(10*kPi*43/82.f);
+        tri(X(40),Y(6),X(60),Y(6),X(57),Y(head),F);tri(X(40),Y(6),X(57),Y(head),X(43),Y(head),F);path({{40,6},{60,6},{57,head},{43,head},{40,6}},D);L(43,head,57,head,V,2.3f);for(int i=0;i<4+int(d*9);i++){float x=14+(i*17%68),y=top[int((x-7)*48/82)].second+4;L(x,y,x+3,y-1,mix(W,V,c),1.4f);}return true;}
     case P::P_EMIX:{
-        base();const float tape=n(2),filter=n(3);
-        for(float y:{19.f,29.f}){jack(3,y,TRACE_BLUE);L(5,y,12,y,TRACE_BLUE);}
-        O(12,9,17,30,TRACE_VIOLET);O(34,9,17,30,TRACE_AMBER);
-        for(float y:{19.f,29.f}){L(29,y,34,y,TRACE_BLUE);L(51,y,57,y,TRACE_BLUE);}
-        label(20.5f,14,"TAPE",TRACE_VIOLET);label(42.5f,14,"FILTER",TRACE_AMBER);
-        L(15,22,26,22,TRACE_VIOLET,.9f);L(15,25,26,25,TRACE_VIOLET,.5f);
-        L(37,22,42,22,TRACE_AMBER,.8f);L(42,22,48,27,TRACE_AMBER,.8f);
-        bar(14,31,13,4,tape,TRACE_VIOLET);bar(36,31,13,4,filter,TRACE_AMBER);
-        O(57,3,33,42,WELL_DIM);label(73.5f,6,"LIVE M/S");
-        // Equal physical scales for side and mid, independent of panel aspect.
-        // Capture is already AFTER width and output gain in EchoInsert.
-        const float cx=X(73.5f),cy=Y(24),rad=std::min((X(88)-X(59))*.5f,(Y(38)-Y(10))*.5f);
-        stroke({cx-rad,cy-rad,2*rad,2*rad},0,GRID,sw(.45f));
-        line(cx-rad,cy,cx+rad,cy,GRID,sw(.35f));line(cx,cy-rad,cx,cy+rad,GRID,sw(.35f));
-        float mid[Session::kScopePoints],side[Session::kScopePoints];
-        const int count=app_.session().insertScope(t,mid,side,Session::kScopePoints);
-        for(int i=1;i<count;++i){
-            // Intermittent colors encode configured mix, not measured effect contributions.
-            uint32_t c=tint(TRACE_BLUE,TRACE_VIOLET,tape*(.25f+.75f*std::pow(std::sin(i*1.77f),2.f)));
-            c=tint(c,TRACE_AMBER,filter*(.15f+.85f*std::pow(std::cos(i*1.19f),2.f)));
-            line(cx+rad*std::clamp(side[i-1],-1.f,1.f),cy-rad*std::clamp(mid[i-1],-1.f,1.f),cx+rad*std::clamp(side[i],-1.f,1.f),cy-rad*std::clamp(mid[i],-1.f,1.f),c,sw(.55f));
-        }
-        bar(60,40,27,3,n(1)*n(1),TRACE_GREEN); // output gain setting, relative to the 1.6x maximum
-        for(float y:{19.f,29.f}){L(90,y,93,y,TRACE_BLUE);jack(94,y,TRACE_BLUE);}
-        return true;}
-    case P::P_MIX:{
-        base();const int src=ts.scSrc-1;const bool on=src>=0&&src<Session::kTracks&&src!=t;
-        for(int j=0;j<8;++j){float y=5+j*5.2f;jack(5,y,on&&src==j?TRACE_VIOLET:WELL_DIM);if(!compact)label(10,y,std::to_string(j+1));}
-        O(23,5,17,13,on?TRACE_VIOLET:GRID);label(31.5f,11,"DETECT",on?TRACE_VIOLET:WELL_DIM);
-        if(on){float sy=5+src*5.2f;L(7,sy,17,sy,TRACE_VIOLET);L(17,sy,17,11,TRACE_VIOLET);arrow(17,11,23,11,TRACE_VIOLET);}
-        O(46,5,33,38,WELL_DIM);label(62.5f,8,"GAIN CELL");
-        const float th=-40*(1-n(2)),ratio=1+19*n(3)*n(3);
-        auto transfer=[&](float x){float db=-60+60*x;return (db>th&&on?th+(db-th)/ratio:db);};
-        const float x0=50,y0=35,ww=25,hh=21;
-        L(x0,y0,x0+ww,y0-hh,GRID);
-        const float threshold=clamp01((th+60)/60);
-        L(x0+ww*threshold,y0,x0+ww*threshold,y0-hh,TRACE_AMBER);
-        for(int j=0;j<24;++j){float p=j/24.f,q=(j+1)/24.f;L(x0+ww*p,y0-hh*(transfer(p)+60)/60,x0+ww*q,y0-hh*(transfer(q)+60)/60,on?TRACE_VIOLET:TRACE_BLUE,.8f);}
-        if(on){L(40,11,43,11,TRACE_VIOLET);arrow(43,11,46,11,TRACE_VIOLET);}
-        for(float y:{29.f,36.f}){jack(22,y,TRACE_BLUE);L(24,y,46,y,TRACE_BLUE);L(79,y,91,y,TRACE_BLUE);jack(93,y,TRACE_BLUE);}
-        bar(51,38,23,3,n(0),TRACE_GREEN);label(32,44,on?"SIDECHAIN":"SC OFF",on?TRACE_VIOLET:WELL_DIM);return true;}
+        jack(5,24,B);L(8,24,12,24,B);rect(12,15,12,18,V,0,1.8f);L(16,19,20,29,mix(D,V,c));L(24,24,29,24,B);rect(29,15,12,18,A,0,1.8f);path({{31,21},{35,21},{39,28}},mix(D,A,d),1.5f);L(41,24,46,24,B);
+        rect(46,6,39,36,D);rect(50,10,31,28,D,0,1);L(65.5f,12,65.5f,36,F);L(52,24,79,24,F);
+        float m[Session::kScopePoints],side[Session::kScopePoints];int n=app_.session().insertScope(t,m,side,Session::kScopePoints);
+        for(int i=1;i<n;i++){float q=float(i)/(n-1),v=.5f+.5f*std::sin(2*kPi*q*6),u=.5f+.5f*std::sin(2*kPi*(q*6+.34f));L(65.5f+12*side[i-1],24-12*m[i-1],65.5f+12*side[i],24-12*m[i],mix(mix(B,V,c*std::pow(v,1.35f)),A,d*std::pow(1-u,1.35f)),1.4f);}
+        L(85,17,91,17,B);L(85,31,91,31,B);jack(92,17,B);jack(92,31,B);return true;}
+    case P::P_ENV:{
+        grid(8,7,80,34,4,2);float total=3*a*a+b+.65f+5*d*d,xa=8+80*3*a*a/total,xd=xa+80*b/total,xs=xd+80*.65f/total,yy=41-33*c;path({{8,41},{xa,8},{xd,yy},{xs,yy},{88,41}},B,2.4f);ring(xa,8,2.3f,W,WELL);ring(xd,yy,2.3f,W,WELL);ring(xs,yy,2.3f,W,WELL);return true;}
+    case P::P_LFO:{
+        L(7,24,66,24,F);Path q;for(int i=0;i<=48;i++){float z=i/48.f*(1+int(a*4)),ph=z-std::floor(z);float v=ts.lfoShape==1?1-4*std::abs(ph-.5f):ts.lfoShape==2?(ph<.5f?1.f:-1.f):ts.lfoShape==3?std::sin(int(z)*3.1f):std::sin(2*kPi*z);q.push_back({7+59.f*i/48,24-13*b*v});}path(q,B);float y=8+9.3f*ts.lfoTarget;path({{66,24},{75,24},{75,y},{84,y}},B,1.6f);for(int i=0;i<4;i++)jack(87,8+9.3f*i,i==ts.lfoTarget?B:D);return true;}
     case P::P_ARP:{
-        base();const int levels=3*(ts.arpOct+1),count=6+int(n(0)*10);
-        for(int i=0;i<=4;++i)L(4,8+8*i,92,8+8*i,GRID);
-        for(int j=0;j<count;++j){
-            int p=j%std::max(1,levels);
-            if(ts.arpPatt==1)p=levels-1-p;
-            else if(ts.arpPatt==2){int period=std::max(1,2*levels-2);int step=j%period;p=step<levels?step:period-step;}
-            else if(ts.arpPatt==3)p=(j%2)?levels-1-(j/2)%levels:(j/2)%levels;
-            else if(ts.arpPatt==4)p=(j*7+3)%levels;
-            float x=4+88.f*j/count,y=40-30.f*p/std::max(1,levels-1);
-            const uint32_t c=tint(TRACE_BLUE,TRACE_VIOLET,float(p)/std::max(1,levels-1));
-            B(x,y-3,88.f/count*(.24f+.70f*n(3)),5,ts.arpRate?c:GRID);
-        }return true;}
+        grid(8,7,80,34,6,3);int count=ts.arpRate?7:0,oct=ts.arpOct+1;for(int i=0;i<count;i++){int idx=ts.arpPatt==0?i:ts.arpPatt==1?6-i:ts.arpPatt==2?std::min(i,6-i):ts.arpPatt==3?(i%2?6-i/2:i/2):(i*5)%7;float y=34-27.f*(idx%(oct+2))/std::max(1,oct+1);uint32_t col=y<13?V:y>28?B:D;rect(9+i*11,y+1,4+5*d,6,col,col,1);}if(count&&st_.loopSamples>0){float x=9+11*std::min(6,int(loopPos()*7));L(x,43,x+8,43,G,2.2f);}return true;}
+    case P::P_MIX:{
+        int src=ts.scSrc-1;bool on=src>=0&&src<8&&src!=t;for(int i=0;i<8;i++)jack(8,7+i*4.8f,on&&i==src?G:D);
+        if(on)path({{11,7+src*4.8f},{25,7+src*4.8f},{25,24},{35,24}},G,1.8f);rect(35,17,15,14,on?G:D);path({{39,27},{43,21},{46,24}},on?G:D,1.5f);L(50,24,56,24,on?G:D);rect(56,7,28,34,D);float q=(20+40*c)/60,kx=60+20*q,ky=36-20*q;path({{60,36},{kx,ky},{80,ky-20*(1-q)/(on?1+19*d*d:1.f)}},V,2);L(84,17,91,17,B);L(84,31,91,31,B);jack(92,17,B);jack(92,31,B);return true;}
+    case P::P_KEY:{
+        auto scale=app_.scale();auto mask=app_.chordGhostMask();std::vector<float> xs;for(int i=0;i<12;i++){float x=7+7*i;bool valid=P::inScale(scale.scale,(i-scale.root+12)%12);rect(x,13,5,23,valid?B:D,i==scale.root?B:0,1.4f);if(mask&(1u<<i))xs.push_back(x+2);}
+        if(!xs.empty()){L(xs.front(),6,xs.back(),6,V);for(float x:xs)L(x,6,x,10,V);}return true;}
+    case P::P_SAVE:{
+        float level=clamp01(st_.inputPeak*2),th=clamp01(app_.micThreshold()*2);L(7,24,73,24,B);if(level>0)rect(7,24-15*level,66,30*level,B,0,1.2f);L(7,24-15*th,73,24-15*th,A);L(7,24+15*th,73,24+15*th,A);path({{76,13},{76,35},{88,35},{88,13},{76,13}},D);rect(79,32-16*level,6,16*level,G,G,1);ring(13,7,3,a>.5f?TRACE_RED:V,a>.5f?TRACE_RED:0);return true;}
     case P::P_LEN:{
-        base();float pk[Session::kLoopBins];const int m=app_.session().loopPeaks(t,pk,Session::kLoopBins);
-        const bool active=st_.loopSamples>0;
-        const int bars=std::clamp(st_.loopBars,1,32);
-        for(int j=0;j<bars;++j){float x=4+j*88.f/bars;O(x,10,88.f/bars-.25f,28,GRID);}
-        if(active&&st_.track_has_clip[t]&&m>0){float mx=.08f;for(int i=0;i<m;++i)mx=std::max(mx,pk[i]);
-            const int count=compact?80:160;for(int j=0;j<count;++j){float v=clamp01(pk[j*m/count]/mx)*12;B(4+j*88.f/count,24-v,88.f/count+.01f,2*v,TRACE_BLUE);}}
-        if(active)L(4+88*clamp01(loopPos()),8,4+88*clamp01(loopPos()),40,TRACE_AMBER);
-        else label(48,24,"NO LOOP");
-        L(4,42,92,42,WELL_DIM);L(4,39,4,45,WELL_DIM);L(92,39,92,45,WELL_DIM);
-        label(48,46,std::to_string(bars)+" BARS");return true;}
-    case P::P_TEMPO:{
-        base();const bool active=st_.loopSamples>0;
-        const int bars=std::clamp(st_.loopBars,1,16),beats=bars*4;
-        L(4,26,92,26,WELL_DIM);
-        for(int j=0;j<=beats;++j){float x=4+j*88.f/beats;
-            L(x,26,x,j%4==0?10.f:18.f,j%4==0?TRACE_BLUE:GRID,j%4==0?.8f:.5f);}
-        if(active)L(4+88*clamp01(loopPos()),7,4+88*clamp01(loopPos()),38,TRACE_AMBER,.8f);
-        const float relative=active?float(std::clamp(1.0/st_.tempoRate,.20,1.0)):0.f;
-        O(4,31,88,5,GRID);bar(4,40,88,4,relative,TRACE_VIOLET);label(48,4,active?num("%.1f",st_.bpm)+" BPM":"NO LOOP");
-        return true;}
-    default:return false; // existing live sample, filter, ADSR, LFO, key and input plots
+        rect(8,12,39,24,D);rect(49,12,39,24,B);float pk[Session::kLoopBins];int n=app_.session().loopPeaks(t,pk,Session::kLoopBins);std::vector<float> p,q;if(n>0&&st_.track_has_clip[t]){float mx=.08f;for(int i=0;i<n;i++)mx=std::max(mx,pk[i]);for(int j=0;j<20;j++){p.push_back(pk[j*n/40]/mx);q.push_back(pk[(j+20)*n/40]/mx);}}wave(10,24,35,8,p);wave(51,24,35,8,q);path({{8,8},{8,5},{88,5},{88,8}},W);L(40,41,56,41,G);L(48,38,48,44,G);return true;}
+    case P::P_TEMPO:
+        path({{8,9},{88,9}},D);L(8,5,8,14,D);L(88,5,88,14,D);for(int i=0;i<=8;i++)L(8+i*10,9,8+i*10,15,i%4==0?B:D,1.4f);rect(8,20,80,8,D);rect(8,33,35+45*(1-b),8,B,0,1.7f);path({{43+45*(1-b),30},{50+45*(1-b),37},{43+45*(1-b),44}},V);return true;
+    default:return false;
     }
 }

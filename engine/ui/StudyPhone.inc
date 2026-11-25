@@ -253,5 +253,33 @@ void SamplerUI::studyDeck(){
         if(pg==P::P_SAVE&&i==0){tap(bar,[this]{app_.micSample();});continue;}
         auto set=[this,t,pg,i,bar](float px,float){if(app_.track()!=t||app_.page()!=pg)return;auto q=app_.knobs(pg)[i];if(q.set)q.set(clamp01((px-bar.x-2)/(bar.w-4)));};
         if(pg==P::P_LEN&&i==0)hit(bar,set);else hit(bar,set,set);}
-    timeline({20,337,920,101});
+    studyTimeline({20,337,920,101});
+}
+
+// R10 drawTimeline: continuous nested envelopes, real stored loop peaks.
+// An unsigned peak overview cannot supply the study's synthetic signed centre trace.
+void SamplerUI::studyTimeline(Rect r) {
+    const int t=app_.track();const bool has=app_.loopExists()&&st_.loopSamples>0,rec=st_.freeRecording||st_.track_clip_rec[t];
+    bevel(r,WELL,true);
+    float x=r.x+9,y=r.y+55,ww=r.w-18;
+    float sec=has?float(st_.loopSamples/app_.session().sampleRate()):st_.freeRecording?st_.freeSeconds:0.f;
+    auto clock=[](float v){char b[24];snprintf(b,sizeof b,"%d:%02d",int(v)/60,int(v)%60);return std::string(b);};
+    const int bars=std::max(1,st_.loopBars);
+    if(has) {
+        for(int i=0;i<=bars;i++){float xx=x+ww*i/bars;line(xx,r.y+18,xx,r.y+93,GRID,i==0?1.2f:.8f);if(i<bars&&(bars<=16||i%2==0))text(xx+3,r.y+10,9,WELL_DIM,(i<9?"0":"")+std::to_string(i+1));}
+        for(int i=0;i<=bars*4;i++){float xx=x+ww*i/(bars*4);line(xx,r.y+17,xx,r.y+23+(i%4==0?3:0),WELL_DIM,.8f);}
+    }
+    line(x,y,x+ww,y,GRID);line(x,r.y+28,x+ww,r.y+28,GRID,.7f);line(x,r.y+82,x+ww,r.y+82,GRID,.7f);
+    std::vector<float> p;float fraction=1.f;
+    if(has&&st_.track_has_clip[t]){float pk[Session::kLoopBins];int n=app_.session().loopPeaks(t,pk,Session::kLoopBins);p.assign(pk,pk+std::max(0,n));}
+    else if(st_.freeRecording){static float fp[18500];int n=app_.session().freePeaks(fp,18500);int bins=std::min(450,std::max(1,n));p.assign(bins,0.f);for(int i=0;i<n;i++)p[std::min(bins-1,i*bins/std::max(1,n))]=std::max(p[std::min(bins-1,i*bins/std::max(1,n))],fp[i]);fraction=std::min(1.f,n*.01f/std::max(1.f,sec));}
+    if(p.size()>1){float mx=.08f;for(float v:p)mx=std::max(mx,v);uint32_t col=rec?TRACE_RED:TRACE_BLUE;
+        const float scales[]={1,.68f,.34f},alphas[]={.19f,.24f,.34f};
+        for(int layer=0;layer<3;layer++){float h=30*scales[layer];uint32_t color=withAlpha(col,int(255*alphas[layer]));for(size_t j=1;j<p.size();j++){float xa=x+ww*fraction*(j-1)/(p.size()-1),xb=x+ww*fraction*j/(p.size()-1),va=h*clamp01(p[j-1]/mx),vb=h*clamp01(p[j]/mx);tri(xa,y-va,xb,y-vb,xb,y+vb,color);tri(xa,y-va,xb,y+vb,xa,y+va,color);}}
+        // Preserve the centre of the envelope, without fabricating signed PCM.
+        line(x,y,x+ww*fraction,y,withAlpha(WELL_TEXT,100),.8f);
+    }else text(r.x+r.w/2,y,12,WELL_DIM,st_.freeArmed?"WAITING FOR THE FIRST SOUND":has?"TRACK HAS NO LOOP":"NO LOOP",1);
+    if(has||st_.freeRecording){float xx=x+ww*(has?clamp01(loopPos()):fraction);uint32_t col=rec?TRACE_RED:TRACE_AMBER;rrect({xx-3,r.y+17,6,76},0,withAlpha(col,28));line(xx,r.y+16,xx,r.y+94,col,1.7f);tri(xx-4,r.y+15,xx+4,r.y+15,xx,r.y+21,col);}
+    text(x,r.y+94,9,WELL_DIM,"0:00");text(x+ww,r.y+94,9,WELL_DIM,clock(sec),2);
+    if(has&&!app_.recordingNow())hit({x,r.y,ww,r.h},[this,x,ww](float px,float){app_.scrub(0,clamp01((px-x)/ww));},[this,x,ww](float px,float){app_.scrub(1,clamp01((px-x)/ww));},[this]{app_.scrub(2,0);});
 }

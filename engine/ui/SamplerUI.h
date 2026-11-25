@@ -51,6 +51,7 @@ private:
     bool studyGraphic(Rect w, SamplerApp::Page pg, bool compact);
     void studyPhone(Rect w, SamplerApp::Page pg);
     void studyDeck();
+    void studyTimeline(Rect r);
     void scaleStudy(float scale,float ox,float oy,size_t first);
     void pageView(Rect r);   // the schematic of the active page in the place of the sample
     void knob(float cx, float cy, SamplerApp::Page page, int idx, bool unused = false);
