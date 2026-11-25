@@ -139,41 +139,26 @@ void SamplerUI::studyPhone(Rect w, SamplerApp::Page pg) {
         L(334,74,384,124,GRID,.6f);L(334,124,384,74,GRID,.6f);
         M(363,70,"M",dim,8);M(390,95,"S",dim,8,2);
         float mid[Session::kScopePoints],side[Session::kScopePoints];int count=app_.session().insertScope(t,mid,side,Session::kScopePoints);
-        // Faint reference lattice: a parameter-dependent guide, gently
-        // perturbed by measured M/S. It is NOT the measured vectorscope trace.
-        // The bright trace below remains a genuine, equally scaled M/S plot.
-        auto tintAt=[&](float u){float w1=.5f+.5f*std::sin(tau*u*6),w2=.5f+.5f*std::sin(tau*(u*6+.34f));return mix(mix(blue,violet,c*std::pow(w1,1.35f)),amber,d*std::pow(1-w2,1.35f));};
-        Path guide;
-        const float width=.4f+.8f*a;
-        for(int j=0;j<=96;j++){
-            float u=j/96.f,ph=tau*u;
-            int i=count>0?std::min(count-1,j*count/97):0;
-            float sx=count>0?side[i]:0.f,my=count>0?mid[i]:0.f;
-            guide.push_back({359+width*17*std::sin(3*ph)+5*sx,99-23*std::sin(2*ph+.45f)-5*my});
+        // A single continuous animated figure, including when no audio is
+        // present. Actual post-insert M/S samples deform the same path.
+        auto tintAt=[&](float u){
+            const float phase=.035f*float(now_%600000u)*.001f;
+            float w1=.5f+.5f*std::sin(tau*(u*6+phase));
+            float w2=.5f+.5f*std::sin(tau*(u*6+phase+.34f));
+            return mix(mix(blue,violet,c*std::pow(w1,1.35f)),amber,d*std::pow(1-w2,1.35f));
+        };
+        constexpr int points=180;
+        auto last=insertViz(0.f,now_,a,b,mid,side,count);
+        for(int j=1;j<=points;j++){
+            const float q=float(j)/points;
+            auto next=insertViz(q,now_,a,b,mid,side,count);
+            const uint32_t col=mix(tintAt(q),ink,.12f);
+            L(359+33*last.side,99-33*last.mid,359+33*next.side,99-33*next.mid,col,2.05f);
+            last=next;
         }
-        for(size_t j=1;j<guide.size();j++){
-            L(guide[j-1].first,guide[j-1].second,guide[j].first,guide[j].second,al(tintAt(float(j)/96),.26f),.85f);
-        }
-        float peak=0.f;
-        for(int i=0;i<count;i++)peak=std::max({peak,std::abs(mid[i]),std::abs(side[i])});
-        // Common display-only magnification, capped at 8x. The width and
-        // gain controls still act in the audio engine, not on a fake trace.
-        const float magnification=std::clamp(.88f/std::max(.001f,peak),1.f,8.f);
-        const float amp=32.f*magnification;
-        if(peak>.0005f){
-            for(int i=1;i<count;i++){
-                float u=float(i)/(count-1);uint32_t col=tintAt(u);
-                float x0=359+amp*side[i-1],y0=99-amp*mid[i-1],x1=359+amp*side[i],y1=99-amp*mid[i];
-                L(x0,y0,x1,y1,al(col,.20f),3.7f);
-                L(x0,y0,x1,y1,al(mix(col,ink,.20f),.96f),1.65f);
-            }
-        }else{
-            O(359,99,1.8f,blue);
-        }
-        M(292,141,"GUIDE / LIVE",dim,7);
-        M(426,141,num("X%.1f",magnification),dim,7,2);
+        M(292,141,"SIGNAL-REACTIVE",dim,7);
         M(292,151,"W "+k[0].value,blue);M(426,151,"G "+k[1].value,green,9,2);M(282,26,"OUTPUT SET");M(434,26,k[1].value,green,9,2);R(357,18,53,9,metal,dim,.7f);R(359,20,49*b*b,5,green);
-        D({{436,77},{452,77},{452,64},{470,64}},blue,2.2f);D({{436,121},{452,121},{452,138},{470,138}},blue,2.2f);port(476,64,blue);port(476,138,blue);M(491,67,"L");M(491,141,"R");M(505,178,"STEREO OUT",dim,9,2);M(15,178,"LIVE / POST INSERT",dim,8);break;}
+        D({{436,77},{452,77},{452,64},{470,64}},blue,2.2f);D({{436,121},{452,121},{452,138},{470,138}},blue,2.2f);port(476,64,blue);port(476,138,blue);M(491,67,"L");M(491,141,"R");M(505,178,"STEREO OUT",dim,9,2);M(15,178,"ANIMATED / POST-INSERT RESPONSE",dim,8);break;}
     case P::P_MIX:{
         int sel=ts.scSrc;bool on=sel>0&&sel<=8&&sel!=t+1;float ratio=1+19*d*d,th=-40*(1-c);
         M(15,15,"CHANNEL "+std::to_string(t+1)+" / PATCH");M(505,15,"SIDECHAIN / CONTROL",dim,9,2);
@@ -305,29 +290,41 @@ void SamplerUI::studyDeck(){
         tap(z,[this,i]{app_.gotoPage(nextMenuPage(app_,kMenus[i]));});
     }
     line(418,283,940,283,OUTLINE);
-    text(418,272,10,family,std::string(group.editorLabel)+" / "+P::pageName(pg));
-    float right=940;
-    struct StudyChild{P::Page page;Rect rect;std::string label;};
-    std::vector<StudyChild> children;
-    for(int j=group.count-1;j>=0;j--){
-        auto p=group.pages[j];if(!app_.pageAvailable(p))continue;
-        std::string label=group.labels[j];float width=std::max(44.f,16.f+label.size()*6.f);
-        right-=width;children.push_back({p,{right,262,width,19},label});right-=4;
-    }
-    if(children.size()>1){
-        const float parentX=418+selected*52.5f+24.75f,railY=259;
+    const int count=childCount(app_,group);
+    if(count>1){
+        const bool leftward=group.pages[0]==P::P_LEN;
+        const float parentX=418+selected*52.5f+24.75f;
+        const float room=leftward?parentX-418:940-parentX;
+        const float gap=5.f,railY=259.f;
+        const float childW=std::min(64.f,(room-gap*(count-1))/count);
+        struct StudyChild{P::Page page;Rect rect;std::string label;};
+        std::vector<StudyChild> children;
+        for(int j=0;j<group.count;j++){
+            auto p=group.pages[j];
+            if(!app_.pageAvailable(p))continue;
+            const float offset=float(children.size())*(childW+gap);
+            const float x=leftward?parentX-offset-childW:parentX+offset;
+            children.push_back({p,{x,262,childW,19},group.labels[j]});
+        }
+        // The stem and rail are always in the parent family color.
         float lo=parentX,hi=parentX;
-        for(const auto& child:children){float cx=child.rect.x+child.rect.w/2;lo=std::min(lo,cx);hi=std::max(hi,cx);}
+        for(const auto& child:children){
+            const float cx=child.rect.x+child.rect.w/2;
+            lo=std::min(lo,cx);hi=std::max(hi,cx);
+        }
         line(parentX,256,parentX,railY,family,1.5f);
         line(lo,railY,hi,railY,family,1.5f);
-        for(const auto& child:children){float cx=child.rect.x+child.rect.w/2;line(cx,railY,cx,child.rect.y,family,1.5f);}
+        for(const auto& child:children){
+            const auto z=child.rect;const auto p=child.page;
+            const float cx=z.x+z.w/2;const bool on=p==pg;
+            const uint32_t col=pageColor(p);
+            line(cx,railY,cx,z.y,family,1.5f);
+            bevel(z,on?col:SURFACE,on);
+            text(cx,271.5f,10,on?contrastInk(col):col,fit(child.label,z.w-4,10),1,on);
+            tap(z,[this,p]{app_.gotoPage(p);});
+        }
     }
-    for(const auto& child:children){
-        const auto p=child.page;const auto z=child.rect;const bool on=p==pg;const uint32_t col=pageColor(p);
-        bevel(z,on?col:SURFACE,on);
-        text(z.x+z.w/2,271.5f,10,on?contrastInk(col):col,child.label,1,on);
-        tap(z,[this,p]{app_.gotoPage(p);});
-    }
+    // Single-page groups (and SAMPLE in non-granular modes) have no child row.
     for(int i=0;i<4;i++){float x=418+i*132.25f;const auto& p=k[i];Rect bar{x,305,125.25f,22};uint32_t col=encoderColor(i);if(!p.valid){bevel(bar,TRACK,true);continue;}
         float valueWidth=std::min(65.f,float(p.value.size())*6.1f+4);text(x,295,10,TEXT,fit(p.name,bar.w-valueWidth-3,10),0,true);text(x+bar.w,295,10,DIM,fit(p.value,valueWidth,10),2);
         bevel(bar,TRACK,true);const bool action=pg==P::P_LEN&&(i==1||i==2);if(action){bevel(bar,SURFACE);text(x+bar.w/2,316,10,TEXT,i==1?"X2":"/2",1,true);tap(bar,[this,pg,i]{auto q=app_.knobs(pg)[i];if(q.step)q.step(1);});continue;}

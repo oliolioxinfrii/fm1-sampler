@@ -49,7 +49,16 @@ bool SamplerUI::studyGraphic(Rect w,SamplerApp::Page pg,bool) {
         jack(5,24,B);L(8,24,12,24,B);rect(12,15,12,18,V,0,1.8f);L(16,19,20,29,mix(D,V,c));L(24,24,29,24,B);rect(29,15,12,18,A,0,1.8f);path({{31,21},{35,21},{39,28}},mix(D,A,d),1.5f);L(41,24,46,24,B);
         rect(46,6,39,36,D);rect(50,10,31,28,D,0,1);L(65.5f,12,65.5f,36,F);L(52,24,79,24,F);
         float m[Session::kScopePoints],side[Session::kScopePoints];int n=app_.session().insertScope(t,m,side,Session::kScopePoints);
-        for(int i=1;i<n;i++){float q=float(i)/(n-1),v=.5f+.5f*std::sin(2*kPi*q*6),u=.5f+.5f*std::sin(2*kPi*(q*6+.34f));L(65.5f+12*side[i-1],24-12*m[i-1],65.5f+12*side[i],24-12*m[i],mix(mix(B,V,c*std::pow(v,1.35f)),A,d*std::pow(1-u,1.35f)),1.4f);}
+        auto last=insertViz(0.f,now_,a,b,m,side,n);
+        constexpr int points=64;
+        for(int i=1;i<=points;i++){
+            float q=float(i)/points;
+            auto next=insertViz(q,now_,a,b,m,side,n);
+            float phase=.035f*float(now_%600000u)*.001f;
+            float v=.5f+.5f*std::sin(2*kPi*(q*6+phase)),u=.5f+.5f*std::sin(2*kPi*(q*6+phase+.34f));
+            L(65.5f+11*last.side,24-11*last.mid,65.5f+11*next.side,24-11*next.mid,mix(mix(B,V,c*std::pow(v,1.35f)),A,d*std::pow(1-u,1.35f)),1.9f);
+            last=next;
+        }
         L(85,17,91,17,B);L(85,31,91,31,B);jack(92,17,B);jack(92,31,B);return true;}
     case P::P_ENV:{
         grid(8,7,80,34,4,2);float total=3*a*a+b+.65f+5*d*d,xa=8+80*3*a*a/total,xd=xa+80*b/total,xs=xd+80*.65f/total,yy=41-33*c;path({{8,41},{xa,8},{xd,yy},{xs,yy},{88,41}},B,2.4f);ring(xa,8,2.3f,W,WELL);ring(xd,yy,2.3f,W,WELL);ring(xs,yy,2.3f,W,WELL);return true;}

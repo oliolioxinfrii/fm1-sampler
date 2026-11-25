@@ -182,18 +182,28 @@ int main() {
         auto deckTap=[&](float x,float y){constexpr float s=400.f/450.f;tap((860-960*s)*.5f+x*s,y*s);};
         deckTap(495,244);CHECK(app.page()==SamplerApp::P_EFILTER,"deck opens FX group");
         deckTap(495,244);CHECK(app.page()==SamplerApp::P_EDELAY,"deck primary cycles submenu");
-        deckTap(915,271);CHECK(app.page()==SamplerApp::P_EREVERB,"deck selects reverb directly");
+        deckTap(665,271);CHECK(app.page()==SamplerApp::P_EREVERB,"deck selects reverb directly");
         deckTap(495,244);CHECK(app.page()==SamplerApp::P_EFILTER,"deck wraps FX group");
-        deckTap(863,271);CHECK(app.page()==SamplerApp::P_EDELAY,"deck selects delay directly");
-        deckTap(810,271);CHECK(app.page()==SamplerApp::P_EFILTER,"deck selects filter directly");
+        deckTap(596,271);CHECK(app.page()==SamplerApp::P_EDELAY,"deck selects delay directly");
+        deckTap(527,271);CHECK(app.page()==SamplerApp::P_EFILTER,"deck selects filter directly");
         deckTap(705,244);CHECK(app.page()==SamplerApp::P_ETAPE,"deck opens tape group");
         deckTap(705,244);CHECK(app.page()==SamplerApp::P_EMIX,"deck cycles tape submenu");
-        deckTap(840,271);CHECK(app.page()==SamplerApp::P_ETAPE,"deck tape child");
-        deckTap(910,271);CHECK(app.page()==SamplerApp::P_EMIX,"deck insert child");
+        deckTap(737,271);CHECK(app.page()==SamplerApp::P_ETAPE,"deck tape child");
+        deckTap(806,271);CHECK(app.page()==SamplerApp::P_EMIX,"deck insert child");
         deckTap(915,244);CHECK(app.page()==SamplerApp::P_LEN,"deck opens LENGTH group");
-        deckTap(910,271);CHECK(app.page()==SamplerApp::P_TEMPO,"deck selects tempo");
+        deckTap(814,271);CHECK(app.page()==SamplerApp::P_TEMPO,"deck selects tempo");
         deckTap(915,244);CHECK(app.page()==SamplerApp::P_LEN,"deck length group wraps");
+        // The vacant child row must neither display a redundant tab nor
+        // retain a hit target from the previous group.
         app.gotoPage(SamplerApp::P_ENV);
+        ui.frame(now);
+        bool duplicateEnv=false;
+        for(const auto& op:ui.ops()){
+            if(op.type==UiOp::TEXT&&op.text=="ENV"&&op.f[1]>230&&op.f[1]<249)duplicateEnv=true;
+        }
+        CHECK(!duplicateEnv,"single-page ENV has no redundant child");
+        deckTap(814,271);
+        CHECK(app.page()==SamplerApp::P_ENV,"empty child row has no stale hit target");
         const float saved=app.knobs()[0].norm;
         deckTap(435,316);const float low=app.knobs()[0].norm;
         deckTap(530,316);const float high=app.knobs()[0].norm;

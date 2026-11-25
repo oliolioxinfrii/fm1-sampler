@@ -147,6 +147,37 @@ void SamplerUI::button(Rect r, const std::string& label, bool on, std::function<
 }
 
 // ---- frame ----
+// Animated insert visualization derived from R10's scopePath oscillator.
+// This is a signal-reactive schematic, not a calibrated M/S measurement.
+// One path in silence and during playback; samples perturb its coordinates.
+namespace {
+struct InsertVizPoint { float side, mid; };
+InsertVizPoint insertViz(float q, uint32_t now, float width, float level,
+                         const float* mid, const float* side, int count) {
+    constexpr float tau=2*kPi;
+    // Slow continuously evolving shape. The display has a minimum size even
+    // when the output gain setting is zero. No audio or DSP is generated here.
+    const float t=float(now%600000u)*.001f;
+    const float u=q*tau*5+2.1f*t;
+    const float baseM=.72f*std::sin(u)+.20f*std::sin(2.02f*u+.6f*t);
+    const float baseS=.60f*std::sin(1.37f*u+.73f*t)+.15f*std::sin(2.63f*u-.5f*t);
+    float dm=0.f,ds=0.f;
+    if(count>0){
+        const float at=clamp01(q)*float(count-1);
+        const int i=int(at),j=std::min(i+1,count-1);
+        const float f=at-i;
+        dm=mid[i]+(mid[j]-mid[i])*f;
+        ds=side[i]+(side[j]-side[i])*f;
+    }
+    // Bounded soft-knee visual response; do not amplify silence into motion
+    // or renormalize away the relative stereo geometry.
+    const float gain=.76f+.24f*clamp01(1.6f*level*level);
+    return {
+        std::clamp(gain*(.4f+.8f*width)*baseS+.27f*std::tanh(5.f*ds),-.99f,.99f),
+        std::clamp(gain*baseM+.27f*std::tanh(5.f*dm),-.99f,.99f)
+    };
+}
+}
 #include "StudyGraphic.inc"
 #include "StudyPhone.inc"
 
