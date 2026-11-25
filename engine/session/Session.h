@@ -40,6 +40,7 @@ public:
         int sampleFails;         // bumps when a sample could not be loaded
         float clipPos[kTracks];  // 0..1 read position of the loops (follows the loop speed)
         float lfoValue[kTracks]; // -1..1, for the UI
+        float lfoPhase[kTracks]; // normalized oscillator phase, read-only UI telemetry
         float scGain[kTracks], scLevel[kTracks];   // sidechain: the gain a track is pulled down to (1 = untouched) and the level it is measured by (its own level before the fader)
         int voiceN[kTracks]; float voicePos[kTracks][kVoiceMax], voiceLvl[kTracks][kVoiceMax];   // + their envelope levels (a voice shrinks as it dies away)   // sounding voices (every grain in granular mode): read positions 0..1 of the whole sample
     };

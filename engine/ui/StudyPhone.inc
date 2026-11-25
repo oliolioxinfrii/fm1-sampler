@@ -133,9 +133,45 @@ void SamplerUI::studyPhone(Rect w, SamplerApp::Page pg) {
         mod(38,"TAPE",c,violet);mod(108,"FILTER",d,amber);
         D({{236,128},{264,128},{264,105},{282,105}},blue,2);D({{236,141},{272,141},{272,118},{282,118}},blue,2);
         rail(282,39,154,126);R(287,44,144,116,WELL);M(292,54,"M/S STEREO");M(426,54,"2 CH",dim,8,2);
-        R(317,57,84,84,0,GRID,.8f);O(359,99,36,0,GRID,.85f);O(359,99,18,0,GRID,.7f);L(323,99,395,99,dim,.6f);L(359,63,359,135,dim,.6f);L(334,74,384,124,GRID,.6f);L(334,124,384,74,GRID,.6f);M(363,70,"M",dim,8);M(390,95,"S",dim,8,2);
+        R(317,57,84,84,0,GRID,.8f);
+        O(359,99,36,0,al(dim,.62f),1.f);O(359,99,18,0,al(dim,.35f),.7f);
+        L(323,99,395,99,al(dim,.7f),.8f);L(359,63,359,135,al(dim,.7f),.8f);
+        L(334,74,384,124,GRID,.6f);L(334,124,384,74,GRID,.6f);
+        M(363,70,"M",dim,8);M(390,95,"S",dim,8,2);
         float mid[Session::kScopePoints],side[Session::kScopePoints];int count=app_.session().insertScope(t,mid,side,Session::kScopePoints);
-        for(int i=1;i<count;i++){float u=float(i)/(count-1),w1=.5f+.5f*std::sin(tau*u*6),w2=.5f+.5f*std::sin(tau*(u*6+.34f));uint32_t col=mix(mix(blue,violet,c*std::pow(w1,1.35f)),amber,d*std::pow(1-w2,1.35f));L(359+22.5f*side[i-1],99-22.5f*mid[i-1],359+22.5f*side[i],99-22.5f*mid[i],al(col,.86f),1.15f);}
+        // Faint reference lattice: a parameter-dependent guide, gently
+        // perturbed by measured M/S. It is NOT the measured vectorscope trace.
+        // The bright trace below remains a genuine, equally scaled M/S plot.
+        auto tintAt=[&](float u){float w1=.5f+.5f*std::sin(tau*u*6),w2=.5f+.5f*std::sin(tau*(u*6+.34f));return mix(mix(blue,violet,c*std::pow(w1,1.35f)),amber,d*std::pow(1-w2,1.35f));};
+        Path guide;
+        const float width=.4f+.8f*a;
+        for(int j=0;j<=96;j++){
+            float u=j/96.f,ph=tau*u;
+            int i=count>0?std::min(count-1,j*count/97):0;
+            float sx=count>0?side[i]:0.f,my=count>0?mid[i]:0.f;
+            guide.push_back({359+width*17*std::sin(3*ph)+5*sx,99-23*std::sin(2*ph+.45f)-5*my});
+        }
+        for(size_t j=1;j<guide.size();j++){
+            L(guide[j-1].first,guide[j-1].second,guide[j].first,guide[j].second,al(tintAt(float(j)/96),.26f),.85f);
+        }
+        float peak=0.f;
+        for(int i=0;i<count;i++)peak=std::max({peak,std::abs(mid[i]),std::abs(side[i])});
+        // Common display-only magnification, capped at 8x. The width and
+        // gain controls still act in the audio engine, not on a fake trace.
+        const float magnification=std::clamp(.88f/std::max(.001f,peak),1.f,8.f);
+        const float amp=32.f*magnification;
+        if(peak>.0005f){
+            for(int i=1;i<count;i++){
+                float u=float(i)/(count-1);uint32_t col=tintAt(u);
+                float x0=359+amp*side[i-1],y0=99-amp*mid[i-1],x1=359+amp*side[i],y1=99-amp*mid[i];
+                L(x0,y0,x1,y1,al(col,.20f),3.7f);
+                L(x0,y0,x1,y1,al(mix(col,ink,.20f),.96f),1.65f);
+            }
+        }else{
+            O(359,99,1.8f,blue);
+        }
+        M(292,141,"GUIDE / LIVE",dim,7);
+        M(426,141,num("X%.1f",magnification),dim,7,2);
         M(292,151,"W "+k[0].value,blue);M(426,151,"G "+k[1].value,green,9,2);M(282,26,"OUTPUT SET");M(434,26,k[1].value,green,9,2);R(357,18,53,9,metal,dim,.7f);R(359,20,49*b*b,5,green);
         D({{436,77},{452,77},{452,64},{470,64}},blue,2.2f);D({{436,121},{452,121},{452,138},{470,138}},blue,2.2f);port(476,64,blue);port(476,138,blue);M(491,67,"L");M(491,141,"R");M(505,178,"STEREO OUT",dim,9,2);M(15,178,"LIVE / POST INSERT",dim,8);break;}
     case P::P_MIX:{
@@ -174,12 +210,30 @@ void SamplerUI::studyPhone(Rect w, SamplerApp::Page pg) {
         for(size_t j=1;j<p.size();j++)quad({p[j-1].first,151},p[j-1],p[j],{p[j].first,151},al(dim,.18f));D(p,ink,2.6f);for(size_t j=0;j<p.size();j++){L(p[j].first,p[j].second,p[j].first,151,GRID);R(p[j].first-3,p[j].second-3,6,6,WELL,encoderTrace(std::max(0,int(j)-1)),1.5f);}M(24,15,"AMPLITUDE");M(505,15,num("%.2f s incl. sustain preview",total),dim,9,2);L(24,151,498,151,dim);ticks(24,159,60);M(24,176,"A",blue);M(182,176,"D",green);M(335,176,"S",violet);M(498,176,"R",amber,9,2);break;}
     case P::P_LFO:{
         int n=1+int(std::lround(6*a)),shape=ts.lfoShape;M(20,15,"CONTROL SIGNAL");R(20,28,334,124,0,lip,.8f);L(20,90,354,90,dim,.8f);Path p;
-        for(int j=0;j<=280;j++){float q=j/280.f*n,ph=q-std::floor(q),v=shape==1?1-4*std::abs(ph-.5f):shape==2?(ph<.5f?1.f:-1.f):shape==3?2*rnd(int(q)+90)-1:std::sin(tau*q);p.push_back({20+334.f*j/280,90-v*124*.45f*b});}
-        for(size_t j=1;j<p.size();j++)quad({p[j-1].first,90},p[j-1],p[j],{p[j].first,90},al(dim,.15f));D(p,blue,2.5f);L(365,20,365,165,lip);port(382,94,blue);
-        const char* names[]={"PITCH","FILTER","VOLUME","PAN"};for(int j=0;j<4;j++){float yy=34+j*39;bool sel=j==ts.lfoTarget;uint32_t col=sel?violet:dim;D({{388,94},{403.f+j*4,94},{403.f+j*4,yy},{440,yy}},al(col,sel?1.f:.25f),sel?2.7f:1.f);R(440,yy-11,64,22,metal,col);M(472,yy+3,names[j],col,9,1);}M(20,176,"SHAPE: "+k[3].value,amber);M(354,176,"LEVEL "+num("%+.0f%%",st_.lfoValue[t]*100),amber,9,2);break;}
+        for(int j=0;j<=280;j++){float q=j/280.f*n,ph=q-std::floor(q),v=shape==1?(ph<.5f?4*ph-1:3-4*ph):shape==2?(ph<.5f?1.f:-1.f):shape==3?2*rnd(int(q)+90)-1:std::sin(tau*q);p.push_back({20+334.f*j/280,90-v*124*.45f*b});}
+        for(size_t j=1;j<p.size();j++){
+            quad({p[j-1].first,90},p[j-1],p[j],{p[j].first,90},al(dim,.15f));
+        }
+        D(p,blue,2.5f);
+        // The last cycle represents the actual current oscillator phase.
+        // S&H uses the current held value rather than the preview's arbitrary sequence.
+        const float phase=clamp01(st_.lfoPhase[t]);
+        const float live=std::clamp(st_.lfoValue[t],-1.f,1.f);
+        const float hx=20+334.f*(n-1+phase)/n,hy=90-live*124*.45f*b;
+        if(shape==3 && b>.001f){
+            const float start=20+334.f*(n-1)/n;
+            R(start,29,354-start,122,WELL);
+            L(start,90,354,90,GRID,.8f);
+            L(start,hy,354,hy,blue,2.5f);
+        }
+        L(hx,29,hx,151,al(amber,.65f),1.25f);
+        O(hx,hy,4.4f,WELL,amber,1.7f);
+        O(hx,hy,1.8f,amber);
+        L(365,20,365,165,lip);port(382,94,blue);
+        const char* names[]={"PITCH","FILTER","VOLUME","PAN"};for(int j=0;j<4;j++){float yy=34+j*39;bool sel=j==ts.lfoTarget;uint32_t col=sel?violet:dim;D({{388,94},{403.f+j*4,94},{403.f+j*4,yy},{440,yy}},al(col,sel?1.f:.25f),sel?2.7f:1.f);R(440,yy-11,64,22,metal,col);M(472,yy+3,names[j],col,9,1);}M(20,176,"LEVEL "+num("%+.0f%%",st_.lfoValue[t]*100),amber);M(354,176,"SHAPE: "+k[3].value,dim,9,2);break;}
     case P::P_KEY:{
         auto sca=app_.scale();M(15,15,"PITCH CLASS");M(505,15,"OCTAVE "+std::to_string(sca.octave),violet,9,2);uint16_t ghost=app_.chordGhostMask();std::vector<float> xs;
-        for(int i=0;i<12;i++){float x=14+i*41;bool valid=SamplerApp::inScale(sca.scale,(i-sca.root+12)%12);uint32_t col=i==sca.root?amber:valid?dim:GRID;R(x,50,37,72,metal,lip,.9f);R(x+3,53,31,66,WELL);R(x+6,56,25,43,valid?al(dim,.35f):GRID);R(x+7,57,23,4,valid?al(ink,.45f):metal);R(x+6,105,25,10,col);M(x+18.5f,136,SamplerApp::noteName(i),col,9,1);if(ghost&(1u<<i)){port(x+18.5f,42,amber);L(x+18.5f,42,x+18.5f,50,amber,1.8f);xs.push_back(x+18.5f);}}
+        for(int i=0;i<12;i++){float x=14+i*41;bool valid=SamplerApp::inScale(sca.scale,(i-sca.root+12)%12);uint32_t col=i==sca.root?green:valid?blue:GRID;R(x,50,37,72,metal,lip,.9f);R(x+3,53,31,66,WELL);R(x+6,56,25,43,valid?al(dim,.35f):GRID);R(x+7,57,23,4,valid?al(ink,.45f):metal);R(x+6,105,25,10,valid||i==sca.root?blue:GRID);M(x+18.5f,136,SamplerApp::noteName(i),col,9,1);if(ghost&(1u<<i)){port(x+18.5f,42,amber);L(x+18.5f,42,x+18.5f,50,amber,1.8f);xs.push_back(x+18.5f);}}
         if(xs.size()>1){L(xs.front(),29,xs.back(),29,amber,1.8f);for(float x:xs)L(x,29,x,42,amber,1.8f);}
         L(20,159,500,159,dim);for(int j=0;j<7;j++){float x=20+j*80;L(x,155,x,163,dim);M(x,177,std::to_string(j-3),dim,8,1);}R(20+(sca.octave+3)*80-3,153,6,12,violet);break;}
     case P::P_SAVE:{
@@ -234,16 +288,46 @@ void SamplerUI::studyDeck(){
     const char* tools[]={"GRAIN","MIC","FILE","PROJ","EDIT"};for(int i=0;i<5;i++){float yy=13+i*52.f+(i==4?16.f:0.f);Rect z{349,yy,54,46};bevel(z,SURFACE);if(i==4){line(368,yy+10,385,yy+10,TEXT,2);line(368,yy+16,385,yy+16,TEXT,2);line(368,yy+22,381,yy+22,TEXT,2);}else icon(4+i,376,yy+16,i==0?VIOLET:i==1?RED:ACCENT);text(376,yy+36,9,TEXT,tools[i],1,true);
         tap(z,[this,i]{if(i==0){if(app_.algo()!=4){app_.say("SELECT GRANULAR FIRST");return;}app_.gotoPage(app_.page()==P::P_ECHO?P::P_GRAIN:app_.page()==P::P_GRAIN?P::P_MOTION:P::P_ECHO);}else if(i==1)app_.micSample();else if(i==2)app_.requestFile();else if(i==3)projectOpen_=true;else app_.setEditor(true);});}
     line(349,226,403,226,OUTLINE);
-    bevel({418,13,522,23},SURFACE);rrect({426,20,6,10},0,tc);text(439,25,12,TEXT,P::pageName(pg),0,true);
+    const uint32_t pageAccent=pageColor(pg);
+    bevel({418,13,522,23},SURFACE);rrect({426,20,6,10},0,pageAccent);text(439,25,12,pageAccent,P::pageName(pg),0,true);
     Rect alg{790,16,146,17};bevel(alg,RAISED);text(795,24.5f,10,TEXT,fit(P::algoName(app_.algo()),126,10));tri(925,22,931,22,928,26,TEXT);tap(alg,[this]{app_.setAlgo((app_.algo()+1)%6);});
     // Keep the existing tuning action, beside the sample algorithm.
     if(app_.algo()<=1&&pg==P::P_HOME)button({754,16,32,17},"TUNE",app_.tuned(t),[this]{app_.autoTune();},8);
     bevel({418,39,522,188},WELL,true);
     if(mic)sampleView({419,40,520,186});else studyPhone({419,40,520,186},pg);
     const int selected=activeMenu(pg);const auto& group=kMenus[selected];
-    for(int i=0;i<kMenuCount;i++){Rect z{418+i*52.5f,232,49.5f,24};bool on=i==selected;bevel(z,on?DIM:SURFACE,on);text(z.x+z.w/2,244,10,on?RAISED:TEXT,fit(kMenus[i].editorLabel,z.w-3,10),1,true);tap(z,[this,i]{app_.gotoPage(nextMenuPage(app_,kMenus[i]));});}
-    line(418,283,940,283,OUTLINE);text(418,272,10,DIM,std::string(group.editorLabel)+" / "+P::pageName(pg));float right=940;
-    for(int j=group.count-1;j>=0;j--){auto p=group.pages[j];if(!app_.pageAvailable(p))continue;std::string label=group.labels[j];float width=std::max(44.f,16.f+label.size()*6.f);right-=width;Rect z{right,262,width,19};bool on=p==pg;bevel(z,on?tc:SURFACE,on);text(z.x+width/2,271.5f,10,on?contrastInk(tc):TEXT,label,1,on);tap(z,[this,p]{app_.gotoPage(p);});right-=4;}
+    const uint32_t family=pageColor(group.pages[0]);
+    for(int i=0;i<kMenuCount;i++){
+        Rect z{418+i*52.5f,232,49.5f,24};bool on=i==selected;
+        const uint32_t col=pageColor(kMenus[i].pages[0]);
+        bevel(z,on?col:SURFACE,on);
+        text(z.x+z.w/2,244,10,on?contrastInk(col):col,fit(kMenus[i].editorLabel,z.w-3,10),1,true);
+        tap(z,[this,i]{app_.gotoPage(nextMenuPage(app_,kMenus[i]));});
+    }
+    line(418,283,940,283,OUTLINE);
+    text(418,272,10,family,std::string(group.editorLabel)+" / "+P::pageName(pg));
+    float right=940;
+    struct StudyChild{P::Page page;Rect rect;std::string label;};
+    std::vector<StudyChild> children;
+    for(int j=group.count-1;j>=0;j--){
+        auto p=group.pages[j];if(!app_.pageAvailable(p))continue;
+        std::string label=group.labels[j];float width=std::max(44.f,16.f+label.size()*6.f);
+        right-=width;children.push_back({p,{right,262,width,19},label});right-=4;
+    }
+    if(children.size()>1){
+        const float parentX=418+selected*52.5f+24.75f,railY=259;
+        float lo=parentX,hi=parentX;
+        for(const auto& child:children){float cx=child.rect.x+child.rect.w/2;lo=std::min(lo,cx);hi=std::max(hi,cx);}
+        line(parentX,256,parentX,railY,family,1.5f);
+        line(lo,railY,hi,railY,family,1.5f);
+        for(const auto& child:children){float cx=child.rect.x+child.rect.w/2;line(cx,railY,cx,child.rect.y,family,1.5f);}
+    }
+    for(const auto& child:children){
+        const auto p=child.page;const auto z=child.rect;const bool on=p==pg;const uint32_t col=pageColor(p);
+        bevel(z,on?col:SURFACE,on);
+        text(z.x+z.w/2,271.5f,10,on?contrastInk(col):col,child.label,1,on);
+        tap(z,[this,p]{app_.gotoPage(p);});
+    }
     for(int i=0;i<4;i++){float x=418+i*132.25f;const auto& p=k[i];Rect bar{x,305,125.25f,22};uint32_t col=encoderColor(i);if(!p.valid){bevel(bar,TRACK,true);continue;}
         float valueWidth=std::min(65.f,float(p.value.size())*6.1f+4);text(x,295,10,TEXT,fit(p.name,bar.w-valueWidth-3,10),0,true);text(x+bar.w,295,10,DIM,fit(p.value,valueWidth,10),2);
         bevel(bar,TRACK,true);const bool action=pg==P::P_LEN&&(i==1||i==2);if(action){bevel(bar,SURFACE);text(x+bar.w/2,316,10,TEXT,i==1?"X2":"/2",1,true);tap(bar,[this,pg,i]{auto q=app_.knobs(pg)[i];if(q.step)q.step(1);});continue;}
