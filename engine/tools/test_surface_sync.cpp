@@ -89,18 +89,19 @@ int main(){
         app.setAlgo(4);run(3000);checkMenu();
         const int normalClears=clears;
         for(int page=0;page<P::kPages;++page){
+            if(!app.pageAvailable(static_cast<P::Page>(page)))continue;
             app.gotoPage(static_cast<P::Page>(page));const int old=blits;run(3000);
             require(clears==normalClears,"menu navigation cleared the full display");
             checkMenu();
             const auto parent=P::menuParent(app.page());
-            if(parent!=P::P_HOME)require(blits>old,"page did not send pictographic tiles");
+            if(app.page()!=P::P_HOME)require(blits>old,"page did not send pictographic tiles");
         }
         app.gotoPage(P::P_EFILTER);run(3000);
         const int settled=blits;run(2000);
         require(blits==settled,"static reduced glyph retransmitted");
         // Exercise each of the new FX parameters at the actual
         // firmware palette resolution, including bypassed inserts.
-        const P::Page effects[]={P::P_FX,P::P_EFILTER,P::P_EDELAY,P::P_EREVERB,P::P_SEQ,P::P_ETAPE,P::P_EMIX,P::P_KEY};
+        const P::Page effects[]={P::P_ECHO,P::P_GRAIN,P::P_MOTION,P::P_EFILTER,P::P_EDELAY,P::P_EREVERB,P::P_ETAPE,P::P_EMIX,P::P_KEY};
         for(auto page:effects){
             app.gotoPage(page);run(3000);
             for(int j=0;j<4;++j){

@@ -12,7 +12,7 @@ bool SamplerUI::studyGraphic(Rect w, SamplerApp::Page pg, bool compact) {
     const float scale=std::min(w.w/96.f,w.h/48.f);
     auto sw=[&](float v){return std::max(compact?2.2f:1.f,v*scale);};
     auto L=[&](float x,float y,float xx,float yy,uint32_t c,float thick=0.55f){line(X(x),Y(y),X(xx),Y(yy),c,sw(thick));};
-    auto B=[&](float x,float y,float ww,float hh,uint32_t c){rrect({X(x),Y(y),w.w*ww/96.f,w.h*hh/48.f},0,c);};
+    auto B=[&](float x,float y,float ww,float hh,uint32_t c){if(ww<=0||hh<=0)return;rrect({X(x),Y(y),w.w*ww/96.f,w.h*hh/48.f},0,c);};
     auto O=[&](float x,float y,float ww,float hh,uint32_t c){stroke({X(x),Y(y),w.w*ww/96.f,w.h*hh/48.f},0,c,sw(.6f));};
     auto D=[&](float x,float y,float rr,uint32_t c){circle(X(x),Y(y),std::max(compact?2.f:1.f,rr*scale),c);};
     auto label=[&](float x,float y,const std::string& txt,uint32_t c=WELL_DIM){if(!compact)text(X(x),Y(y),std::min(11.f,std::max(7.f,scale*2.7f)),c,txt,1,true);};
@@ -73,13 +73,20 @@ bool SamplerUI::studyGraphic(Rect w, SamplerApp::Page pg, bool compact) {
     case P::P_GRAIN:{
         base();source(4,2,88,12);pos();
         const int shape=int(std::lround(n(2)*5));
+        // AUTO is a representative Hann window; explicit choices follow the DSP formula.
+        auto perc=[](float x){
+            float v=x<.03f?std::sin(.5f*kPi*x/.03f):std::exp(-5.f*(x-.03f)/.97f);
+            if(x>.92f)v*=.5f+.5f*std::cos(kPi*(x-.92f)/.08f);
+            return v;
+        };
         auto window=[&](float x){
             x=clamp01(x);
+            if(x==0.f||x==1.f)return 0.f;
             switch(shape){
-            case 2:return x<.25f?.5f*(1-std::cos(4*kPi*x)):x>.75f?.5f*(1-std::cos(4*kPi*(1-x))):1.f;
-            case 3:return x<.08f?x/.08f:std::exp(-5.f*(x-.08f))*(1-x);
-            case 4:return x>.92f?(1-x)/.08f:std::exp(-5.f*(.92f-x))*x;
-            case 5:return std::exp(-.5f*std::pow((x-.5f)/.18f,2.f));
+            case 2:return x<.15f?.5f*(1-std::cos(2*kPi*x/.3f)):x>.85f?.5f*(1-std::cos(2*kPi*(1-x)/.3f)):1.f;
+            case 3:return perc(x);
+            case 4:return perc(1.f-x);
+            case 5:{float d=(x-.5f)/.16f;return clamp01((std::exp(-.5f*d*d)-.00752f)/(1.f-.00752f));}
             default:return .5f*(1-std::cos(2*kPi*x));
             }
         };
@@ -154,7 +161,8 @@ bool SamplerUI::studyGraphic(Rect w, SamplerApp::Page pg, bool compact) {
         }
         for(int i=0;i<(compact?24:50);++i){const float q=(i*37%101)/101.f;if(q>n(3))continue;
             const float x=5+(i*29%89),y=center(x)-5-(i*13%7);D(x,y,.46f,WELL_DIM);}
-        B(42,4,12,15,WELL_DIM);B(45,7,6,12,GRID);L(42,19,54,19,TRACE_AMBER,1);
+        const float contact=center(48)-2.f;
+        B(42,4,12,contact-4,WELL_DIM);B(45,7,6,contact-7,GRID);L(42,contact,54,contact,TRACE_AMBER,1);
         label(48,3,"TAPE HEAD",TRACE_AMBER);return true;}
     case P::P_EMIX:{
         base();const float tape=n(2),filter=n(3);
@@ -162,6 +170,8 @@ bool SamplerUI::studyGraphic(Rect w, SamplerApp::Page pg, bool compact) {
         O(12,9,17,30,TRACE_VIOLET);O(34,9,17,30,TRACE_AMBER);
         for(float y:{19.f,29.f}){L(29,y,34,y,TRACE_BLUE);L(51,y,57,y,TRACE_BLUE);}
         label(20.5f,14,"TAPE",TRACE_VIOLET);label(42.5f,14,"FILTER",TRACE_AMBER);
+        L(15,22,26,22,TRACE_VIOLET,.9f);L(15,25,26,25,TRACE_VIOLET,.5f);
+        L(37,22,42,22,TRACE_AMBER,.8f);L(42,22,48,27,TRACE_AMBER,.8f);
         bar(14,31,13,4,tape,TRACE_VIOLET);bar(36,31,13,4,filter,TRACE_AMBER);
         O(57,3,33,42,WELL_DIM);label(73.5f,6,"LIVE M/S");
         // Equal physical scales for side and mid, independent of panel aspect.
@@ -177,7 +187,7 @@ bool SamplerUI::studyGraphic(Rect w, SamplerApp::Page pg, bool compact) {
             c=tint(c,TRACE_AMBER,filter*(.15f+.85f*std::pow(std::cos(i*1.19f),2.f)));
             line(cx+rad*std::clamp(side[i-1],-1.f,1.f),cy-rad*std::clamp(mid[i-1],-1.f,1.f),cx+rad*std::clamp(side[i],-1.f,1.f),cy-rad*std::clamp(mid[i],-1.f,1.f),c,sw(.55f));
         }
-        bar(60,40,27,3,clamp01(n(1)),TRACE_GREEN);
+        bar(60,40,27,3,n(1)*n(1),TRACE_GREEN); // output gain setting, relative to the 1.6x maximum
         for(float y:{19.f,29.f}){L(90,y,93,y,TRACE_BLUE);jack(94,y,TRACE_BLUE);}
         return true;}
     case P::P_MIX:{
@@ -227,7 +237,8 @@ bool SamplerUI::studyGraphic(Rect w, SamplerApp::Page pg, bool compact) {
         for(int j=0;j<=beats;++j){float x=4+j*88.f/beats;
             L(x,26,x,j%4==0?10.f:18.f,j%4==0?TRACE_BLUE:GRID,j%4==0?.8f:.5f);}
         if(active)L(4+88*clamp01(loopPos()),7,4+88*clamp01(loopPos()),38,TRACE_AMBER,.8f);
-        bar(4,40,88,4,n(2),TRACE_VIOLET);label(48,4,active?num("%.1f",st_.bpm)+" BPM":"NO LOOP");
+        const float relative=active?float(std::clamp(1.0/st_.tempoRate,.20,1.0)):0.f;
+        O(4,31,88,5,GRID);bar(4,40,88,4,relative,TRACE_VIOLET);label(48,4,active?num("%.1f",st_.bpm)+" BPM":"NO LOOP");
         return true;}
     default:return false; // existing live sample, filter, ADSR, LFO, key and input plots
     }

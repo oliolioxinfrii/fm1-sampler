@@ -37,6 +37,15 @@ int main() {
     auto pageLed = [&](int b) { return (ledMask >> b & 1) != 0; };
     auto play = [&](int note, double sec) { size_t m = all.size(); app.playNote(note, true); run(sec); app.playNote(note, false); run(0.3); return rmsFrom(m); };
     run(2.5);
+    { // The insert scope must report paired, bounded real audio, not a demo trace.
+        app.playNote(60,true);run(.35);
+        float mid[Session::kScopePoints],side[Session::kScopePoints];
+        const int count=s.insertScope(0,mid,side,Session::kScopePoints);
+        bool valid=count==Session::kScopePoints, audible=false;
+        for(int j=0;j<count;++j){valid=valid&&std::isfinite(mid[j])&&std::isfinite(side[j])&&std::abs(mid[j])<=1.f&&std::abs(side[j])<=1.f;audible=audible||std::abs(mid[j])+std::abs(side[j])>.0001f;}
+        CHECK(valid && audible,"insert vectorscope reads real bounded mid/side samples");
+        app.playNote(60,false);run(3.5);
+    }
     CHECK(app.hasSample(0) && app.hasSample(1) && app.hasSample(2) && app.hasSample(3), "four default tracks load (%s, %s, %s, %s)", app.sampleLabel(0).c_str(), app.sampleLabel(1).c_str(), app.sampleLabel(2).c_str(), app.sampleLabel(3).c_str());
     CHECK(!app.hasSample(4), "track 5 is empty");
     { // HOME long press changes the phone view exactly once; SEL cycles pages.
@@ -47,15 +56,15 @@ int main() {
       CHECK(!app.editor(), "holding HOME again returns to the deck");
       btn(SamplerApp::GLO); CHECK(app.page() == SamplerApp::P_KEY, "GLO opens key page");
       btn(SamplerApp::GLO); CHECK(app.page() == SamplerApp::P_KEY, "GLO remains on key page");
-      app.gotoPage(SamplerApp::P_FX);
+      app.gotoPage(SamplerApp::P_EFILTER);
       const bool initialLight = theme::light;
       uint8_t gd[3] = {0x91, (uint8_t)SamplerApp::GLO, 100}, gu[3] = {0x81, (uint8_t)SamplerApp::GLO, 0};
       app.onMidi(gd, 3); run(1.0);
-      CHECK(theme::light != initialLight && app.page() == SamplerApp::P_FX, "GLO hold switches theme without changing page");
+      CHECK(theme::light != initialLight && app.page() == SamplerApp::P_EFILTER, "GLO hold switches theme without changing page");
       run(0.8);
       CHECK(theme::light != initialLight, "GLO hold switches theme only once");
       app.onMidi(gu, 3);
-      CHECK(app.page() == SamplerApp::P_FX, "GLO release after hold preserves page");
+      CHECK(app.page() == SamplerApp::P_EFILTER, "GLO release after hold preserves page");
       app.onMidi(gd, 3); run(1.0); app.onMidi(gu, 3);
       CHECK(theme::light == initialLight, "second GLO hold restores theme");
       btn(SamplerApp::GLO); CHECK(app.page() == SamplerApp::P_KEY, "short GLO still opens key page");
@@ -112,7 +121,7 @@ int main() {
             same = home[i].type == echo[i].type && home[i].color == echo[i].color && home[i].text == echo[i].text;
             for (int j = 0; same && j < 6; ++j) same = home[i].f[j] == echo[i].f[j];
         }
-        CHECK(same, "SAMPLE and ECHOFIELD share waveform drawing");
+        CHECK(!same && !home.empty() && !echo.empty(), "ECHOFIELD has a distinct graphic with the source position preserved");
         ui.setEditor(true); ui.frame(now);
         CHECK(marker(), "original editor has position marker on ECHOFIELD");
         app.gotoPage(SamplerApp::P_HOME); ui.frame(now);
@@ -143,9 +152,9 @@ int main() {
     CHECK(app.status().voiceN[0]==0,"disabling latch releases grains after envelope decay");
     app.setAlgo(0);
     app.gotoPage(SamplerApp::P_HOME);
-    const SamplerApp::Page fxPages[]={SamplerApp::P_FX,SamplerApp::P_EFILTER,SamplerApp::P_EDELAY,SamplerApp::P_EREVERB,SamplerApp::P_FX};
+    const SamplerApp::Page fxPages[]={SamplerApp::P_EFILTER,SamplerApp::P_EDELAY,SamplerApp::P_EREVERB,SamplerApp::P_EFILTER};
     for(auto pg:fxPages){btn(SamplerApp::FX);CHECK(app.page()==pg,"FX menu cycle");}
-    const SamplerApp::Page seqPages[]={SamplerApp::P_SEQ,SamplerApp::P_ETAPE,SamplerApp::P_EMIX,SamplerApp::P_SEQ};
+    const SamplerApp::Page seqPages[]={SamplerApp::P_ETAPE,SamplerApp::P_EMIX,SamplerApp::P_ETAPE};
     for(auto pg:seqPages){btn(SamplerApp::SEQ);CHECK(app.page()==pg,"SEQ menu cycle");}
     app.gotoPage(SamplerApp::P_EDELAY);
     app.knobs()[2].set(.3f);
@@ -169,24 +178,31 @@ int main() {
         auto tap=[&](float x,float y){ui.frame(now);ui.touch(0,x,y,now);ui.touch(2,x,y,now);};
         ui.setEditor(false);app.gotoPage(SamplerApp::P_HOME);
         // At 860 logical pixels the primary row is 10 x 24, right aligned.
-        tap(632,163);CHECK(app.page()==SamplerApp::P_FX,"deck opens FX group");
-        tap(632,163);CHECK(app.page()==SamplerApp::P_EFILTER,"deck primary tab cycles submenu");
-        tap(753.5f,142);CHECK(app.page()==SamplerApp::P_EDELAY,"deck selects delay directly");
-        tap(632,163);CHECK(app.page()==SamplerApp::P_EREVERB,"deck cycles from selected child");
-        tap(632,163);CHECK(app.page()==SamplerApp::P_FX,"deck wraps FX group");
-        tap(632,163);CHECK(app.page()==SamplerApp::P_EFILTER,"deck cycles with child above parent");
-        tap(645,142);CHECK(app.page()==SamplerApp::P_FX,"overlapping child is independently selectable");
-        tap(728,163);CHECK(app.page()==SamplerApp::P_SEQ,"deck opens SEQ group");
-        tap(728,163);CHECK(app.page()==SamplerApp::P_ETAPE,"deck cycles tape submenu");
-        tap(817,142);CHECK(app.page()==SamplerApp::P_EMIX,"tape children cascade right");
-        tap(824,163);CHECK(app.page()==SamplerApp::P_LEN,"deck opens LENGTH group");
-        tap(756.5f,142);CHECK(app.page()==SamplerApp::P_TEMPO,"length children cascade left");
-        tap(824,163);CHECK(app.page()==SamplerApp::P_LEN,"length parent wraps from TEMPO");
+        tap(632,223);CHECK(app.page()==SamplerApp::P_EFILTER,"deck opens FX group");
+        tap(632,223);CHECK(app.page()==SamplerApp::P_EDELAY,"deck primary tab cycles submenu");
+        tap(765,202);CHECK(app.page()==SamplerApp::P_EREVERB,"deck selects reverb directly");
+        tap(632,223);CHECK(app.page()==SamplerApp::P_EFILTER,"deck wraps FX group");
+        tap(710,202);CHECK(app.page()==SamplerApp::P_EDELAY,"deck selects delay directly");
+        tap(645,202);CHECK(app.page()==SamplerApp::P_EFILTER,"overlapping child is independently selectable");
+        tap(728,223);CHECK(app.page()==SamplerApp::P_ETAPE,"deck opens tape group");
+        tap(728,223);CHECK(app.page()==SamplerApp::P_EMIX,"deck cycles tape submenu");
+        tap(750,202);CHECK(app.page()==SamplerApp::P_ETAPE,"tape child is independently selectable");
+        tap(806,202);CHECK(app.page()==SamplerApp::P_EMIX,"tape children cascade right");
+        tap(824,223);CHECK(app.page()==SamplerApp::P_LEN,"deck opens LENGTH group");
+        tap(745,202);CHECK(app.page()==SamplerApp::P_TEMPO,"length children cascade left");
+        tap(824,223);CHECK(app.page()==SamplerApp::P_LEN,"length parent wraps from TEMPO");
+        // Absolute horizontal touch on the first envelope parameter.
+        app.gotoPage(SamplerApp::P_ENV);
+        const float saved=app.knobs()[0].norm;
+        tap(455,274);const float low=app.knobs()[0].norm;
+        tap(524,274);const float high=app.knobs()[0].norm;
+        CHECK(low<.25f && high>.75f,"deck parameter responds horizontally");
+        app.knobs()[0].set(saved);
         ui.setEditor(true);
-        tap(680,66);CHECK(app.page()==SamplerApp::P_FX,"editor opens FX group");
-        tap(680,66);CHECK(app.page()==SamplerApp::P_EFILTER,"editor primary button cycles submenu");
-        tap(758,130);CHECK(app.page()==SamplerApp::P_EDELAY,"editor selects delay directly");
-        tap(632,98);CHECK(app.page()==SamplerApp::P_SEQ,"editor opens SEQ group");
+        tap(680,66);CHECK(app.page()==SamplerApp::P_EFILTER,"editor opens FX group");
+        tap(680,66);CHECK(app.page()==SamplerApp::P_EDELAY,"editor primary button cycles submenu");
+        tap(805,130);CHECK(app.page()==SamplerApp::P_EREVERB,"editor selects reverb directly");
+        tap(632,98);CHECK(app.page()==SamplerApp::P_ETAPE,"editor opens tape group");
         tap(804,130);CHECK(app.page()==SamplerApp::P_EMIX,"editor selects EF MIX directly");
         ui.setEditor(false);
     }

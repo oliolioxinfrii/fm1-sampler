@@ -993,7 +993,7 @@ void SamplerUI::sampleView(Rect r) {
     const int micS = app_.micState();
 
     if (app_.page() != SamplerApp::P_HOME && micS == 0) { pageView(r); return; }
-    const uint32_t header = micS ? RED : echo ? VIOLET : ACCENT;
+    const uint32_t header = micS ? RED : ACCENT;
     const std::string mode = ts.algo == 4 ? std::string("GRANULAR / ") + SamplerApp::echoModeName(ts.echo.mode) : SamplerApp::algoName(ts.algo);
     const float headerSpace = st_.voiceN[t] > 0 ? (ts.algo <= 1 ? 100.f : 80.f) : ts.algo <= 1 ? 30.f : 10.f;
     strip({r.x, r.y, r.w, 18}, header, micS == 1 ? "MIC: WAITING FOR SOUND" : micS == 2 ? "MIC: RECORDING " + num("%.1f", st_.sampleSeconds) + " S" : micS == 3 ? "MIC: SAVING" : fit(mode, r.w - headerSpace, 11), 11);
@@ -1136,7 +1136,7 @@ void SamplerUI::knob(float cx, float cy, SamplerApp::Page page, int idx, bool) {
     text(cx,cy+1,12,TEXT,fit(p.value,cell.w-6,12),1,true);
     const Rect track{cell.x+5,cy+11,cell.w-10,11};
     rrect(track,0,WELL);stroke(track,0,GRID,1);
-    rrect({track.x+1,track.y+1,(track.w-2)*clamp01(p.norm),track.h-2},0,c);
+    if(p.norm>0.f)rrect({track.x+1,track.y+1,(track.w-2)*clamp01(p.norm),track.h-2},0,c);
     using P=SamplerApp;
     if(page==P::P_LEN&&idx==3)return;
     if(page==P::P_LEN&&(idx==1||idx==2)){tap(cell,[this,page,idx]{auto q=app_.knobs(page)[idx];if(q.step)q.step(1);});return;}
@@ -1382,9 +1382,9 @@ void SamplerUI::deck(Rect r) {
     // Every icon sits on a 64 px pitch; the bottom icon of the tools column stands on the transport row.
     const float M = 24, zr = W_ - M, x0 = 440, w0 = zr - x0, mx = 351;
     if (!theme::light) {
-        bevel({M - 10, 6, 304, 272}, SURFACE);
+        bevel({M - 10, 6, 304, 282}, SURFACE);
         bevel({mx - 31, 6, 62, 272}, SURFACE);
-        bevel({x0 - 8, 6, w0 + 16, 272}, SURFACE);
+        bevel({x0 - 8, 6, w0 + 16, 282}, SURFACE);
     }
     // header: the track number (tap = next track), the sample name (tap = library), under it the position in the loop
     const uint32_t tc = trackColor(t);
