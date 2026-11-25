@@ -271,77 +271,165 @@ void SamplerUI::pageView(Rect r) {
         for (size_t i = 0; i + 1 < p.size(); i++) line(p[i].first, p[i].second, p[i + 1].first, p[i + 1].second, c, wd);
         for (size_t i = 1; i + 1 < p.size(); i++) circle(p[i].first, p[i].second, wd / 2, c);
     };
+    // Oblique projection: a recessed grid and offset outlines give
+    // the schematics depth without implying measured signal data.
+    auto ring = [&](float x,float y,float rx,float ry,uint32_t color,float width) {
+        std::vector<std::pair<float,float>> p;
+        for(int i=0;i<=32;++i){float a=2*kPi*i/32;p.push_back({x+rx*std::cos(a),y+ry*std::sin(a)});}
+        poly(p,color,width);
+    };
+    auto floorGrid = [&] {
+        const float y=w.y+w.h*.63f;
+        for(int i=0;i<5;++i) {
+            const float q=float(i)/4, yy=y+(w.y+w.h-3-y)*q*q;
+            line(w.x+3,yy,w.x+w.w-3,yy,GRID,1);
+        }
+        for(int i=0;i<=8;++i) line(w.x+w.w*(.25f+.5f*i/8),y,w.x+w.w*i/8,w.y+w.h-3,GRID,1);
+    };
+    auto prism = [&](float x,float y,float ww,float hh,float depth,uint32_t c) {
+        if(ww<1||hh<1)return;
+        rrect({x,y,ww,hh},0,withAlpha(c,120));
+        tri(x,y,x+depth,y-depth,x+ww+depth,y-depth,withAlpha(c,190));
+        tri(x,y,x+ww+depth,y-depth,x+ww,y,withAlpha(c,190));
+        tri(x+ww,y,x+ww+depth,y-depth,x+ww+depth,y+hh-depth,withAlpha(c,85));
+        tri(x+ww,y,x+ww+depth,y+hh-depth,x+ww,y+hh,withAlpha(c,85));
+        stroke({x,y,ww,hh},0,c,1.3f);
+        line(x,y,x+depth,y-depth,c);line(x+depth,y-depth,x+ww+depth,y-depth,c);
+        line(x+ww+depth,y-depth,x+ww,y,c);line(x+ww+depth,y-depth,x+ww+depth,y+hh-depth,c);
+        line(x+ww+depth,y+hh-depth,x+ww,y+hh,c);
+    };
+    auto delayDiagram = [&](float left,float width,float time,float feedback,float send,bool ping) {
+        const float rx=std::min(11.f,width*.055f), ry=rx*1.45f;
+        const float first=left+rx+3, spacing=(width-2*rx-6)*(.10f+.10f*time);
+        const float y=cy-2;
+        line(first,y+ry+5,left+width-3,y+ry+5,GRID,1);
+        float lastX=first,lastY=y;
+        for(int j=0;j<9;++j){
+            const float x=first+j*spacing;
+            if(x+rx>left+width-2)break;
+            const float strength=j==0?1.f:send*std::pow(std::max(.025f,feedback),float(j-1));
+            if(j>0&&strength<.015f)break;
+            const float scale=.36f+.64f*std::sqrt(strength);
+            const float yy=y+(ping&&j?(j%2?1:-1)*w.h*.15f:0);
+            const uint32_t c=j==0?TRACE_AMBER:signal;
+            if(j)line(lastX,lastY,x,yy,withAlpha(c,int(70+150*strength)),1.3f+strength);
+            ring(x+3,yy-3,rx*scale,ry*scale,GRID,1.2f);
+            line(x,yy-ry*scale,x+3,yy-ry*scale-3,GRID,1.2f);
+            ring(x,yy,rx*scale,ry*scale,c,1.f+2.2f*strength);
+            lastX=x;lastY=yy;
+        }
+        // Send meter retains a visible distinction at zero.
+        rrect({left+2,w.y+w.h-5,width-4,3},0,GRID);
+        if(send>0)rrect({left+2,w.y+w.h-5,(width-4)*send,3},0,TRACE_GREEN);
+    };
+    auto roomDiagram = [&](float left,float width,float send,float size,float damp,float shimmer) {
+        const float s=(.46f+.54f*size)*std::min(w.h*.60f,width*.55f),d=s*.42f;
+        const float fx=left+width*.5f-(s+d)/2,fy=cy-(s+d)/2+d;
+        const float v[8][2]={{fx,fy},{fx+s,fy},{fx+s,fy+s},{fx,fy+s},{fx+d,fy-d},{fx+s+d,fy-d},{fx+s+d,fy+s-d},{fx+d,fy+s-d}};
+        const float sx=fx+(s+d)/2,sy=fy+(s-d)/2;
+        auto edge=[&](int a,int b,uint32_t c,float thick=1.5f){line(v[a][0],v[a][1],v[b][0],v[b][1],c,thick);};
+        edge(7,4,GRID);edge(7,6,GRID);edge(3,7,GRID);
+        for(int i=0;i<8;++i) {
+            const float q=send*(1.f-.72f*damp);
+            if(q>0) {
+                const float vx=sx+(v[i][0]-sx)*(.2f+.8f*q),vy=sy+(v[i][1]-sy)*(.2f+.8f*q);
+                line(sx,sy,vx,vy,TRACE_BLUE,.7f+2*q);
+                if(damp>.04f)circle(vx,vy,1+2*damp,TRACE_GREEN);
+            }
+        }
+        edge(0,1,signal,2);edge(1,2,signal,2);edge(2,3,signal,2);edge(3,0,signal,2);
+        edge(4,5,signal);edge(5,6,signal);edge(0,4,signal);edge(1,5,signal);edge(2,6,signal);
+        circle(sx,sy,2+3*send,TRACE_AMBER);
+        if(shimmer>0)for(int i=0;i<3;++i){
+            const float f=float(i+1)/3;
+            const float xx=sx+(s*.7f)*f,yy=sy-(s*.65f)*f;
+            ring(xx,yy,2+6*shimmer*f,1+3*shimmer*f,TRACE_AMBER,1+shimmer);
+        }
+        rrect({left+3,w.y+w.h-5,width-6,3},0,GRID);
+        if(send>0)rrect({left+3,w.y+w.h-5,(width-6)*send,3},0,TRACE_GREEN);
+    };
     std::string head;
     switch (pg) {
     case P::P_EFILTER: {
         head = ts.echoInsert.filterMix > 0.001f ? "ECHOFIELD FILTER" : "FILTER / BYPASSED";
-        const float cutoff=kn[1].norm, resonance=kn[2].norm;
-        std::vector<std::pair<float,float>> points;
+        floorGrid();
+        const float cutoff=kn[1].norm,resonance=kn[2].norm,drive=kn[3].norm;
+        std::vector<std::pair<float,float>> pts,back;
         for(int i=0;i<=80;++i) {
-            float f=float(i)/80, delta=(f-cutoff)*16, low=1/(1+std::exp(delta));
-            float band=std::exp(-delta*delta*.14f);
+            const float f=float(i)/80,delta=(f-cutoff)*16,low=1/(1+std::exp(delta));
+            const float band=std::exp(-delta*delta*.14f);
             float v=ts.echoInsert.filter==0?low:ts.echoInsert.filter==1?band:1-low;
-            v=std::clamp(v+resonance*.35f*band,0.f,1.f);
-            points.push_back({w.x+2+f*(w.w-4),w.y+w.h-4-v*(w.h-8)});
+            v=clamp01(v+resonance*.35f*band);
+            const float x=w.x+6+f*(w.w-15);
+            const float y=w.y+w.h-8-v*(w.h-19)+drive*std::sin(i*2.37f)*2.4f;
+            pts.push_back({x,y});back.push_back({x+5,y-5});
+            if(i%10==0)line(x,y,x+5,y-5,GRID,1);
         }
-        poly(points,ts.echoInsert.filterMix>0.001f?signal:WELL_DIM,1.8f);
+        poly(back,TRACE_BLUE,1.1f+drive);
+        poly(pts,ts.echoInsert.filterMix>.001f?signal:WELL_DIM,1.5f+3.2f*drive);
         break; }
     case P::P_EDELAY: {
-        head="ECHOFIELD DELAY";
-        const float span=w.w-16, feedback=kn[1].norm;
-        for(int j=0;j<6;++j){
-            const float x=w.x+8+span*j/5, rad=std::max(2.f,std::min(13.f,w.h*.19f)*std::pow(std::max(.15f,feedback),float(j)*.5f));
-            const float yy=cy+(kn[3].norm>.5f?(j%2?1:-1)*w.h*.18f:0);
-            circle(x,yy,rad,j?signal:TRACE_AMBER);
-            if(rad>3)circle(x,yy,rad-1.7f,WELL);
-        }
+        head="ECHOFIELD DELAY";floorGrid();
+        delayDiagram(w.x,w.w,kn[0].norm,kn[1].norm,kn[2].norm,kn[3].norm>.5f);
         break; }
     case P::P_EREVERB: {
-        head="ECHOFIELD FDN + SHIMMER";
+        head="ECHOFIELD FDN + SHIMMER";floorGrid();
+        roomDiagram(w.x,w.w,kn[0].norm,kn[1].norm,kn[2].norm,kn[3].norm);
+        // Eight delay lines: their decay traces shorten with damping.
+        const float side=w.w*.20f;
         for(int j=0;j<8;++j){
-            float x=w.x+(j+.5f)*w.w/8, h=(w.h-12)*(.25f+.75f*kn[1].norm)*(j+5)/12.f;
-            vbar(x,cy-h/2,cy+h/2,signal,4);
-            if(kn[3].norm>0) vbar(x+5,cy-h/2,cy-h/2+h*kn[3].norm,TRACE_AMBER,2);
+            const float x=w.x+5+(j+.5f)*side/8, h=(w.h-18)*(.2f+.8f*kn[0].norm)*(1-.75f*kn[2].norm)*(j+5)/12.f;
+            vbar(x,base-5-h,base-5,TRACE_VIOLET,2);
         }
         break; }
     case P::P_ETAPE: {
         head=ts.echoInsert.tape>.001f?"ECHOFIELD TAPE":"TAPE / BYPASSED";
-        std::vector<std::pair<float,float>> points;
-        for(int i=0;i<=100;++i){
-            float f=float(i)/100, v=.55f*kn[0].norm*std::sin(f*2*kPi)+.16f*kn[1].norm*std::sin(f*14*kPi);
-            points.push_back({w.x+2+f*(w.w-4),cy+v*(w.h/2-4)});
+        floorGrid();
+        const float wow=kn[0].norm,flutter=kn[1].norm,age=kn[2].norm,hiss=kn[3].norm;
+        std::vector<std::pair<float,float>> pts,back;
+        for(int i=0;i<=120;++i){
+            const float f=float(i)/120;
+            const float dropout=1-age*.82f*std::pow(std::max(0.f,std::sin(f*19.2f)),14.f);
+            const float v=(.3f*std::sin(f*6*kPi+.9f*wow*std::sin(f*2*kPi))+
+                           .23f*wow*std::sin(f*2*kPi)+.13f*flutter*std::sin(f*32*kPi))*dropout;
+            const float x=w.x+4+f*(w.w-14),y=cy-v*(w.h-18);
+            const float noise=std::sin(i*13.713f)*std::cos(i*6.31f)*hiss*(w.h*.18f);
+            pts.push_back({x,y+noise});back.push_back({x+6,y-6});
+            if(i%8==0)line(x,y,x+6,y-6,GRID,1);
+            if(age>.001f&&dropout<1-age*.25f)line(x,base-3,x,base-3-age*9,TRACE_AMBER,1.4f);
+            if(hiss>.001f&&i%2==0)line(x,y-noise,x,y+noise,TRACE_BLUE,1);
         }
-        poly(points,ts.echoInsert.tape>.001f?signal:WELL_DIM,1.8f);
+        poly(back,GRID,1.2f);
+        poly(pts,ts.echoInsert.tape>.001f?signal:WELL_DIM,1.7f);
         break; }
     case P::P_EMIX: {
-        head="ECHOFIELD INSERT MIX";
-        for(int j=0;j<4;++j){float x=w.x+(j+.5f)*w.w/4;vbar(x,w.y+w.h-4-(w.h-8)*kn[j].norm,w.y+w.h-4,encoderTrace(j),10);}
-        break; }
-    case P::P_FX: {   // reverb = a room, a wire cube: its size is the size, the dim rays from the source to the walls are the wet part; delay = an echo: a circle and its repeats, spacing = time, shrinking = feedback
-        head = "REVERB + DELAY";
-        const float labelY = w.y + w.h - 7;
-        const float plotH = w.h - 19;
-        const float ccy = w.y + plotH / 2;
-        const float s = (0.43f + 0.57f * kn[1].norm) * std::min(plotH / 1.38f - 3.f, w.w * 0.22f), d = s * 0.38f, ccx = w.x + w.w * 0.25f;   // kn: reverb send, reverb size, delay send, delay time
-        const float fx = ccx - (s + d) / 2, fy = ccy - (s + d) / 2 + d;   // front square, top left
-        const float v[8][2] = {{fx, fy}, {fx + s, fy}, {fx + s, fy + s}, {fx, fy + s}, {fx + d, fy - d}, {fx + s + d, fy - d}, {fx + s + d, fy + s - d}, {fx + d, fy + s - d}};
-        const float sx = fx + (s + d) / 2, sy = fy + (s - d) / 2;   // the source in the middle of the room
-        const int rays = (int)std::lround(kn[0].norm * 8);
-        for (int i = 0; i < rays; i++) line(sx, sy, v[i][0], v[i][1], TRACE_BLUE, 1.5f);
-        auto edge = [&](int a, int b, uint32_t c) { line(v[a][0], v[a][1], v[b][0], v[b][1], c, 2.7f); circle(v[a][0], v[a][1], 1.35f, c); circle(v[b][0], v[b][1], 1.35f, c); };
-        edge(7, 4, WELL_DIM); edge(7, 6, WELL_DIM); edge(3, 7, WELL_DIM);   // hidden edges
-        edge(0, 1, signal); edge(1, 2, signal); edge(2, 3, signal); edge(3, 0, signal);
-        edge(4, 5, signal); edge(5, 6, signal); edge(0, 4, signal); edge(1, 5, signal); edge(2, 6, signal);
-        circle(sx, sy, 4, signal);
-        const float fb = 0.4f + 0.5f * kn[2].norm, sp = (0.06f + 0.075f * kn[3].norm) * w.w, ex = w.x + w.w * 0.54f;
-        float rr = std::min(13.f, plotH / 3), x = ex;
-        for (int k = 0; k < 9 && rr >= 2.5f && x + rr <= w.x + w.w - 2; k++, x += sp, rr *= fb) {
-            const uint32_t c = k == 0 ? TRACE_AMBER : k == 1 ? TRACE_VIOLET : WELL_DIM;
-            circle(x, ccy, rr, c);
-            if (k > 0 && rr > 5) circle(x, ccy, rr - 2.7f, WELL);
+        head="ECHOFIELD INSERT MIX";floorGrid();
+        // Stereo aperture, gain tower, and the two wet/dry paths.
+        const float x=w.x+w.w*.15f, spread=(.17f+.29f*kn[0].norm)*w.w;
+        const float sx=std::min(spread*.5f,w.w*.125f);
+        const float sy=cy+8;
+        line(x,sy+15,x-sx,sy-13,TRACE_BLUE,1.8f);
+        line(x,sy+15,x+sx,sy-13,TRACE_BLUE,1.8f);
+        ring(x-sx,sy-13,5,8,TRACE_BLUE,1.4f);ring(x+sx,sy-13,5,8,TRACE_BLUE,1.4f);
+        circle(x,sy+15,3,TRACE_BLUE);
+        const float hh=(w.h-20)*kn[1].norm;
+        prism(w.x+w.w*.36f,base-6-hh,w.w*.10f,hh,5,TRACE_GREEN);
+        for(int j=2;j<4;++j){
+            const float left=w.x+w.w*(j==2?.56f:.79f),ww=w.w*.18f,y=cy-10;
+            const float mix=kn[j].norm;
+            line(left,y,left+ww,y,GRID,2);line(left,y,left+6,y+23,GRID,1);
+            line(left+6,y+23,left+ww-6,y+23,encoderTrace(j),1+3*mix);
+            line(left+ww-6,y+23,left+ww,y,encoderTrace(j),1+3*mix);
+            line(left,y,left+ww,y,WELL_DIM,1+3*(1-mix));
+            const float bh=std::max(1.f,23*mix);
+            prism(left+ww*.32f,y+20-bh,ww*.32f,bh,4,encoderTrace(j));
+            circle(left,y,2,encoderTrace(j));circle(left+ww,y,2,encoderTrace(j));
         }
-        text(ccx, labelY, 9, WELL_DIM, "REVERB", 1, true);
-        text(w.x + w.w * 0.75f, labelY, 9, WELL_DIM, "DELAY", 1, true);
+        break; }
+    case P::P_FX: {
+        head="REVERB + DELAY";floorGrid();
+        roomDiagram(w.x,w.w*.46f,kn[0].norm,kn[1].norm,0,0);
+        delayDiagram(w.x+w.w*.49f,w.w*.51f,kn[3].norm,.78f,kn[2].norm,false);
         break; }
     case P::P_ENV: {   // the ADSR curve
         head = "ENVELOPE";
@@ -376,7 +464,10 @@ void SamplerUI::pageView(Rect r) {
             else { const int st = (int)(cyc * i / n * 4); if (st != lastStep) { lastStep = st; s = s * 1103515245u + 12345u; held = ((s >> 16 & 255) / 127.5f) - 1.f; } v = held; }
             pts.push_back({w.x + 2 + (float)i / n * (w.w - 20), cy - v * amp});
         }
-        poly(pts, signal, 2.7f);
+        floorGrid();
+        std::vector<std::pair<float,float>> shadow;
+        for(const auto& p:pts)shadow.push_back({p.first+3,p.second-3});
+        poly(shadow,GRID,1.2f);poly(pts, signal, 2.7f);
         const float lv = st_.lfoValue[t] * amp;
         vbar(w.x + w.w - 5, cy, cy - lv, TRACE_GREEN, 4);
         break; }
@@ -389,9 +480,13 @@ void SamplerUI::pageView(Rect r) {
         else if (ts.arpPatt == 3) { for (int i = 0, j = n - 1; i <= j; i++, j--) { seq.push_back(i); if (i != j) seq.push_back(j); } }
         else { unsigned s = 5; for (int i = 0; i < std::max(8, n); i++) { s = s * 1103515245u + 12345u; seq.push_back((int)(s >> 16) % n); } }
         { const std::vector<int> one = seq; while (seq.size() < 12) seq.insert(seq.end(), one.begin(), one.end()); }   // short patterns repeat to fill the picture
-        const float pitch = (w.w - 12) / std::max<float>(12, (float)seq.size()), bw = pitch * (0.25f + 0.65f * ts.arpLen);
+        const float pitch = (w.w - 12) / std::max<float>(12, (float)seq.size()) * (1.f-.45f*kn[0].norm), bw = pitch * (0.25f + 0.65f * ts.arpLen);
         const uint32_t c = ts.arpRate == 0 ? GRID : signal;
-        for (size_t i = 0; i < seq.size(); i++) rrect({w.x + 6 + i * pitch, base - (0.18f + 0.82f * (seq[i] + 1) / n) * H, bw, (0.18f + 0.82f * (seq[i] + 1) / n) * H}, 0, c);
+        floorGrid();
+        for (size_t i = 0; i < seq.size(); i++) {
+            const float height=(.18f+.66f*(seq[i]+1)/n)*H;
+            prism(w.x+6+i*pitch,base-height,bw,height,2,c);
+        }
         break; }
     case P::P_SEQ: {   // the tape: a wave that wobbles (wobble), saturates (exciter), turns into stairs (lo-fi); the speed sets how many cycles fit
         head = "TAPE";
@@ -403,7 +498,10 @@ void SamplerUI::pageView(Rect r) {
             float v = std::tanh(g * std::sin(ph)) / std::tanh(g); v = std::round(v * lev) / lev;
             pts.push_back({w.x + 4 + i * (w.w - 8) / n, cy - v * amp});
         }
-        poly(pts, signal, 2.7f);
+        floorGrid();
+        std::vector<std::pair<float,float>> shadow;
+        for(const auto& p:pts)shadow.push_back({p.first+4,p.second-4});
+        poly(shadow,GRID,1.2f);poly(pts, signal, 2.7f);
         break; }
     case P::P_MIX: {   // the last four seconds of the active channel: its level as a mirrored wave (dim = what it would be, ink = what is left after the sidechain),
                        // the level of the source as an envelope with the threshold line, orange where the source is over the threshold and the track is ducked
@@ -435,15 +533,21 @@ void SamplerUI::pageView(Rect r) {
     case P::P_KEY: {   // two octaves of semitones: the scale in ink, the root in orange, the rest dim
         const auto sc = app_.scale();
         head = std::string(P::noteName(sc.root)) + " " + P::scaleName(sc.scale);
-        const float pitch = w.w / 24, kh = 44;
+        const float pitch = w.w / 24, kh = std::min(44.f,w.h*.52f);
         for (int i = 0; i < 24; i++) {
             const int pc = i % 12; const bool in = P::inScale(sc.scale, pc);
-            rrect({w.x + i * pitch + 2, cy - kh / 2 - 4, pitch - 4, kh}, 0, pc == 0 ? TRACE_AMBER : in ? signal : GRID);
-            if (pc == 0) text(w.x + i * pitch + pitch / 2, cy + kh / 2 + 12, 9, WELL_DIM, P::noteName((sc.root + pc) % 12), 1, true);
+            const int actual=(pc-sc.root+12)%12;
+            const float h=kh*(sc.mode&&in?1.12f:1.f);
+            prism(w.x+i*pitch+2,cy-h/2-4,std::max(2.f,pitch-5),h,2,actual==0?TRACE_AMBER: P::inScale(sc.scale,actual)?signal:GRID);
+            if (actual == 0) text(w.x+i*pitch+pitch/2,cy+kh/2+12,9,WELL_DIM,P::noteName(sc.root),1,true);
         }
+        const float ox=w.x+4+(sc.octave+3)*(w.w-8)/6;
+        rrect({w.x+4,w.y+3,w.w-8,2},0,GRID);
+        circle(ox,w.y+4,3,TRACE_AMBER);
         break; }
     case P::P_SAVE: {   // what a take records: the input level against the trigger line, the source in big dim letters
         head = std::string("SOURCE: ") + kn[1].value;
+        floorGrid();
         const float thr = app_.micThreshold01(), lv = std::min(1.f, st_.inputPeak * 2.f), x0 = w.x + 4, ww = w.w - 8;
         rrect({x0, cy - 5, ww, 10}, 0, GRID);
         rrect({x0, cy - 5, std::max(2.f, ww * lv), 10}, 0, lv > std::min(1.f, 2.f * app_.micThreshold()) ? TRACE_RED : TRACE_GREEN);
@@ -454,10 +558,11 @@ void SamplerUI::pageView(Rect r) {
     case P::P_LEN: {   // the loop as bars: one block per bar with its beats, the orange playhead
         const int bars = std::max(1, st_.loopBars), shown = std::min(bars, 16);
         head = bars > 0 && st_.loopSamples > 0 ? std::to_string(bars) + (bars == 1 ? " BAR  " : " BARS  ") + num("%.0f BPM", st_.bpm) : "NO LOOP";
-        const float gap = 4, bw = (w.w - gap * (shown - 1)) / shown, bh = 44;
+        floorGrid();
+        const float gap = 4, bw = (w.w - gap * (shown - 1)) / shown, bh = std::min(44.f,w.h*.55f);
         for (int b = 0; b < shown; b++) {
             const float x = w.x + b * (bw + gap);
-            rrect({x, cy - bh / 2, bw, bh}, 0, st_.loopSamples > 0 ? signal : GRID);
+            prism(x,cy-bh/2,std::max(1.f,bw-2),bh,2,st_.loopSamples>0?signal:GRID);
             for (int q = 1; q < 4; q++) vbar(x + bw * q / 4, cy - bh / 2 + 4, cy + bh / 2 - 4, WELL, 1.2f);
         }
         if (st_.loopSamples > 0) vbar(w.x + 2 + clamp01(loopPos()) * (w.w - 4), cy - 34, cy + 34, TRACE_AMBER, 2.7f);
@@ -914,7 +1019,9 @@ void SamplerUI::deckMenus(Rect r) {
     const float sy = r.y+1, sh=17, railY=sy+sh/2;
     const uint32_t accent = pageColor(group.pages[0]);
     const float last = edge + (leftward ? -1 : 1) * (children*subW+(children-1)*gap);
-    line(std::min(edge,last),railY,std::max(edge,last),railY,accent,1.4f);
+    // The rail endpoints lie inside the first and last tabs, so the
+    // rounded line caps cannot extend beyond the tab edges.
+    line(std::min(edge,last)+subW*.5f,railY,std::max(edge,last)-subW*.5f,railY,accent,1.4f);
     const float stemX = edge + (leftward ? -1.f : 1.f) * std::min((parentRight-parentLeft)*.25f,subW*.5f);
     line(stemX,sy+sh,stemX,py-10,accent,1.4f);
     for (int i=0,j=0;i<group.count;++i) {
@@ -1107,7 +1214,11 @@ void SamplerUI::propertyTab(Rect r, const std::string& label, bool on,
     line(r.x+r.w-3,r.y+.5f,r.x+r.w-.5f,r.y+3,SHADOW);
     line(r.x+r.w-.5f,r.y+3,r.x+r.w-.5f,r.y+r.h-1,SHADOW);
     if(!on) line(r.x+1,r.y+r.h-1,r.x+r.w-1,r.y+r.h-1,SHADOW);
-    else rrect({r.x+3,r.y+1,r.w-6,2},0,col);
+    else {
+        rrect({r.x+3,r.y+1,r.w-6,3},0,col);
+        tri(r.x+3,r.y+1,r.x+3,r.y+4,r.x+1,r.y+4,col);
+        tri(r.x+r.w-3,r.y+1,r.x+r.w-1,r.y+4,r.x+r.w-3,r.y+4,col);
+    }
     text(r.x+r.w/2,r.y+r.h/2,font,on?col:TEXT,fit(label,r.w-10,font),1,on);
 }
 
