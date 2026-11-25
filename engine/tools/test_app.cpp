@@ -163,6 +163,27 @@ int main() {
     app.knobs()[2].set(0);app.knobs()[3].set(0);
     app.gotoPage(SamplerApp::P_EDELAY);app.knobs()[2].set(0);
     app.gotoPage(SamplerApp::P_EREVERB);app.knobs()[0].set(0);
+    { // Both phone views use the same menu group and direct child navigation.
+        SamplerUI ui(app);
+        ui.setSize(860,400,0,0);
+        auto tap=[&](float x,float y){ui.frame(now);ui.touch(0,x,y,now);ui.touch(2,x,y,now);};
+        ui.setEditor(false);app.gotoPage(SamplerApp::P_HOME);
+        // At 860 logical pixels the primary row is 10 x 24, right aligned.
+        tap(632,163);CHECK(app.page()==SamplerApp::P_FX,"deck opens FX group");
+        tap(632,163);CHECK(app.page()==SamplerApp::P_EFILTER,"deck primary tab cycles submenu");
+        tap(656.5f,142);CHECK(app.page()==SamplerApp::P_EDELAY,"deck selects delay directly");
+        tap(632,163);CHECK(app.page()==SamplerApp::P_EREVERB,"deck cycles from selected child");
+        tap(632,163);CHECK(app.page()==SamplerApp::P_FX,"deck wraps FX group");
+        tap(728,163);CHECK(app.page()==SamplerApp::P_SEQ,"deck opens SEQ group");
+        tap(728,163);CHECK(app.page()==SamplerApp::P_ETAPE,"deck cycles tape submenu");
+        ui.setEditor(true);
+        tap(680,66);CHECK(app.page()==SamplerApp::P_FX,"editor opens FX group");
+        tap(680,66);CHECK(app.page()==SamplerApp::P_EFILTER,"editor primary button cycles submenu");
+        tap(758,130);CHECK(app.page()==SamplerApp::P_EDELAY,"editor selects delay directly");
+        tap(632,98);CHECK(app.page()==SamplerApp::P_SEQ,"editor opens SEQ group");
+        tap(804,130);CHECK(app.page()==SamplerApp::P_EMIX,"editor selects EF MIX directly");
+        ui.setEditor(false);
+    }
     // LFO on each target
     btn(SamplerApp::LFO);
     for (int tg = 0; tg < 4; tg++) { auto k = app.knobs(); while (app.state(0).lfoTarget < tg) k[2].step(1); enc(3, 40); run(0.2); double r = play(60, 1.2); CHECK(r > 0.002, "LFO target %d sounds (rms %.4f), lfo value %.2f", tg, r, app.status().lfoValue[0]); }

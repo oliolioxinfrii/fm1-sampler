@@ -60,16 +60,24 @@ int main(int argc, char** argv) {
       app.knobs(SamplerApp::P_HOME)[2].set(0.8f); run(0.3); ui.frame(now); dump("deck_kit_hi");
       app.setAlgo(4); run(0.3); ui.frame(now); dump("deck_grain");
       app.gotoPage(SamplerApp::P_ECHO); dump("deck_echo");
+      app.gotoPage(SamplerApp::P_GRAIN); dump("deck_grain_submenu");
+      app.gotoPage(SamplerApp::P_ECHO);
       ui.setEditor(true); dump("editor_echo"); ui.setEditor(false);
       app.gotoPage(SamplerApp::P_HOME);
       app.setAlgo(5); run(0.3); ui.frame(now); dump("deck_paul");
       app.setAlgo(0); app.selectTrack(0); run(0.2); }
+    app.gotoPage(SamplerApp::P_EFILTER); dump("deck_fx_submenu");
+    theme::apply(false); dump("deck_fx_submenu_dark"); theme::apply(true);
+    app.gotoPage(SamplerApp::P_EMIX); dump("deck_seq_submenu");
     ui.openProject(true); ui.frame(now); dump("deck_project"); ui.openProject(false);
     ui.setEditor(true);
     ui.frame(now); dump("sample");
     theme::apply(false); dump("sample_dark");
     theme::apply(true);
     tab(1); ui.frame(now); dump("fx");
+    app.gotoPage(SamplerApp::P_EFILTER); dump("editor_fx_submenu");
+    theme::apply(false); dump("editor_fx_submenu_dark"); theme::apply(true);
+    app.gotoPage(SamplerApp::P_EMIX); dump("editor_seq_submenu");
     tab(2); ui.frame(now); dump("env");
     tab(3); ui.frame(now); dump("lfo");
     tab(6); ui.frame(now); dump("mix");

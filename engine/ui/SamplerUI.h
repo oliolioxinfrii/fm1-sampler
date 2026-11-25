@@ -40,6 +40,7 @@ private:
 
     void topBar(Rect r);
     void deck(Rect r);
+    void deckMenus(Rect r);
     void icon(int kind, float cx, float cy, uint32_t c);
     void setLight(bool on);
     void cassette(Rect r);

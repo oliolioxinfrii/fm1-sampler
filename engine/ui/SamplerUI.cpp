@@ -15,9 +15,49 @@ void syncColors() { kBg = theme::BG; kPaper = theme::TEXT; kOrange = theme::AMBE
 namespace {
 float clamp01(float v) { return std::min(1.f, std::max(0.f, v)); }
 std::string num(const char* f, double v) { char b[48]; snprintf(b, sizeof b, f, v); return b; }
-const SamplerApp::Page kTabs[] = {SamplerApp::P_HOME, SamplerApp::P_ECHO, SamplerApp::P_GRAIN, SamplerApp::P_MOTION, SamplerApp::P_FX, SamplerApp::P_EFILTER, SamplerApp::P_EDELAY, SamplerApp::P_EREVERB, SamplerApp::P_ENV, SamplerApp::P_LFO, SamplerApp::P_ARP, SamplerApp::P_SEQ, SamplerApp::P_ETAPE, SamplerApp::P_EMIX, SamplerApp::P_MIX, SamplerApp::P_KEY, SamplerApp::P_SAVE, SamplerApp::P_LEN, SamplerApp::P_TEMPO};
-const char* kTabName[] = {"SMP", "ECH", "GRN", "MOT", "FX", "FLT", "DLY", "REV", "ENV", "LFO", "ARP", "TAP", "ETP", "EMX", "MIX", "KEY", "LOP", "LEN", "BPM"};
-const char* kShortTab[] = {"S", "G", "g", "m", "FX", "F", "D", "R", "E", "L", "A", "T", "W", "X", "M", "K", "R", "N", "B"};
+using Page = SamplerApp::Page;
+struct MenuGroup {
+    const char* deckLabel;
+    const char* editorLabel;
+    int count;
+    Page pages[4];
+    const char* labels[4];
+};
+// The primary buttons stay in hardware order. Only the selected group's
+// available children occupy the secondary row.
+constexpr MenuGroup kMenus[] = {
+    {"S", "SAMPLE", 4, {Page::P_HOME, Page::P_ECHO, Page::P_GRAIN, Page::P_MOTION}, {"SAMPLE", "ECHO", "GRAIN", "MOTION"}},
+    {"FX", "FX", 4, {Page::P_FX, Page::P_EFILTER, Page::P_EDELAY, Page::P_EREVERB}, {"FX", "FILTER", "DELAY", "REVERB"}},
+    {"E", "ENV", 1, {Page::P_ENV}, {"ENV"}},
+    {"L", "LFO", 1, {Page::P_LFO}, {"LFO"}},
+    {"A", "ARP", 1, {Page::P_ARP}, {"ARP"}},
+    {"T", "TAPE", 3, {Page::P_SEQ, Page::P_ETAPE, Page::P_EMIX}, {"TAPE", "EF TAPE", "EF MIX"}},
+    {"M", "MIX", 1, {Page::P_MIX}, {"MIX"}},
+    {"K", "KEY", 1, {Page::P_KEY}, {"KEY"}},
+    {"R", "LOOP", 1, {Page::P_SAVE}, {"LOOP"}},
+    {"N", "LEN", 2, {Page::P_LEN, Page::P_TEMPO}, {"LENGTH", "TEMPO"}}
+};
+constexpr int kMenuCount = sizeof(kMenus) / sizeof(kMenus[0]);
+int activeMenu(Page page) {
+    for (int i=0;i<kMenuCount;++i)
+        for (int j=0;j<kMenus[i].count;++j)
+            if (kMenus[i].pages[j]==page) return i;
+    return 0;
+}
+int childCount(const SamplerApp& app, const MenuGroup& group) {
+    int n=0;
+    for(int j=0;j<group.count;++j) if(app.pageAvailable(group.pages[j])) ++n;
+    return n;
+}
+Page nextMenuPage(const SamplerApp& app, const MenuGroup& group) {
+    for(int i=0;i<group.count;++i) if(group.pages[i]==app.page()) {
+        for(int step=1;step<=group.count;++step) {
+            Page p=group.pages[(i+step)%group.count];
+            if(app.pageAvailable(p)) return p;
+        }
+    }
+    return group.pages[0];
+}
 uint32_t pageColor(SamplerApp::Page p, bool trace = false) {
     using P = SamplerApp;
     switch (p) {
@@ -839,18 +879,47 @@ void SamplerUI::deck(Rect r) {
     icon(7, mx, 248, projectOpen_ ? AMBER : ACCENT); tap({mx - 32, 220, 64, 56}, [this] { projectOpen_ = true; });
     // the sample of this track, its page and the four knobs of the page
     sampleView({x0, 14, w0, 118});
-    const float py = 163;
-    const float tabW = std::min(19.f, std::max(5.f, (w0 - 90.f) / float(SamplerApp::kPages)));
-    strip({x0, py - 12, w0 - float(SamplerApp::kPages) * tabW - 4, 24}, pageColor(app_.page()), SamplerApp::pageName(app_.page()), T_BODY);
-    for (int i = 0; i < SamplerApp::kPages; i++) {   // the pages as notches: tap one to go there (the FM-1 buttons do the same)
-        Rect nr{zr - (SamplerApp::kPages - i) * tabW, py - 14, tabW, 28};
-        const bool on = kTabs[i] == app_.page(); const uint32_t col = app_.pageAvailable(kTabs[i]) ? pageColor(kTabs[i]) : DIM;
-        bevel({nr.x + 1, py - 10, tabW - 2, 20}, on ? col : SURFACE, on);
-        text(nr.x + tabW / 2, py, 8, on ? contrastInk(col) : col, kShortTab[i], 1, true);
-        if (app_.pageAvailable(kTabs[i])) tap(nr, [this, i] { app_.gotoPage(kTabs[i]); });
-    }
+    deckMenus({x0, 133, w0, 42});
     for (int i = 0; i < 4; i++) knob(x0 + (i + 0.5f) * w0 / 4, 212, app_.page(), i);
     timeline({M, 288, W_ - 2 * M, H_ - 288 - 8});
+}
+
+void SamplerUI::deckMenus(Rect r) {
+    const int selected = activeMenu(app_.page());
+    const auto& group = kMenus[selected];
+    const int children = childCount(app_, group);
+    const float py = r.y + 30, right = r.x + r.w;
+    const float tabW = std::min(24.f, (r.w - 88.f) / kMenuCount);
+    const float start = right - kMenuCount * tabW;
+    strip({r.x, py-12, start-r.x-4, 24}, pageColor(app_.page()), SamplerApp::pageName(app_.page()), T_BODY);
+    for (int i=0;i<kMenuCount;++i) {
+        Rect nr{start+i*tabW, py-12, tabW, 24};
+        const bool on = i==selected;
+        const uint32_t col = pageColor(kMenus[i].pages[0]);
+        bevel({nr.x+1, py-10, tabW-2, 20}, on?col:SURFACE, on);
+        text(nr.x+tabW/2, py, 9, on?contrastInk(col):col, kMenus[i].deckLabel, 1, true);
+        tap(nr,[this,i]{app_.gotoPage(nextMenuPage(app_,kMenus[i]));});
+    }
+    if(children<=1) return;
+    // The submenu belongs to the active primary button. Clamp the row
+    // at either panel edge rather than moving the primary buttons.
+    const float subW=std::min(49.f,(r.w-4)/children);
+    const float anchor=start+(selected+.5f)*tabW;
+    const float subX=std::clamp(anchor-children*subW/2,r.x,right-children*subW);
+    const uint32_t accent=pageColor(group.pages[0]);
+    const float sy=r.y+1, sh=17;
+    // A short stem joins the selected primary tab to its secondary row.
+    line(anchor,py-10,anchor,sy+sh,accent,1.3f);
+    for(int i=0,j=0;i<group.count;++i) {
+        Page p=group.pages[i];
+        if(!app_.pageAvailable(p)) continue;
+        Rect c{subX+j*subW,sy,subW,sh}; ++j;
+        const bool on=p==app_.page();
+        const uint32_t col=pageColor(p);
+        bevel({c.x+1,c.y,c.w-2,c.h},on?col:SURFACE,on);
+        text(c.x+c.w/2,c.y+c.h/2,8.5f,on?contrastInk(col):col,fit(group.labels[i],c.w-5,8.5f),1,true);
+        tap(c,[this,p]{app_.gotoPage(p);});
+    }
 }
 
 void SamplerUI::trackList(Rect r) {
@@ -997,15 +1066,32 @@ void SamplerUI::sampleArea(Rect r) {
 }
 
 void SamplerUI::pagePanel(Rect r) {
-    constexpr int cols=7;
-    const float tw = (r.w - (cols-1)*4) / cols;
-    for (int i = 0; i < SamplerApp::kPages; i++) {
-        Rect c{r.x + (i % cols) * (tw + 4), r.y + (i / cols) * 32, tw, 28};
-        button(c, kTabName[i], app_.page() == kTabs[i], [this, i] { app_.gotoPage(kTabs[i]); }, 9.5f, true, app_.pageAvailable(kTabs[i]) ? pageColor(kTabs[i]) : DIM);
+    constexpr int cols=5;
+    const int selected=activeMenu(app_.page());
+    const auto& group=kMenus[selected];
+    const int children=childCount(app_,group);
+    const float tw=(r.w-(cols-1)*4)/cols;
+    // Fixed two-row primary toolbar and a contextual third row.
+    // Retain the same slider geometry when changing menus.
+    for(int i=0;i<kMenuCount;++i) {
+        Rect c{r.x+(i%cols)*(tw+4),r.y+(i/cols)*32,tw,28};
+        button(c,kMenus[i].editorLabel,i==selected,[this,i]{app_.gotoPage(nextMenuPage(app_,kMenus[i]));},9.5f,true,pageColor(kMenus[i].pages[0]));
     }
-    auto k = app_.knobs();
-    const float tabsH = ((SamplerApp::kPages + cols-1) / cols) * 32 + 8;
-    const float top = r.y + tabsH, rh = (r.h - tabsH) / 4;
+    Rect sub{r.x,r.y+64,r.w,28};
+    bevel(sub,SURFACE,true);
+    if(children>1) {
+        const float cw=(sub.w-4)/children;
+        for(int i=0,j=0;i<group.count;++i) {
+            Page p=group.pages[i];
+            if(!app_.pageAvailable(p)) continue;
+            Rect c{sub.x+2+j*cw,sub.y+2,cw-2,24}; ++j;
+            button(c,group.labels[i],app_.page()==p,[this,p]{app_.gotoPage(p);},9.f,true,pageColor(p));
+        }
+    } else {
+        text(sub.x+6,sub.y+14,T_CAPTION,pageColor(app_.page()),SamplerApp::pageName(app_.page()),0,true);
+    }
+    auto k=app_.knobs();
+    const float tabsH=104, top=r.y+tabsH, rh=(r.h-tabsH)/4;
     for (int i = 0; i < 4; i++) {
         const auto& p = k[(size_t)i];
         const float y = top + i * rh;
