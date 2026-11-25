@@ -901,13 +901,13 @@ void SamplerUI::deckMenus(Rect r) {
         tap(nr,[this,i]{app_.gotoPage(nextMenuPage(app_,kMenus[i]));});
     }
     if(children<=1) return;
-    // The first child touches and overlaps its parent. The other
-    // children follow a horizontal signal rail to the right, except
-    // LENGTH/TEMPO, whose rail leads left from the last primary tab.
+    // The first child shares half the parent's horizontal extent,
+    // but remains entirely above it. Subsequent tabs follow the rail
+    // rightward, or leftward for LENGTH/TEMPO.
     const bool leftward = group.pages[0] == Page::P_LEN;
     const float parentLeft = start + selected * tabW + 1;
     const float parentRight = parentLeft + tabW - 2;
-    const float edge = leftward ? parentRight : parentLeft;
+    const float edge = (parentLeft + parentRight) * .5f;
     const float room = leftward ? edge - r.x : right - edge;
     const float gap = std::min(5.f, room / (children * 8.f));
     const float subW = std::min(49.f, (room - (children-1)*gap)/children);
@@ -915,16 +915,17 @@ void SamplerUI::deckMenus(Rect r) {
     const uint32_t accent = pageColor(group.pages[0]);
     const float last = edge + (leftward ? -1 : 1) * (children*subW+(children-1)*gap);
     line(std::min(edge,last),railY,std::max(edge,last),railY,accent,1.4f);
+    const float stemX = edge + (leftward ? -1.f : 1.f) * std::min((parentRight-parentLeft)*.25f,subW*.5f);
+    line(stemX,sy+sh,stemX,py-10,accent,1.4f);
     for (int i=0,j=0;i<group.count;++i) {
         const Page p=group.pages[i];
         if (!app_.pageAvailable(p)) continue;
         const float offset = j*(subW+gap);
         const float x = leftward ? edge-offset-subW : edge+offset;
-        const Rect c{x,sy,subW,sh+(j==0?6.f:0.f)};
+        const Rect c{x,sy,subW,sh};
         const bool on = p==app_.page();
         const uint32_t col = pageColor(p);
-        // The first tab overlaps the top edge of the selected parent.
-        // All labels sit on the same horizontal baseline.
+        // Identical heights keep the child and parent hit regions disjoint.
         bevel(c,on?col:SURFACE,on);
         const float font = subW < 35 ? 8.f : 8.5f;
         const char* label=group.labels[i];

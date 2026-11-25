@@ -174,6 +174,8 @@ int main() {
         tap(753.5f,142);CHECK(app.page()==SamplerApp::P_EDELAY,"deck selects delay directly");
         tap(632,163);CHECK(app.page()==SamplerApp::P_EREVERB,"deck cycles from selected child");
         tap(632,163);CHECK(app.page()==SamplerApp::P_FX,"deck wraps FX group");
+        tap(632,163);CHECK(app.page()==SamplerApp::P_EFILTER,"deck cycles with child above parent");
+        tap(645,142);CHECK(app.page()==SamplerApp::P_FX,"overlapping child is independently selectable");
         tap(728,163);CHECK(app.page()==SamplerApp::P_SEQ,"deck opens SEQ group");
         tap(728,163);CHECK(app.page()==SamplerApp::P_ETAPE,"deck cycles tape submenu");
         tap(817,142);CHECK(app.page()==SamplerApp::P_EMIX,"tape children cascade right");
