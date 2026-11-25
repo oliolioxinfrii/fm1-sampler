@@ -3,7 +3,7 @@
 // (tools/app_sim) and in the Android app. The phone UI (ui/SamplerUI) reads the same knobs and edits them by touch.
 //
 // FM-1 map:  encoders  SELECT = track (1..8) | PRESETS = sample library with audition | ALGORITHM = sampler algorithm | K1..K4 = page knobs
-//            buttons   HOME sample (start, end, speed, pitch) | FX | ENV | LFO | ARP | SEQ tape (loop speed, exciter, lo-fi, wobble) | EDIT mixer
+//            buttons   HOME sample (start, end, speed, pitch) | FX | ENV | LFO | ARP | SEQ Echofield tape / insert mix | EDIT mixer
 //                      GLO key and scale | SAVE loop save (tap) / clear (hold) | PLAY | REC loop record / overdub
 #pragma once
 #include "../session/Session.h"
@@ -60,7 +60,7 @@ public:
     Knobs knobs(Page p);
     static const char* algoName(int i);
     static const char* echoModeName(int i);
-    bool pageAvailable(Page p) const { return p != P_FX && ((p != P_ECHO && p != P_GRAIN && p != P_MOTION) || algo() == 4); }
+    bool pageAvailable(Page p) const { return p != P_FX && p != P_SEQ && ((p != P_ECHO && p != P_GRAIN && p != P_MOTION) || algo() == 4); }
     static Page menuPage(int slot) {
         constexpr Page pages[] = {P_HOME,P_ECHO,P_GRAIN,P_MOTION,P_FX,P_EFILTER,P_EDELAY,P_EREVERB,P_ENV,P_LFO,P_ARP,P_SEQ,P_ETAPE,P_EMIX,P_MIX,P_KEY,P_SAVE,P_LEN,P_TEMPO};
         return pages[slot];
@@ -166,7 +166,7 @@ private:
     void editRange(int track, int edge, float value);
     // ---- parameters ----
     void applyAll(int t);
-    void applyAlgo(int t); void applyEnv(int t); void applyLfo(int t); void applyHome(int t, bool commit = false); void applyArp(int t); void applyRoot(int t); void applySeq(int t); void applyMix(int t);
+    void applyAlgo(int t); void applyEnv(int t); void applyLfo(int t); void applyHome(int t, bool commit = false); void applyArp(int t); void applyRoot(int t); void applyMix(int t);
     void applyFx();
     void editEchoFx(int t);
     void editEcho(int t);
@@ -187,7 +187,7 @@ private:
     EchoReturnParams echoReturns_;
     float reverbSize_ = 0.7f, reverbDw_ = 0.35f, delayTime_ = 0.4f, delayFb_ = 0.45f;
     int loopSrc_ = 1;
-    float exciter_ = 0.f, lofi_ = 0.f, wobble_ = 0.f, loopSpeed_ = 2.f / 3.f, micThr_ = 0.452f;   // loop speed is global
+    float micThr_ = 0.452f;
     uint32_t repaintAt_ = 0, echoSaveAt_ = 0;
     // library
     std::vector<Entry> lib_;
