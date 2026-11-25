@@ -105,7 +105,7 @@ int main() {
         auto plot = [&]() {
             std::vector<UiOp> ops; bool inPlot = false;
             for (const auto& o : ui.ops()) {
-                if (o.type == UiOp::CLIP && o.f[0] > 440 && o.f[1] < 60) inPlot = true;
+                if (o.type == UiOp::CLIP && o.f[0] > 350 && o.f[1] < 60) inPlot = true;
                 if (inPlot) ops.push_back(o);
                 if (inPlot && o.type == UiOp::ENDCLIP) break;
             }
@@ -178,24 +178,25 @@ int main() {
         auto tap=[&](float x,float y){ui.frame(now);ui.touch(0,x,y,now);ui.touch(2,x,y,now);};
         ui.setEditor(false);app.gotoPage(SamplerApp::P_HOME);
         // At 860 logical pixels the primary row is 10 x 24, right aligned.
-        tap(632,223);CHECK(app.page()==SamplerApp::P_EFILTER,"deck opens FX group");
-        tap(632,223);CHECK(app.page()==SamplerApp::P_EDELAY,"deck primary tab cycles submenu");
-        tap(765,202);CHECK(app.page()==SamplerApp::P_EREVERB,"deck selects reverb directly");
-        tap(632,223);CHECK(app.page()==SamplerApp::P_EFILTER,"deck wraps FX group");
-        tap(710,202);CHECK(app.page()==SamplerApp::P_EDELAY,"deck selects delay directly");
-        tap(645,202);CHECK(app.page()==SamplerApp::P_EFILTER,"overlapping child is independently selectable");
-        tap(728,223);CHECK(app.page()==SamplerApp::P_ETAPE,"deck opens tape group");
-        tap(728,223);CHECK(app.page()==SamplerApp::P_EMIX,"deck cycles tape submenu");
-        tap(750,202);CHECK(app.page()==SamplerApp::P_ETAPE,"tape child is independently selectable");
-        tap(806,202);CHECK(app.page()==SamplerApp::P_EMIX,"tape children cascade right");
-        tap(824,223);CHECK(app.page()==SamplerApp::P_LEN,"deck opens LENGTH group");
-        tap(745,202);CHECK(app.page()==SamplerApp::P_TEMPO,"length children cascade left");
-        tap(824,223);CHECK(app.page()==SamplerApp::P_LEN,"length parent wraps from TEMPO");
-        // Absolute horizontal touch on the first envelope parameter.
+        // Design-stage coordinates are uniformly scaled into the 860x400 host view.
+        auto deckTap=[&](float x,float y){constexpr float s=400.f/450.f;tap((860-960*s)*.5f+x*s,y*s);};
+        deckTap(495,244);CHECK(app.page()==SamplerApp::P_EFILTER,"deck opens FX group");
+        deckTap(495,244);CHECK(app.page()==SamplerApp::P_EDELAY,"deck primary cycles submenu");
+        deckTap(915,271);CHECK(app.page()==SamplerApp::P_EREVERB,"deck selects reverb directly");
+        deckTap(495,244);CHECK(app.page()==SamplerApp::P_EFILTER,"deck wraps FX group");
+        deckTap(863,271);CHECK(app.page()==SamplerApp::P_EDELAY,"deck selects delay directly");
+        deckTap(810,271);CHECK(app.page()==SamplerApp::P_EFILTER,"deck selects filter directly");
+        deckTap(705,244);CHECK(app.page()==SamplerApp::P_ETAPE,"deck opens tape group");
+        deckTap(705,244);CHECK(app.page()==SamplerApp::P_EMIX,"deck cycles tape submenu");
+        deckTap(840,271);CHECK(app.page()==SamplerApp::P_ETAPE,"deck tape child");
+        deckTap(910,271);CHECK(app.page()==SamplerApp::P_EMIX,"deck insert child");
+        deckTap(915,244);CHECK(app.page()==SamplerApp::P_LEN,"deck opens LENGTH group");
+        deckTap(910,271);CHECK(app.page()==SamplerApp::P_TEMPO,"deck selects tempo");
+        deckTap(915,244);CHECK(app.page()==SamplerApp::P_LEN,"deck length group wraps");
         app.gotoPage(SamplerApp::P_ENV);
         const float saved=app.knobs()[0].norm;
-        tap(455,274);const float low=app.knobs()[0].norm;
-        tap(524,274);const float high=app.knobs()[0].norm;
+        deckTap(435,316);const float low=app.knobs()[0].norm;
+        deckTap(530,316);const float high=app.knobs()[0].norm;
         CHECK(low<.25f && high>.75f,"deck parameter responds horizontally");
         app.knobs()[0].set(saved);
         ui.setEditor(true);
@@ -366,7 +367,10 @@ int main() {
       // is at the large wheel's lower tangent. Both share one path coordinate.
       s.seek(0.25f); run(0.2);
       SamplerUI ui(app); ui.setSize(860, 400, 0, 0); ui.frame(now);
+      auto tapeX=[](float x){return (860-960*(400.f/450.f))*.5f+(21+(x-20)*313.f/292.f)*(400.f/450.f);};
+      auto tapeY=[](float y){return (85+(y-86)*161.f/150.f)*(400.f/450.f);};
       auto dragTape = [&](float x0, float y0, float x1, float y1) {
+          x0=tapeX(x0);x1=tapeX(x1);y0=tapeY(y0);y1=tapeY(y1);
           ui.touch(0, x0, y0, now); run(0.1);
           ui.touch(1, x1, y1, now); run(0.8);
           ui.touch(2, x1, y1, now); run(0.4);
@@ -381,16 +385,16 @@ int main() {
       const float center = dragTape(93, 149, 130, 149);
       CHECK(std::fabs(center - back) < 0.005f, "reel interior does not grab the ribbon (%.3f)", center);
       s.seek(0.04f); run(0.2);
-      ui.touch(0, 120, 195, now); run(0.1);
-      ui.touch(1, 94, 195, now); run(0.3);
-      ui.touch(1, 61, 183, now); run(0.8);
+      ui.touch(0, tapeX(120), tapeY(195), now); run(0.1);
+      ui.touch(1, tapeX(94), tapeY(195), now); run(0.3);
+      ui.touch(1, tapeX(61), tapeY(183), now); run(0.8);
       const float reverse = app.status().clipPos[0];
       CHECK(reverse > 0.85f && reverse < 0.97f, "ribbon crosses the splice backwards (%.3f)", reverse);
-      ui.touch(1, 94, 195, now); run(0.3);
-      ui.touch(1, 120, 195, now); run(0.8);
+      ui.touch(1, tapeX(94), tapeY(195), now); run(0.3);
+      ui.touch(1, tapeX(120), tapeY(195), now); run(0.8);
       const float forward = app.status().clipPos[0];
       CHECK(std::fabs(forward - 0.04f) < 0.025f, "ribbon crosses the splice forwards (%.3f)", forward);
-      ui.touch(2, 120, 195, now); run(0.8);
+      ui.touch(2, tapeX(120), tapeY(195), now); run(0.8);
       CHECK(!app.status().playing && std::fabs(app.status().clipPos[0] - forward) < 0.02f, "ribbon release preserves stopped transport");
       // Compare the digital shuttle with the ordinary linear tape timeline.
       const float delta = (float)(0.08 * sr / s.status().loopSamples);

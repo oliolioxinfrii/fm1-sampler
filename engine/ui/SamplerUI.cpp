@@ -148,6 +148,7 @@ void SamplerUI::button(Rect r, const std::string& label, bool on, std::function<
 
 // ---- frame ----
 #include "StudyGraphic.inc"
+#include "StudyPhone.inc"
 
 const std::vector<UiOp>& SamplerUI::surfaceGraphic(uint32_t now) {
     using P=SamplerApp;
@@ -341,7 +342,10 @@ void SamplerUI::frame(uint32_t now) {
     rrect({0, 0, W_, H_}, 0, BG);
     const float tb = 44, left = 176, right = 252;
     if (!app_.editor()) {   // the cassette deck fills the screen; the old sample / page editor stays one tap away (EDIT)
-        deck({0, 0, W_, H_});
+        const float scale=std::min(W_/960.f,H_/450.f);
+        const float ox=(W_-960*scale)*.5f,oy=(H_-450*scale)*.5f;
+        const size_t first=ops_.size();
+        studyDeck(); scaleStudy(scale,ox,oy,first);
         if (sheetOpen_) librarySheet();
         if (projectOpen_) projectSheet();
         return;
@@ -452,7 +456,7 @@ void SamplerUI::pageView(Rect r) {
     scope(panel);
     const Rect w{panel.x + 4, panel.y + 4, panel.w - 8, panel.h - 8};
     clip(w);
-    if(studyGraphic(w,pg,false)) { endClip(); strip({r.x,r.y,r.w,18},pageColor(pg),SamplerApp::pageName(pg),11); return; }
+
     const uint32_t signal = pageColor(pg, true);
     const float cy = w.y + w.h / 2, base = w.y + w.h - 4, H = w.h - 10;
     auto vbar = [&](float x, float y0, float y1, uint32_t c, float wd) { rrect({x - wd / 2, std::min(y0, y1), wd, std::max(1.f, std::fabs(y1 - y0))}, 0, c); };

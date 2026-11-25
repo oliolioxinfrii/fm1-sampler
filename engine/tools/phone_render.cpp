@@ -15,7 +15,7 @@ int main(int argc, char** argv) {
     Session s(sr); s.setDataDir("/tmp/fm1sampler_test"); s.setSampleDir(std::string(getenv("HOME")) + "/fm1-sampler/samples");
     SamplerApp app(s, [](const uint8_t*, size_t) {});
     SamplerUI ui(app);
-    const float W = 860, H = 400;
+    const float W = 960, H = 450;
     ui.setSize(W, H, 0, 0); ui.setLink(true, true);
     std::vector<float> buf(512), in(512, 0.f);
     uint32_t now = 0;
@@ -61,6 +61,7 @@ int main(int argc, char** argv) {
       app.setAlgo(4); run(0.3); ui.frame(now); dump("deck_grain");
       app.gotoPage(SamplerApp::P_ECHO); dump("deck_echo");
       app.gotoPage(SamplerApp::P_GRAIN); dump("deck_grain_submenu");
+      app.gotoPage(SamplerApp::P_MOTION); dump("deck_motion");
       app.gotoPage(SamplerApp::P_ECHO);
       ui.setEditor(true); dump("editor_echo"); ui.setEditor(false);
       app.gotoPage(SamplerApp::P_HOME);
@@ -76,7 +77,7 @@ int main(int argc, char** argv) {
     app.gotoPage(SamplerApp::P_EFILTER);
     theme::apply(false); dump("deck_fx_submenu_dark"); theme::apply(true);
     app.gotoPage(SamplerApp::P_EMIX); dump("deck_seq_submenu");
-    app.gotoPage(SamplerApp::P_SEQ);dump("deck_mechanical_tape");
+    app.gotoPage(SamplerApp::P_ETAPE);dump("deck_mechanical_tape");
     app.knobs()[1].set(.8f);app.knobs()[2].set(.8f);app.knobs()[3].set(.8f);dump("deck_tape_fx");
     theme::apply(false);dump("deck_tape_fx_dark");theme::apply(true);
     app.gotoPage(SamplerApp::P_KEY);app.setScale(2,0,0,1);dump("deck_chord_major");
