@@ -190,6 +190,30 @@ int main() {
         tap(804,130);CHECK(app.page()==SamplerApp::P_EMIX,"editor selects EF MIX directly");
         ui.setEditor(false);
     }
+    { // Timing-sensitive continuous controls without changing discrete choices.
+        app.gotoPage(SamplerApp::P_EFILTER);
+        app.knobs()[3].set(.2f);
+        now+=200;app.tick(now);
+        const float start=app.knobs()[3].norm;
+        enc(5,1);
+        const float step=app.knobs()[3].norm-start;
+        CHECK(std::fabs(step-.02f)<.0001f,"slow encoder moves one detent");
+        now+=180;app.tick(now);enc(5,1);
+        CHECK(std::fabs(app.knobs()[3].norm-start-2*step)<.0001f,"slow turns retain precision");
+        const float prior=app.knobs()[3].norm;
+        for(int i=0;i<5;++i){now+=25;app.tick(now);enc(5,1);}
+        CHECK(app.knobs()[3].norm-prior>5*step,"fast turns accelerate");
+        const float rev=app.knobs()[3].norm;
+        now+=25;app.tick(now);enc(5,-1);
+        CHECK(std::fabs(rev-app.knobs()[3].norm-step)<.0001f,"reversal resets acceleration");
+        const float idle=app.knobs()[3].norm;
+        now+=200;app.tick(now);enc(5,-1);
+        CHECK(std::fabs(idle-app.knobs()[3].norm-step)<.0001f,"idle resets acceleration");
+        app.knobs()[0].set(0);
+        now+=20;app.tick(now);enc(2,1);
+        CHECK(app.state(0).echoInsert.filter==1,"discrete selector advances one choice");
+        app.knobs()[0].set(0);app.knobs()[3].set(.05f);
+    }
     // LFO on each target
     btn(SamplerApp::LFO);
     for (int tg = 0; tg < 4; tg++) { auto k = app.knobs(); while (app.state(0).lfoTarget < tg) k[2].step(1); enc(3, 40); run(0.2); double r = play(60, 1.2); CHECK(r > 0.002, "LFO target %d sounds (rms %.4f), lfo value %.2f", tg, r, app.status().lfoValue[0]); }

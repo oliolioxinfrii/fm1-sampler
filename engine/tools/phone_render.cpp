@@ -67,6 +67,13 @@ int main(int argc, char** argv) {
       app.setAlgo(5); run(0.3); ui.frame(now); dump("deck_paul");
       app.setAlgo(0); app.selectTrack(0); run(0.2); }
     app.gotoPage(SamplerApp::P_EFILTER); dump("deck_fx_submenu");
+    app.knobs()[3].set(.95f);dump("deck_filter_drive");app.knobs()[3].set(.05f);
+    app.gotoPage(SamplerApp::P_EDELAY);app.knobs()[2].set(.7f);dump("deck_echo_delay");
+    app.knobs()[0].set(.95f);dump("deck_echo_delay_long");app.knobs()[2].set(0);
+    app.gotoPage(SamplerApp::P_EREVERB);app.knobs()[0].set(.7f);dump("deck_echo_reverb");
+    app.knobs()[2].set(.95f);dump("deck_echo_damped");app.knobs()[0].set(0);
+    app.gotoPage(SamplerApp::P_ETAPE);app.knobs()[2].set(.8f);app.knobs()[3].set(.8f);dump("deck_echo_tape");
+    app.gotoPage(SamplerApp::P_EFILTER);
     theme::apply(false); dump("deck_fx_submenu_dark"); theme::apply(true);
     app.gotoPage(SamplerApp::P_EMIX); dump("deck_seq_submenu");
     app.gotoPage(SamplerApp::P_TEMPO); dump("deck_length_submenu");

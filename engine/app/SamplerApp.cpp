@@ -912,7 +912,7 @@ void SamplerApp::draw(uint32_t now) {
     const uint32_t pc = pageAccent(page_);
     drawText(20, 12, 36, 2, rgb565(theme::contrastInk(pc)), rgb565(pc), kPage[page_], 9);
     menuMarkers();
-    if(waveform) hero(now,k); else picture(now);
+    if(waveform) hero(now,k);
     // the loop: a thin bar with the position, under it the state (mic / toast / audition, else the sample mode and the loop)
     std::string line;
     if (mic_ == 1) line = "MIC: WAITING FOR SOUND";
@@ -961,6 +961,7 @@ void SamplerApp::draw(uint32_t now) {
     const char* hint = mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_LEN ? "K1 X2 OR /2  SEL AGAIN FOR TEMPO" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_TEMPO ? "K1 BARS  K2 BPM  K3 MODE" : page_ == P_KEY ? "KEYS FOLLOW THE KEY  CHANGE ANY TIME"
                      : page_ == P_ECHO ? "HOME AGAIN: GRAIN" : page_ == P_HOME && algo() == 4 ? "HOME AGAIN: ECHOFIELD  K3 MODE K4 POS" : page_ == P_EFILTER ? "FILTER MIX ON SEQ: EF MIX" : page_ == P_ETAPE ? "SEQ AGAIN  ENABLE TAPE ON EF MIX" : page_ == P_EMIX || page_ == P_SEQ ? "SEQ AGAIN: NEXT TAPE/MIX PAGE" : page_ == P_GRAIN || page_ == P_MOTION ? "HOME AGAIN: NEXT GRANULAR PAGE" : fxPage(page_) ? "FX AGAIN: NEXT EFFECT PAGE" : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
     drawText(90, 12, 228, 1, DIM, BLACK, hint, 38);
+    if(!waveform)picture(now);
     needClear_ = false;
 }
 
@@ -1070,10 +1071,14 @@ void SamplerApp::hero(uint32_t now, const Knobs& k) {
         }
     } else {   // the waveform with the playback window
         auto pk = peaks(track_, 54);
+        bool active[54]={};
+        for(int j=0;j<st_.voiceN[track_];++j)
+            active[std::clamp(int(st_.voicePos[track_][j]*54),0,53)]=true;
         for (int i = 0; i < 54; i++) {
             const float pos = (i + 0.5f) / 54.f; const bool in = pos >= x.start && pos <= x.end;
             const float v = i < (int)pk.size() ? pk[(size_t)i] : 0.f;
-            column(i, x0 + i * 4, 3, (int)(std::min(1.f, v * 1.1f) * H) + 1, in ? TRACE : GRID, false);
+            column(i, x0+i*4,3,active[i]?H:int(std::min(1.f,v*1.1f)*H)+1,
+                active[i]?TIME:in?TRACE:GRID,false);
         }
     }
     (void)k; (void)now;

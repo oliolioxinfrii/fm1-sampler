@@ -317,11 +317,11 @@ void SamplerUI::pageView(Rect r) {
         for(int j=0;j<9;++j){
             const float x=first+j*spacing;
             if(x+rx>left+width-2)break;
-            const float strength=j==0?1.f:send*std::pow(std::max(.025f,feedback),float(j-1));
-            if(j>0&&strength<.015f)break;
-            const float scale=.36f+.64f*std::sqrt(strength);
+            const float decay=std::pow(std::max(.025f,feedback),float(std::max(0,j-1)));
+            const float strength=j==0?1.f:send*decay;
+            const float scale=j==0?1.f:.24f+.76f*std::sqrt(decay)*(.48f+.52f*send);
             const float yy=y+(ping&&j?(j%2?1:-1)*w.h*.15f:0);
-            const uint32_t c=j==0?TRACE_AMBER:signal;
+            const uint32_t c=j==0?TRACE_AMBER:send>.001f?signal:WELL_DIM;
             if(j)line(lastX,lastY,x,yy,withAlpha(c,int(70+150*strength)),1.3f+strength);
             ring(x+3,yy-3,rx*scale,ry*scale,GRID,1.2f);
             line(x,yy-ry*scale,x+3,yy-ry*scale-3,GRID,1.2f);
@@ -340,12 +340,10 @@ void SamplerUI::pageView(Rect r) {
         auto edge=[&](int a,int b,uint32_t c,float thick=1.5f){line(v[a][0],v[a][1],v[b][0],v[b][1],c,thick);};
         edge(7,4,GRID);edge(7,6,GRID);edge(3,7,GRID);
         for(int i=0;i<8;++i) {
-            const float q=send*(1.f-.72f*damp);
-            if(q>0) {
-                const float vx=sx+(v[i][0]-sx)*(.2f+.8f*q),vy=sy+(v[i][1]-sy)*(.2f+.8f*q);
-                line(sx,sy,vx,vy,TRACE_BLUE,.7f+2*q);
-                if(damp>.04f)circle(vx,vy,1+2*damp,TRACE_GREEN);
-            }
+            const float q=1.f-.72f*damp;
+            const float vx=sx+(v[i][0]-sx)*(.2f+.8f*q),vy=sy+(v[i][1]-sy)*(.2f+.8f*q);
+            line(sx,sy,vx,vy,send>.001f?TRACE_BLUE:WELL_DIM,.7f+2*send);
+            if(damp>.04f)circle(vx,vy,1+2*damp,send>.001f?TRACE_GREEN:WELL_DIM);
         }
         edge(0,1,signal,2);edge(1,2,signal,2);edge(2,3,signal,2);edge(3,0,signal,2);
         edge(4,5,signal);edge(5,6,signal);edge(0,4,signal);edge(1,5,signal);edge(2,6,signal);
@@ -415,8 +413,8 @@ void SamplerUI::pageView(Rect r) {
     case P::P_EMIX: {
         head="ECHOFIELD INSERT MIX";floorGrid();
         // Stereo aperture, gain tower, and the two wet/dry paths.
-        const float x=w.x+w.w*.15f, spread=(.17f+.29f*kn[0].norm)*w.w;
-        const float sx=std::min(spread*.5f,w.w*.125f);
+        const float x=w.x+w.w*.15f;
+        const float sx=(.035f+.09f*kn[0].norm)*w.w;
         const float sy=cy+8;
         line(x,sy+15,x-sx,sy-13,TRACE_BLUE,1.8f);
         line(x,sy+15,x+sx,sy-13,TRACE_BLUE,1.8f);
@@ -479,7 +477,8 @@ void SamplerUI::pageView(Rect r) {
         for(const auto& p:pts)shadow.push_back({p.first+3,p.second-3});
         poly(shadow,GRID,1.2f);poly(pts, signal, 2.7f);
         const float lv = st_.lfoValue[t] * amp;
-        vbar(w.x + w.w - 5, cy, cy - lv, TRACE_GREEN, 4);
+        vbar(w.x + w.w - 5, cy, cy - lv, encoderTrace(ts.lfoTarget), 4);
+        for(int j=0;j<4;++j)rrect({w.x+w.w-12,w.y+3+j*7,4,4},0,j==ts.lfoTarget?encoderTrace(j):GRID);
         break; }
     case P::P_ARP: {   // the notes the arpeggiator plays: order from the pattern, count from the octaves, width from the length; dim while it is off
         head = std::string("ARP ") + kn[1].value;
@@ -539,16 +538,25 @@ void SamplerUI::pageView(Rect r) {
             const float gdb = 20.f * std::log10(std::max(0.01f, st_.scGain[t]));
             if (gdb < -0.5f) text(w.x + w.w - 4, w.y + 6, 11, TRACE_AMBER, num("%.0f DB", gdb), 2, true);
         }
+        // A small persistent routing strip complements the live history.
+        const float yy=w.y+w.h-4, ww=w.w*.22f;
+        rrect({w.x+2,yy-2,ww,2},0,GRID);
+        if(ts.vol>0)rrect({w.x+2,yy-2,ww*ts.vol,2},0,TRACE_BLUE);
+        for(int j=0;j<8;++j)rrect({w.x+w.w*.31f+j*7,yy-5,5,5},0,sc&&j==src?trackTrace(j):GRID);
+        const float ratioW=w.w*.23f, rx=w.x+w.w-ratioW-3;
+        line(rx,yy-1,rx+ratioW*.45f,yy-11,TRACE_AMBER,1.2f);
+        line(rx+ratioW*.45f,yy-11,rx+ratioW,yy-11-(1-ts.scRatio)*9,sc?TRACE_AMBER:WELL_DIM,1.2f);
         break; }
     case P::P_KEY: {   // two octaves of semitones: the scale in ink, the root in orange, the rest dim
         const auto sc = app_.scale();
         head = std::string(P::noteName(sc.root)) + " " + P::scaleName(sc.scale);
         const float pitch = w.w / 24, kh = std::min(44.f,w.h*.52f);
         for (int i = 0; i < 24; i++) {
-            const int pc = i % 12; const bool in = P::inScale(sc.scale, pc);
+            const int pc = i % 12;
             const int actual=(pc-sc.root+12)%12;
+            const bool in=P::inScale(sc.scale,actual);
             const float h=kh*(sc.mode&&in?1.12f:1.f);
-            prism(w.x+i*pitch+2,cy-h/2-4,std::max(2.f,pitch-5),h,2,actual==0?TRACE_AMBER: P::inScale(sc.scale,actual)?signal:GRID);
+            prism(w.x+i*pitch+2,cy-h/2-4,std::max(2.f,pitch-5),h,2,actual==0?TRACE_AMBER:in?signal:GRID);
             if (actual == 0) text(w.x+i*pitch+pitch/2,cy+kh/2+12,9,WELL_DIM,P::noteName(sc.root),1,true);
         }
         const float ox=w.x+4+(sc.octave+3)*(w.w-8)/6;
@@ -562,6 +570,14 @@ void SamplerUI::pageView(Rect r) {
         rrect({x0, cy - 5, ww, 10}, 0, GRID);
         rrect({x0, cy - 5, std::max(2.f, ww * lv), 10}, 0, lv > std::min(1.f, 2.f * app_.micThreshold()) ? TRACE_RED : TRACE_GREEN);
         vbar(x0 + ww * thr, cy - 26, cy + 26, TRACE_AMBER, 2.7f);
+        // Source selector: a capsule for mic, a small waveform for sound.
+        const float sx=w.x+w.w*.92f, sy=w.y+12;
+        if(kn[1].norm<.5f){
+            rrect({sx-4,sy-7,8,13},3,TRACE_RED);line(sx-7,sy+5,sx+7,sy+5,TRACE_RED,1.5f);
+            line(sx,sy+5,sx,sy+10,TRACE_RED,1.5f);
+        }else{
+            for(int j=0;j<7;++j)vbar(sx+(j-3)*3,sy-3-std::abs(std::sin(j*1.1f))*5,sy+3+std::abs(std::sin(j*1.1f))*5,TRACE_GREEN,2);
+        }
         text(x0, w.y + w.h - 8, 9, WELL_DIM, "TRIGGER LEVEL " + num("%.0f DB", 20 * std::log10(app_.micThreshold())), 0, true);
         break; }
     case P::P_TEMPO:
@@ -575,7 +591,12 @@ void SamplerUI::pageView(Rect r) {
             prism(x,cy-bh/2,std::max(1.f,bw-2),bh,2,st_.loopSamples>0?signal:GRID);
             for (int q = 1; q < 4; q++) vbar(x + bw * q / 4, cy - bh / 2 + 4, cy + bh / 2 - 4, WELL, 1.2f);
         }
-        if (st_.loopSamples > 0) vbar(w.x + 2 + clamp01(loopPos()) * (w.w - 4), cy - 34, cy + 34, TRACE_AMBER, 2.7f);
+        if (st_.loopSamples > 0) {
+            vbar(w.x+2+clamp01(loopPos())*(w.w-4),cy-34,cy+34,TRACE_AMBER,2.7f);
+            const float beatPitch=8+26*(1-clamp01((st_.bpm-30.f)/270.f));
+            for(float x=w.x+4;x<w.x+w.w-3;x+=beatPitch)rrect({x,base-2,2,2},0,TRACE_AMBER);
+            if(st_.tempoStretch)line(w.x+4,w.y+5,w.x+w.w-4,w.y+5,TRACE_VIOLET,2);
+        }
         break; }
     default: break;
     }
