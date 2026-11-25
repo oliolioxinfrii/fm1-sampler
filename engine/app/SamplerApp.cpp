@@ -685,7 +685,7 @@ void SamplerApp::encoder(int i, int delta, uint32_t eventMs) {
     if (i == 0) { selectTrack(track_ + delta); return; }
     if (i == 6) { browse(delta); return; }
     if (i == 1) { setAlgo(ts_[track_].algo + delta); return; }
-    if (i == 2 && mic_ == 1 && page_ != P_SAVE) { setMicThreshold01(micThr_ + (delta > 0 ? 0.03f : -0.03f)); touchedKnob_ = 0; touchedAt_ = nowMs_; return; }   // K1 = trigger level while the microphone listens
+    if (i == 2 && mic_ == 1 && page_ != P_SAVE) { setMicThreshold01(micThr_ + delta * 0.03f); touchedKnob_ = 0; touchedAt_ = nowMs_; return; }   // K1 = trigger level while the microphone listens
     Knobs k = knobs();
     const int idx = i - 2;
     if (idx < 4 && k[(size_t)idx].valid && k[(size_t)idx].step) {

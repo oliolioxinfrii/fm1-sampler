@@ -10,6 +10,7 @@ constexpr uint32_t withAlpha(uint32_t c, int a) { return (c & 0x00ffffffu) | (ui
 inline uint32_t BG, DECK_BG, SURFACE, RAISED, OUTLINE, TEXT, DIM, TRACK, ACCENT, ON_ACCENT;
 inline uint32_t VIOLET, GREEN, RED, AMBER, PINK, HI, SHADOW, WELL, GRID, WELL_TEXT, WELL_DIM;
 inline uint32_t TRACE_BLUE, TRACE_GREEN, TRACE_VIOLET, TRACE_AMBER, TRACE_RED, TRACE_PINK;
+inline constexpr uint32_t DRIVE_TRACE = 0xffffe16a;
 inline bool light = true;
 inline void apply(bool lightVariant) {
     light = lightVariant;

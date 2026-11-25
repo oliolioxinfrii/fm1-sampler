@@ -89,7 +89,27 @@ int main(int argc, char** argv) {
             require(count >= 0 && count <= EchoGrains::kTrackCap &&
                     count == voices[0].count() + voices[1].count() + voices[2].count(), "polyphonic track budget exceeded");
         }
-        std::puts("PASS deterministic render, parameters, long PCM addressing, shared grain budget");
+        // Moving the region of a sustained note must not abruptly cut
+        // existing grains. New grains are confined to the new window.
+        EchoGrains moving; moving.seed(71);
+        EchoParams q; q.freeze=1; q.position=.5f; q.scatter=0; q.drift=0; q.evolve=0;
+        int active=0; float l=0,r=0;
+        const double leftEnd=start+50000,rightStart=start+75000;
+        moving.next(q,pcm.data(),frames,sourceRate,sr,start,leftEnd,0,active,l,r);
+        require(active>0,"range test did not spawn initial grains");
+        const int before=active;
+        q.position=0;
+        moving.next(q,pcm.data(),frames,sourceRate,sr,rightStart,end,0,active,l,r);
+        require(active>=before,"region edit cut sounding grains");
+        for(int i=0;i<4*sr;++i){
+            moving.next(q,pcm.data(),frames,sourceRate,sr,rightStart,end,0,active,l,r);
+            require(std::isfinite(l)&&std::isfinite(r)&&active==moving.count(),"invalid audio or count after region edit");
+        }
+        double pos[EchoGrains::kGrains];float amp[EchoGrains::kGrains];
+        const int finalCount=moving.positions(pos,amp,EchoGrains::kGrains);
+        require(finalCount>0,"region edit stopped granular synthesis");
+        for(int i=0;i<finalCount;++i)require(pos[i]>=rightStart-1&&pos[i]<=end+1,"new grain outside edited region");
+        std::puts("PASS deterministic render, parameters, long PCM addressing, shared grain budget, live region edits");
         return 0;
     } catch (const std::exception& e) {
         std::fprintf(stderr, "%s\n", e.what());

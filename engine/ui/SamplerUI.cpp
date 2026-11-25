@@ -365,7 +365,7 @@ void SamplerUI::pageView(Rect r) {
             pts.push_back({x,y});back.push_back({x,w.y+w.h-8-driven*(w.h-19)});
         }
         poly(pts,ts.echoInsert.filterMix>.001f?signal:WELL_DIM,2.2f);
-        if(drive>.001f)poly(back,TRACE_AMBER,1.2f+1.8f*drive);
+        if(drive>.001f)poly(back,DRIVE_TRACE,1.2f+1.8f*drive);
         break; }
     case P::P_EDELAY: {
         head="ECHOFIELD DELAY";
@@ -519,7 +519,7 @@ void SamplerUI::pageView(Rect r) {
         }
         
         poly(pts,signal,2.3f);
-        if(kn[1].norm>.001f)poly(driven,TRACE_AMBER,1.8f);
+        if(kn[1].norm>.001f)poly(driven,DRIVE_TRACE,1.8f);
         break; }
     case P::P_MIX: {   // the last four seconds of the active channel: its level as a mirrored wave (dim = what it would be, ink = what is left after the sidechain),
                        // the level of the source as an envelope with the threshold line, orange where the source is over the threshold and the track is ducked

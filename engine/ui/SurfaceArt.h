@@ -10,7 +10,7 @@ namespace surfaceArt {
 inline std::array<uint32_t,16> palette() {
     using namespace theme;
     return {WELL,GRID,WELL_DIM,WELL_TEXT,TRACE_BLUE,TRACE_GREEN,TRACE_VIOLET,TRACE_AMBER,
-            TRACE_RED,TRACE_PINK,SHADOW,HI,TRACK,SURFACE,RAISED,BG};
+            TRACE_RED,TRACE_PINK,SHADOW,HI,TRACK,SURFACE,RAISED,DRIVE_TRACE};
 }
 inline uint8_t nearest(uint32_t c,const std::array<uint32_t,16>& pal) {
     int best=1<<30,idx=0;

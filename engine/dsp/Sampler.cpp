@@ -158,7 +158,7 @@ void Sampler::renderVoice(Voice& v, float* out, int n, int& trackGrains) {
     const float gain = 0.8f * v.vel;
     // Current-source granular notes use the edited region for new
     // grains; already sounding grains finish their original windows.
-    if(v.mode==GRAIN&&v.buf==orig_){
+    if(mode_==GRAIN&&v.mode==GRAIN&&v.buf==orig_){
         v.we=std::min<double>(rangeB_*frames,frames-2);
         v.ws=std::max(0.0,std::min<double>(rangeA_*frames,v.we-16));
     }
