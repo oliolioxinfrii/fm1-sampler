@@ -1,5 +1,7 @@
 #include "SamplerApp.h"
 #include "../ui/Theme.h"
+#include "../ui/SamplerUI.h"
+#include "../ui/SurfaceArt.h"
 #include <Common.h>
 #include <algorithm>
 #include <cmath>
@@ -71,7 +73,7 @@ const char* SamplerApp::scaleName(int i) { return kScaleName[std::min(7, std::ma
 const char* SamplerApp::noteName(int r) { return kNote[((r % 12) + 12) % 12]; }
 
 SamplerApp::SamplerApp(Session& s, Send send) : s_(s), send_(std::move(send)) {
-    cells_.resize(400); rects_.assign(400, ~0ull); setPalette(theme::light);
+    cells_.resize(400); rects_.assign(420, ~0ull); setPalette(theme::light);
     for (int& h : heldNote_) h = -1;
     for (int i = 0; i < kTracks; i++) { ts_[i].vol = 0.8f; }
     loadEcho();
@@ -187,6 +189,7 @@ void SamplerApp::applyFx() {
 }
 void SamplerApp::queueCommit(int t) { commitAt_ = nowMs_ + 350; commitTrack_ = t; }   // the offline stretch / pitch runs once the knob rests
 void SamplerApp::setAlgo(int a) {
+    motion_={};
     ts_[track_].algo = ((a % 6) + 6) % 6;
     if (!pageAvailable(page_)) page_ = P_HOME;
     applyAlgo(track_); applyHome(track_, true);
@@ -286,12 +289,13 @@ void SamplerApp::setScale(int scale, int root, int octave, int mode) {
 void SamplerApp::selectTrack(int t) {
     t = std::min(kTracks - 1, std::max(0, t));
     if (t == track_) return;
+    motion_={};
     if (st_.track_clip_rec[track_]) s_.clipRecord(track_, false);   // an overdub belongs to the track it was started on
     track_ = t;
     if (!pageAvailable(page_)) page_ = P_HOME;
     if (ts_[t].entry >= 0) libCursor_ = ts_[t].entry;   // PRESETS starts from the sample this track plays
 }
-void SamplerApp::gotoPage(Page p) { if (p >= P_HOME && p < kPages && pageAvailable(p)) page_ = p; }
+void SamplerApp::gotoPage(Page p) { if (p >= P_HOME && p < kPages && pageAvailable(p)) { if(page_!=p)motion_={}; page_ = p; } }
 
 SamplerApp::Knob SamplerApp::cont(const char* name, float* v, std::function<std::string(float)> f, std::function<void()> apply, float stepSize, bool commit) {
     Knob k; k.name = name; k.valid = true; k.norm = *v; k.value = f(*v);
@@ -627,7 +631,7 @@ void SamplerApp::button(int b, bool down) {
     if (b < 0 || b > REC) return;
     const bool wasHeld = (held_ & (1u << b)) != 0;
     lastLed_ = ~0ull;   // the firmware's own LED handling must not win: the active page stays lit, the others go dark
-    if (down) held_ |= 1u << b; else held_ &= ~(1u << b);
+    if (down) { held_ |= 1u << b; if(!wasHeld) motion_={}; } else held_ &= ~(1u << b);
     if (b == HOME) {
         if (down && !wasHeld) { homeAt_ = nowMs_; homeLong_ = false; }
         else if (!down && wasHeld && !homeLong_) page_ = algo()!=4 ? P_HOME : page_==P_HOME ? P_ECHO : page_==P_ECHO ? P_GRAIN : page_==P_GRAIN ? P_MOTION : P_HOME;
@@ -656,15 +660,31 @@ void SamplerApp::button(int b, bool down) {
     default: break;
     }
 }
+SamplerApp::~SamplerApp() = default;
+
 void SamplerApp::encoder(int i, int delta) {
-    if (!delta) return;
+    if (!delta || i < 0 || i > 6) return;
     if (i == 0) { selectTrack(track_ + (delta > 0 ? 1 : -1)); return; }
     if (i == 6) { browse(delta); return; }
     if (i == 1) { setAlgo(ts_[track_].algo + (delta > 0 ? 1 : -1)); return; }
     if (i == 2 && mic_ == 1 && page_ != P_SAVE) { setMicThreshold01(micThr_ + (delta > 0 ? 0.03f : -0.03f)); touchedKnob_ = 0; touchedAt_ = nowMs_; return; }   // K1 = trigger level while the microphone listens
     Knobs k = knobs();
     const int idx = i - 2;
-    if (idx < 4 && k[(size_t)idx].valid && k[(size_t)idx].step) { k[(size_t)idx].step(delta); touchedKnob_ = idx; touchedAt_ = nowMs_; }
+    if (idx < 4 && k[(size_t)idx].valid && k[(size_t)idx].step) {
+        auto& m=motion_[idx];
+        const int sign=delta>0?1:-1;
+        const uint32_t elapsed=nowMs_-m.at;
+        const bool same=m.sign==sign&&m.track==track_&&m.page==page_&&elapsed<=120;
+        // A burst of single detents ramps up gradually. Preserve
+        // coalesced MIDI deltas, and never accelerate enum/action knobs.
+        m.streak=same?std::min(12,m.streak+1):0;
+        m.at=nowMs_;m.sign=sign;m.track=track_;m.page=page_;
+        if(!k[idx].isChoice&&std::abs(delta)<=4&&same&&elapsed<=65) {
+            const int multiplier=m.streak>=6?5:m.streak>=3?3:m.streak>=1?2:1;
+            delta*=multiplier;
+        }
+        k[idx].step(delta); touchedKnob_=idx; touchedAt_=nowMs_;
+    }
 }
 
 // ---- tick ----
@@ -674,6 +694,7 @@ void SamplerApp::releaseSurfaceKeys() {
 }
 void SamplerApp::resetSurface() {
     releaseSurfaceKeys();
+    motion_={};
     pending_.clear(); pendingBytes_ = 0;
     haveDropBase_ = false; dropped_ = 0; linkSeen_ = false;
     gap_ = 50; lastLoss_ = lastRaise_ = nowMs_;
@@ -792,6 +813,8 @@ void SamplerApp::heal() {   // a lost frame leaves a hole nothing would redraw: 
     healCursor_ = (healCursor_ + 1) % (int)cells_.size();
     cells_[(size_t)healCursor_].known = false; rects_[(size_t)healCursor_] = ~0ull;
     const int c2 = 100 + healCursor_ % 160; rects_[(size_t)c2] = ~0ull;
+    tileSig_[healCursor_%tileSig_.size()]=~0ull;
+    rects_[380+healCursor_%40]=~0ull;
 }
 
 void SamplerApp::leds() {
@@ -824,26 +847,31 @@ void SamplerApp::leds() {
 // Layout (240x240): track tags, page and state, sample name, a 60 px picture that depends on the page, the loop strip, four knobs, a hint.
 void SamplerApp::draw(uint32_t now) {
     if ((int)theme::light != lastLight_) { lastLight_ = theme::light; setPalette(theme::light); needClear_ = true; }
-    // All narrow-column plots share their geometry, as do the text plots.
-    // Only a change of geometry requires erasing the plot's interior.
-    const int layout = mic_ == 1 || mic_ == 2 ? 0 :
-        page_ == P_KEY || page_ == P_LEN || page_ == P_TEMPO ? 1 : page_ == P_MIX ? 2 : 0;
+    const bool waveform=mic_==1||mic_==2||page_==P_HOME||page_==P_ECHO||page_==P_GRAIN||page_==P_MOTION;
+    const int layout=waveform?0:1;
     if (needClear_) {
         fwDirty_ = true; clear(BLACK);
         std::fill(cells_.begin(), cells_.end(), SurfaceCell());
         std::fill(rects_.begin(), rects_.end(), ~0ull);
-        heroSig_.fill(~0u);
+        heroSig_.fill(~0u); tileSig_.fill(~0ull); picturePage_=-1;
+        std::vector<uint8_t> pal;
+        for(auto c:surfaceArt::palette())cat(pal,col(rgb565(c)));
+        sysex(8,pal,false,920);
     } else if (layout != lastHeroLayout_) {
         // Commands queued for the previous plot must not be replayed
         // before or after the replacement plot's background.
         discardPending(100, 299);
         discardPending(1100, 1101);
+        discardPending(2000,2041);
+        tileSig_.fill(~0ull);picturePage_=-1;
         discardPending(361, 361);
         std::fill(rects_.begin() + 100, rects_.begin() + 300, ~0ull);
         cells_[100].known = cells_[101].known = false;
         heroSig_.fill(~0u);
-        rects_[361] = ~0ull;
-        rect(361, 9, 52, 222, 49, WELL);
+        if(layout==0){
+            rects_[361]=~0ull;
+            rect(361,9,52,222,49,WELL);
+        }
     }
     lastHeroLayout_ = layout;
     if (needClear_) {
@@ -883,12 +911,8 @@ void SamplerApp::draw(uint32_t now) {
     }
     const uint32_t pc = pageAccent(page_);
     drawText(20, 12, 36, 2, rgb565(theme::contrastInk(pc)), rgb565(pc), kPage[page_], 9);
-    // Page markers track menu selection, independently of the track badge.
-    for (int i = 0; i < kPages; i++) {
-        const Page p = menuPage(i);
-        rect(380 + i, kMenuX + i * kMenuStep, 40, kMenuWidth, 10, p == page_ ? rgb565(pc) : pageAvailable(p) ? BAR : PANEL);
-    }
-    hero(now, k);
+    menuMarkers();
+    if(waveform) hero(now,k); else picture(now);
     // the loop: a thin bar with the position, under it the state (mic / toast / audition, else the sample mode and the loop)
     std::string line;
     if (mic_ == 1) line = "MIC: WAITING FOR SOUND";
@@ -940,6 +964,65 @@ void SamplerApp::draw(uint32_t now) {
     needClear_ = false;
 }
 
+void SamplerApp::menuMarkers() {
+    const Page parent=menuParent(page_);
+    int anchor=0;
+    for(int i=0;i<kPrimaryMenus;++i)if(primaryMenuPage(i)==parent)anchor=i;
+    std::array<Page,kPrimaryMenus> child{};
+    child.fill(kPages);
+    int count=0;
+    for(int i=0;i<kPages;++i) {
+        Page p=menuPage(i);
+        if(menuParent(p)!=parent||!pageAvailable(p))continue;
+        const int slot=anchor+(parent==P_LEN?-count:count);
+        if(slot>=0&&slot<kPrimaryMenus)child[slot]=p;
+        ++count;
+    }
+    const uint16_t accent=rgb565(pageAccent(parent));
+    for(int i=0;i<kPrimaryMenus;++i) {
+        const int x=kMenuX+i*kMenuStep;
+        const bool visible=count>1&&child[i]!=kPages;
+        rect(380+i,x,44,kMenuWidth,6,i==anchor?accent:BAR);
+        rect(390+i,x,36,kMenuWidth,5,visible?(child[i]==page_?rgb565(pageAccent(page_)):BAR):BLACK);
+        rect(410+i,x+3,41,2,3,count>1&&i==anchor?accent:BLACK);
+        if(i+1<kPrimaryMenus)rect(400+i,x+kMenuWidth,38,kMenuStep-kMenuWidth,1,
+            visible&&count>1&&child[i+1]!=kPages?accent:BLACK);
+    }
+}
+
+void SamplerApp::picture(uint32_t now) {
+    // Coalesce changes while the USB display catches up. Static tiles
+    // are never resent merely because a frame was drawn on the phone.
+    if(!needClear_&&picturePage_==page_&&now-pictureAt_<100)return;
+    pictureAt_=now;picturePage_=page_;
+    if(!graphic_)graphic_=std::make_unique<SamplerUI>(*this,false);
+    const auto& ops=graphic_->surfaceGraphic(now);
+    surfaceArt::Raster plot(ops);
+    const auto pal=surfaceArt::palette();
+    int idx=0;
+    for(int y=0;y<46;y+=7)for(int x=0;x<216;x+=36,++idx) {
+        const int w=36,h=std::min(7,46-y);
+        std::array<uint8_t,252> pix{};
+        int n=0;uint64_t hash=1469598103934665603ull;
+        for(int j=0;j<h;++j)for(int i=0;i<w;++i){
+            const auto c=surfaceArt::nearest(plot.pixel(x+i,y+j),pal);
+            pix[n++]=c;hash=(hash^c)*1099511628211ull;
+        }
+        if(!needClear_&&tileSig_[idx]==hash)continue;
+        tileSig_[idx]=hash;
+        std::vector<uint8_t> p;
+        cat(p,n14(12+x));cat(p,n14(54+y));cat(p,n14(w));cat(p,n14(h));
+        for(int i=0;i<n;){
+            int run=1;while(i+run<n&&pix[i+run]==pix[i]&&run<135)++run;
+            p.push_back(uint8_t((pix[i]<<3)|std::min(7,run-1)));
+            if(run>=8)p.push_back(uint8_t(run-8));
+            i+=run;
+        }
+        // 252 worst-case tokens + header < firmware's 300-byte frame.
+        sysex(9,p,false,2000+idx);
+    }
+}
+
 void SamplerApp::hero(uint32_t now, const Knobs& k) {
     const int x0 = 12, y0 = 54, W = 216, H = 46;
     // one column: background (cleared only when the height changed) + bar
@@ -968,36 +1051,6 @@ void SamplerApp::hero(uint32_t now, const Knobs& k) {
             float live[2048]; const int ln = s_.livePeaks(live, 2048), per = std::max(1, (ln + n - 1) / n);
             for (int i = 0; i < n; i++) { float v = 0; for (int j = i * per; j < std::min(ln, (i + 1) * per); j++) v = std::max(v, live[j]); column(i, x0 + i * 4, 3, (int)(std::min(1.f, v * 1.1f) * H) + 1, i * per < ln ? TRACE : GRID, false); }
         }
-    } else if (page_ == P_LEN || page_ == P_TEMPO) {   // loop length and tempo
-        char b[32];
-        if (st_.loopSamples > 0) snprintf(b, sizeof b, "%.0f BARS", (double)st_.loopBars); else snprintf(b, sizeof b, "NO LOOP");
-        drawText(100, x0, y0 + 3, 3, TIME, WELL, b, 9);
-        snprintf(b, sizeof b, "%.1fS  %.0f BPM", st_.loopSamples / (double)s_.sampleRate(), st_.bpm);
-        drawText(101, x0, y0 + 28, 2, INK, WELL, st_.loopSamples > 0 ? b : "REC TO MAKE ONE", 18);
-    } else if (page_ == P_ENV) {   // the ADSR curve
-        const float sa = 0.08f + 0.5f * x.a, sd = 0.08f + 0.5f * x.d, ss = 0.3f, sr = 0.08f + 0.5f * x.r, tot = sa + sd + ss + sr;
-        for (int i = 0; i < 54; i++) {
-            const float u = (i + 0.5f) / 54.f * tot; float v;
-            if (u < sa) v = u / sa; else if (u < sa + sd) v = 1.f - (1.f - x.s) * (u - sa) / sd; else if (u < sa + sd + ss) v = x.s; else v = x.s * (1.f - (u - sa - sd - ss) / sr);
-            column(i, x0 + i * 4, 3, (int)(v * H), rgb565(theme::encoderTrace(u < sa ? 0 : u < sa + sd ? 1 : u < sa + sd + ss ? 2 : 3)), true);
-        }
-    } else if (page_ == P_LFO) {   // one and a half cycles of the shape, amplitude = depth; the bar on the right is the live value
-        for (int i = 0; i < 52; i++) {
-            const float ph = std::fmod(i / 52.f * 1.5f * 2.f, 1.f); float v;
-            v = x.lfoShape == 0 ? std::sin(6.2831853f * ph) : x.lfoShape == 1 ? (ph < 0.5f ? 4 * ph - 1 : 3 - 4 * ph) : x.lfoShape == 2 ? (ph < 0.5f ? 1.f : -1.f) : std::sin(ph * 71.f + (int)(i / 9) * 5.1f);
-            column(i, x0 + i * 4, 3, (int)((0.08f + 0.92f * x.lfoDepth * std::fabs(v)) * H), rgb565(theme::TRACE_VIOLET), false);
-        }
-        column(52, x0 + 208, 3, 1, WELL, false);
-        column(53, x0 + 212, 3, (int)((0.5f + 0.5f * st_.lfoValue[track_]) * H), TRACE, true);
-    } else if (page_ == P_MIX) {   // eight strips: level (bar) and the track
-        for (int i = 0; i < kTracks; i++) column(i, x0 + i * 27, 20, (int)(std::min(1.f, st_.track_peak[i] * 1.5f) * H), rgb565(theme::trackTrace(i)), true);
-    } else if (page_ == P_KEY) {   // the tonality in big letters
-        char b[32]; snprintf(b, sizeof b, "%s %s", kNote[scale_.root], kScaleName[scale_.scale]);
-        drawText(100, x0, y0 + 3, 3, TRACE, WELL, b, 9);
-        snprintf(b, sizeof b, "OCT %+d  %s", scale_.octave, scale_.mode ? "CHORD" : "KEY");
-        drawText(101, x0, y0 + 28, 2, INK, WELL, b, 18);
-    } else if (page_ >= P_EFILTER && page_ <= P_EMIX) {
-        for(int i=0;i<54;++i){int j=std::min(3,i*4/54);int h=int(k[j].norm*H);column(i,x0+i*4,3,h,rgb565(theme::encoderTrace(j)),true);}
     } else if (page_ == P_ECHO || page_ == P_GRAIN || page_ == P_MOTION || (page_ == P_HOME && algo() == 4)) {
         // Actual grain positions and envelopes on the sample's waveform.
         auto pk = peaks(track_, 54);

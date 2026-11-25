@@ -73,7 +73,8 @@ uint32_t pageColor(SamplerApp::Page p, bool trace = false) {
 }
 }  // namespace
 
-SamplerUI::SamplerUI(SamplerApp& app) : app_(app) {
+SamplerUI::SamplerUI(SamplerApp& app, bool loadTheme) : app_(app) {
+    if (!loadTheme) return;
     FILE* f = fopen((app_.session().dataDir() + "/theme").c_str(), "r");   // the chosen theme survives restarts; light is the default
     if (f) { char c = 0; if (fread(&c, 1, 1, f) == 1) theme::apply(c != 'd'); fclose(f); }
     syncColors();
@@ -145,6 +146,15 @@ void SamplerUI::button(Rect r, const std::string& label, bool on, std::function<
 }
 
 // ---- frame ----
+const std::vector<UiOp>& SamplerUI::surfaceGraphic(uint32_t now) {
+    now_=now; st_=app_.status(); syncColors();
+    ops_.clear(); hits_.clear();
+    // The plot starts at y=22 and measures 432 x 92. Text and the
+    // colored page title are outside the hardware diagram.
+    pageView({0,0,432,114});
+    return ops_;
+}
+
 void SamplerUI::frame(uint32_t now) {
     now_ = now;
     st_ = app_.status();

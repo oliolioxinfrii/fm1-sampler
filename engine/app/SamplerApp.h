@@ -12,8 +12,11 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
+
+class SamplerUI;
 
 struct SurfaceCell { std::string text; uint16_t fg = 0, bg = 0; int x = 0, y = 0, scale = 0; bool known = false; };
 
@@ -35,6 +38,7 @@ public:
     struct ScaleState { int scale = 3, root = 0, octave = 0, mode = 0; };
 
     SamplerApp(Session& s, Send send);
+    ~SamplerApp();
 
     void onMidi(const uint8_t* msg, size_t n);
     void onSysex(const uint8_t* msg, size_t n);
@@ -60,7 +64,17 @@ public:
         constexpr Page pages[] = {P_HOME,P_ECHO,P_GRAIN,P_MOTION,P_FX,P_EFILTER,P_EDELAY,P_EREVERB,P_ENV,P_LFO,P_ARP,P_SEQ,P_ETAPE,P_EMIX,P_MIX,P_KEY,P_SAVE,P_LEN,P_TEMPO};
         return pages[slot];
     }
-    static constexpr int kMenuX = 116, kMenuStep = 6, kMenuWidth = 4;
+    static constexpr int kPrimaryMenus=10, kMenuX=116, kMenuStep=12, kMenuWidth=8;
+    static Page primaryMenuPage(int slot) {
+        constexpr Page p[]={P_HOME,P_FX,P_ENV,P_LFO,P_ARP,P_SEQ,P_MIX,P_KEY,P_SAVE,P_LEN};
+        return p[slot];
+    }
+    static Page menuParent(Page p) {
+        if(p==P_ECHO||p==P_GRAIN||p==P_MOTION)return P_HOME;
+        if(p>=P_EFILTER&&p<=P_EREVERB)return P_FX;
+        if(p==P_ETAPE||p==P_EMIX)return P_SEQ;
+        return p==P_TEMPO?P_LEN:p;
+    }
     static bool fxPage(Page p) { return p == P_FX || (p >= P_EFILTER && p <= P_EREVERB); }
     int algo() const { return ts_[track_].algo; }
     void setAlgo(int a);
@@ -141,6 +155,8 @@ private:
     void heal();
     void discardPending(int firstKey, int lastKey);
     void hero(uint32_t now, const Knobs& k);
+    void picture(uint32_t now);
+    void menuMarkers();
     // ---- input ----
     void button(int b, bool down);
     void encoder(int i, int delta);
@@ -190,6 +206,8 @@ private:
     int pingId_ = 0, healCursor_ = 0;
     uint64_t lastLed_ = ~0ull; uint32_t ledAt_ = 0;   // the firmware may light / clear a button LED by itself when it is pressed: resend after every button event and every 400 ms
     int knobMsb_ = 0;
+    struct EncoderMotion { uint32_t at=0; int sign=0, streak=0, track=-1; Page page=P_HOME; };
+    std::array<EncoderMotion,4> motion_{};
     int heldNote_[128];
     int keyNotes_[128][3] = {}; int keyCount_[128] = {};
     bool fwDirty_ = true; uint32_t lenAt_ = 0;
@@ -198,6 +216,10 @@ private:
     uint32_t touchedAt_ = 0; int touchedKnob_ = -1;
     int lastLight_ = -1, lastHeroLayout_ = -1;
     std::array<uint32_t, 100> heroSig_{};
+    std::unique_ptr<SamplerUI> graphic_;
+    std::array<uint64_t,42> tileSig_{};
+    uint32_t pictureAt_=0;
+    int picturePage_=-1;
     std::vector<SurfaceCell> cells_;
     std::vector<uint64_t> rects_;
 };
