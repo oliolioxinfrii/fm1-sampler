@@ -35,6 +35,8 @@ int main(){
                         row[(x-P::kMenuX)/P::kMenuStep]=color(p+9);
                     }
                     if(y==54)++waveformRects;
+                    for(int yy=std::max(54,y);yy<std::min(100,y+h);++yy)
+                        for(int xx=std::max(12,x);xx<std::min(228,x+w);++xx)plot[(yy-54)*216+xx-12]=color(p+9);
                 }
                 if(p[0]==9&&len>=9){
                     require(palReady,"bitmap arrived before palette");
@@ -93,9 +95,12 @@ int main(){
             const auto parent=P::menuParent(app.page());
             if(parent!=P::P_HOME)require(blits>old,"page did not send pictographic tiles");
         }
+        app.gotoPage(P::P_EFILTER);run(3000);
+        const int settled=blits;run(2000);
+        require(blits==settled,"static reduced glyph retransmitted");
         // Exercise each of the new FX parameters at the actual
         // firmware palette resolution, including bypassed inserts.
-        const P::Page effects[]={P::P_EFILTER,P::P_EDELAY,P::P_EREVERB,P::P_ETAPE,P::P_EMIX};
+        const P::Page effects[]={P::P_FX,P::P_EFILTER,P::P_EDELAY,P::P_EREVERB,P::P_SEQ,P::P_ETAPE,P::P_EMIX,P::P_KEY};
         for(auto page:effects){
             app.gotoPage(page);run(3000);
             for(int j=0;j<4;++j){
@@ -108,6 +113,16 @@ int main(){
                 app.knobs()[j].set(saved);run(1000);
             }
         }
+        // Verify the actual chord notes, not just a generic mode bar.
+        app.setScale(2,0,0,1);
+        require(app.chordGhostMask()==((1u<<0)|(1u<<4)|(1u<<7)),"major tonic triad preview");
+        app.keyEvent(62,true);
+        require(app.chordGhostMask()==((1u<<2)|(1u<<5)|(1u<<9)),"held diatonic triad preview");
+        app.keyEvent(62,false);
+        app.setScale(3,0,0,1);
+        require(app.chordGhostMask()==((1u<<0)|(1u<<3)|(1u<<7)),"minor tonic triad preview");
+        app.setScale(3,0,0,0);
+        require(app.chordGhostMask()==0,"key mode should have no chord ghosts");
         app.gotoPage(P::P_KEY);run(48);
         app.gotoPage(P::P_MIX);run(48);
         app.gotoPage(P::P_ECHO);run(3000);

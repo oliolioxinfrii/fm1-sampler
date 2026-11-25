@@ -147,11 +147,167 @@ void SamplerUI::button(Rect r, const std::string& label, bool on, std::function<
 
 // ---- frame ----
 const std::vector<UiOp>& SamplerUI::surfaceGraphic(uint32_t now) {
-    now_=now; st_=app_.status(); syncColors();
-    ops_.clear(); hits_.clear();
-    // The plot starts at y=22 and measures 432 x 92. Text and the
-    // colored page title are outside the hardware diagram.
-    pageView({0,0,432,114});
+    using P=SamplerApp;
+    now_=now;st_=app_.status();syncColors();
+    ops_.clear();hits_.clear();
+    const auto pg=app_.page();
+    const auto k=app_.knobs(pg);
+    const auto t=app_.track();
+    // Compact symbol drawn at 2x, independently of the phone artwork.
+    // The bottom eleven hardware pixels are reserved for amount bars.
+    constexpr float top=22,bot=92,cy=57;
+    const uint32_t ink=pageColor(pg,true);
+    rrect({0,top,432,bot-top},0,WELL);
+    auto path=[&](const std::vector<std::pair<float,float>>& pts,uint32_t c,float width=3.f){
+        for(size_t i=1;i<pts.size();++i)line(pts[i-1].first,pts[i-1].second,pts[i].first,pts[i].second,c,width);
+    };
+    auto wave=[&](float x,float y,float radius,uint32_t c){
+        path({{x+radius*.50f,y-radius*.86f},{x+radius*.87f,y-radius*.5f},{x+radius,y},{x+radius*.87f,y+radius*.5f},{x+radius*.50f,y+radius*.86f}},c,3);
+    };
+    auto speaker=[&](float x,float y,float size){
+        rrect({x,y-size*.7f,size*.7f,size*1.4f},0,WELL_DIM);
+        rrect({x+2,y-size*.7f+2,size*.7f-4,size*1.4f-4},0,GRID);
+        circle(x+size*.35f,y-size*.35f,size*.13f,WELL_TEXT);
+        circle(x+size*.35f,y+size*.25f,size*.20f,ink);
+        circle(x+size*.35f,y+size*.25f,size*.08f,WELL);
+    };
+    auto delay=[&](float x,float width,float time,float fb,float send,bool ping){
+        speaker(x+5,cy,25);
+        const float origin=x+36,span=std::max(12.f,width-47);
+        const float spacing=std::max(12.f,span*(.06f+.22f*time));
+        for(int i=0;i<14;++i){
+            const float xx=origin+(i+.5f)*spacing;
+            if(xx+8>x+width)break;
+            const float r=std::max(3.f,std::min(12.f,spacing*.39f)*(.3f+.7f*std::pow(std::max(.02f,fb),i*.5f)));
+            const float yy=cy+(ping?(i%2?12:-12):0);
+            const auto c=send>.001f?(ping&&i%2?TRACE_BLUE:TRACE_VIOLET):WELL_DIM;
+            circle(xx,yy,r,c);circle(xx,yy,std::max(1.f,r-3),WELL);
+            if(r>=7)line(xx,yy-r-3,xx,yy-r-7,DRIVE_TRACE,2);
+        }
+    };
+    auto room=[&](float x,float width,float size,float damp,float shimmer){
+        const float left=x+4,right=x+width-4;
+        stroke({left,top+5,right-left,bot-top-10},0,WELL_DIM,3);
+        speaker(left+7,cy,24);
+        const float sx=left+31,extent=std::min(32.f,(right-sx)*.9f);
+        const float radius=extent*(.28f+.72f*size);
+        for(int i=0;i<3;++i)wave(sx,cy,std::max(3.f,radius*(i+1)/3),i==0?DRIVE_TRACE:damp>.75f?GRID:TRACE_VIOLET);
+        if(shimmer>.001f)for(int i=0;i<1+int(shimmer*3);++i){
+            const float xx=right-15-i*12,yy=cy+(i%2?12:-12);
+            line(xx-4,yy,xx+4,yy,DRIVE_TRACE,2);line(xx,yy-5,xx,yy+5,DRIVE_TRACE,2);
+        }
+    };
+    auto tape=[&](bool echo){
+        const float a=k[0].norm,b=k[1].norm,c=k[2].norm,d=k[3].norm;
+        const float l=17+10*(echo?a:b),r=13+12*(echo?b:c),cap=210+48*(echo?c:d);
+        line(90,cy-l,342,cy-r,TRACE_AMBER,3);
+        path({{90,cy+l},{cap,cy+26},{342,cy+r}},TRACE_AMBER,3);
+        if(!echo&&b>.001f)line(90,cy-l,342,cy-r,DRIVE_TRACE,3+3*b);
+        for(int j=0;j<2;++j){
+            const float x=j?342:90,rr=j?r:l;
+            circle(x,cy,rr,WELL_DIM);circle(x,cy,rr-3,GRID);circle(x,cy,rr*.24f,WELL_TEXT);
+            for(int i=0;i<3;++i){
+                const float angle=i*2*kPi/3+(echo?0:a*kPi);
+                line(x+rr*.36f*std::cos(angle),cy+rr*.36f*std::sin(angle),x+rr*.67f*std::cos(angle),cy+rr*.67f*std::sin(angle),WELL,4);
+            }
+        }
+        circle(cap,cy+26,7,TRACE_GREEN);circle(cap,cy+26,3,WELL);
+        rrect({202,top+4,18,23},0,WELL_DIM);rrect({208,top+7,6,17},0,DRIVE_TRACE);
+        if((echo?d:c)>.001f)for(int i=0;i<1+int(8*(echo?d:c));++i)rrect({122+i*8,top+7+(i%2)*3,3,3},0,echo?TRACE_PINK:TRACE_VIOLET);
+    };
+    switch(pg){
+    case P::P_EDELAY:delay(0,432,k[0].norm,std::min(.92f,k[1].norm),k[2].norm,k[3].norm>.5f);break;
+    case P::P_EREVERB:room(0,432,k[1].norm,k[2].norm,k[3].norm);break;
+    case P::P_FX:room(0,208,k[1].norm,0,0);delay(220,212,k[3].norm,.78f,k[2].norm,false);break;
+    case P::P_SEQ:tape(false);break;
+    case P::P_ETAPE:tape(true);break;
+    case P::P_EFILTER:{
+        const auto& ts=app_.state(t);
+        std::vector<std::pair<float,float>> pts;
+        for(int i=0;i<=24;++i){
+            const float f=i/24.f,d=(f-k[1].norm)*16,low=1/(1+std::exp(d)),band=std::exp(-d*d*.14f);
+            const float v=clamp01((ts.echoInsert.filter==0?low:ts.echoInsert.filter==1?band:1-low)+.35f*k[2].norm*band);
+            pts.push_back({8+416*f,bot-7-v*(bot-top-14)});
+        }
+        path(pts,ink,4);
+        if(k[3].norm>.001f){for(auto& pt:pts)pt.second=std::clamp(pt.second+4*k[3].norm*std::sin(pt.first),top+3,bot-3);path(pts,DRIVE_TRACE,3);}
+        break;}
+    case P::P_EMIX:{
+        line(10,cy,350,cy,WELL_DIM,3);
+        for(int j=0;j<2;++j){
+            const float x=38+j*146;
+            const auto c=encoderTrace(j+2);
+            rrect({x,top+9,126,bot-top-18},0,GRID);stroke({x,top+9,126,bot-top-18},0,WELL_DIM,2);
+            rrect({x+9,cy-6,108,12},0,WELL);
+            if(k[j+2].norm>0)rrect({x+9,cy-6,108*k[j+2].norm,12},0,c);
+        }
+        const float sep=8+18*k[0].norm;
+        path({{350,cy-sep},{350,cy+sep}},TRACE_BLUE,3);
+        for(float y:{cy-sep,cy+sep}){line(350,y,410,y,TRACE_BLUE,3);circle(410,y,6,TRACE_BLUE);}
+        break;}
+    case P::P_KEY:{
+        const auto sc=app_.scale();const auto ghosts=app_.chordGhostMask();
+        const uint32_t colors[]={TRACE_BLUE,TRACE_GREEN,TRACE_GREEN,TRACE_VIOLET,TRACE_PINK,TRACE_VIOLET,TRACE_PINK,WELL_DIM};
+        for(int i=0;i<12;++i){
+            const float x=7+i*35;const int rel=(i-sc.root+12)%12;
+            const bool legal=P::inScale(sc.scale,rel);
+            const auto c=rel==0?DRIVE_TRACE:legal?colors[std::clamp(sc.scale,0,7)]:GRID;
+            if(ghosts&(1u<<i))stroke({x-2,top+14,32,44},0,c,2);
+            rrect({x+2,top+19,24,34},0,c);
+        }
+        const float ox=15+(sc.octave+3)*67;
+        rrect({ox,top+4,8,5},0,TRACE_BLUE);
+        break;}
+    case P::P_ENV:{
+        const float aa=12+90*k[0].norm,dd=12+90*k[1].norm,rr=12+90*k[3].norm,sus=bot-5-(bot-top-12)*k[2].norm;
+        const float factor=416.f/(aa+dd+90+rr);
+        path({{8,bot-5},{8+aa*factor,top+5},{8+(aa+dd)*factor,sus},{8+(aa+dd+90)*factor,sus},{424,bot-5}},ink,4);
+        break;}
+    case P::P_LFO:{
+        const auto& ts=app_.state(t);std::vector<std::pair<float,float>> pts;
+        for(int i=0;i<=56;++i){
+            const float ph=std::fmod((1+5*k[0].norm)*i/56,1.f);
+            float v=std::sin(2*kPi*ph);
+            if(ts.lfoShape==1)v=ph<.5f?4*ph-1:3-4*ph;
+            else if(ts.lfoShape==2)v=ph<.5f?1:-1;
+            else if(ts.lfoShape==3)v=std::sin(std::floor((1+5*k[0].norm)*i/7)*7.3f);
+            pts.push_back({8+390*i/56.f,cy-v*(4+26*k[1].norm)});
+        }
+        path(pts,encoderTrace(ts.lfoTarget),3);
+        break;}
+    case P::P_ARP:{
+        const int n=6+int(44*k[0].norm),levels=3+int(9*k[2].norm);
+        const float pitch=416.f/n;
+        for(int i=0;i<n;++i){int step=i%levels;
+            if(app_.state(t).arpPatt==1)step=levels-1-step;
+            else if(app_.state(t).arpPatt==2)step=levels-1-std::abs(i%(2*levels-2)-(levels-1));
+            else if(app_.state(t).arpPatt==3)step=i%2?levels-1-(i/2)%levels:(i/2)%levels;
+            else if(app_.state(t).arpPatt==4)step=(i*17+i*i*7)%levels;
+            rrect({8+i*pitch,bot-8-step*46.f/levels,std::max(2.f,pitch*(.15f+.8f*k[3].norm)),5},0,k[0].norm>0?ink:WELL_DIM);
+        }
+        break;}
+    case P::P_MIX:{
+        const float level=st_.scLevel[t],gain=st_.scGain[t];
+        rrect({10,cy-11,250,22},0,GRID);
+        rrect({10,cy-11,250*clamp01(level),22},0,WELL_DIM);
+        rrect({10,cy-11,250*clamp01(level*gain),22},0,ink);
+        const float thr=10+250*k[2].norm;
+        line(thr,cy-18,thr,cy+18,TRACE_AMBER,3);
+        path({{285,bot-8},{340,cy},{420,cy-(1-k[3].norm)*25}},TRACE_BLUE,3);
+        break;}
+    case P::P_SAVE:{
+        rrect({8,cy-9,416,18},0,GRID);
+        if(st_.inputPeak>0)rrect({8,cy-9,416*clamp01(st_.inputPeak*2),18},0,TRACE_GREEN);
+        const float x=8+416*k[3].norm;
+        line(x,cy-24,x,cy+24,TRACE_AMBER,3);break;}
+    case P::P_LEN:case P::P_TEMPO:{
+        const int n=std::clamp(int(st_.loopBars),1,16);
+        const float pitch=416.f/n;
+        for(int i=0;i<n;++i)rrect({8+i*pitch,cy-16,pitch-3,32},0,st_.loopSamples>0?ink:GRID);
+        const float pos=8+416*clamp01(loopPos());
+        line(pos,cy-25,pos,cy+25,DRIVE_TRACE,3);break;}
+    default:break;
+    }
     return ops_;
 }
 
@@ -343,7 +499,7 @@ void SamplerUI::pageView(Rect r) {
         circle(cx,y+hh*.68f,rr*.25f,DRIVE_TRACE);
     };
     auto delayDiagram=[&](float left,float width,float time,float feedback,float send,bool ping,bool full){
-        const float bottom=w.y+w.h-15,top=w.y+4,hh=bottom-top;
+        const float bottom=w.y+w.h-15,top=w.y+(full?17.f:4.f),hh=bottom-top;
         const float spw=std::min(width*.13f,hh*.32f), sph=std::min(hh*.7f,spw*1.8f);
         const float sx=left+4,sy=top+(hh-sph)/2;
         cabinet(sx,sy,spw,sph);
@@ -368,7 +524,7 @@ void SamplerUI::pageView(Rect r) {
             if(rr>=5)burst(x,yy,rr+2,-kPi/2,3,std::min(5.f,rr*.38f),j==0?DRIVE_TRACE:c);
         }
         meter(left+4,bottom+5,width-8,send,TRACE_GREEN,"SEND");
-        if(full)meter(left+4,top+3,std::min(width*.45f,138.f),feedback,TRACE_VIOLET,"FB");
+        if(full)meter(left+4,w.y+5,std::min(width*.45f,138.f),feedback,TRACE_VIOLET,"FB");
     };
     auto roomDiagram=[&](float left,float width,float send,float size,float damp,float shimmer,bool full){
         const float x=left+4,y=w.y+4,ww=width-8,hh=w.h-21;
@@ -437,7 +593,7 @@ void SamplerUI::pageView(Rect r) {
         if(!echo&&b>.001f)poly(belt,withAlpha(DRIVE_TRACE,int(35+95*b)),4.f+7*b);
         poly(belt,oxide,4.4f);poly(belt,!echo&&b>.001f?DRIVE_TRACE:TRACE_AMBER,1.6f+(!echo?b:0));
         // Derive rotation from transport position, not elapsed UI time.
-        const float ph=loopPos()*2*kPi*(echo?2.f:1.f+3.f*a);
+        const float ph=loopPos()*4*kPi;
         reel(p[0].x,p[0].y,r1,ph);
         reel(p[1].x,p[1].y,r2,-ph*r1/std::max(1.f,r2));
         circle(p[2].x,p[2].y,capR,lip);circle(p[2].x,p[2].y,capR*.76f,metal);circle(p[2].x,p[2].y,capR*.38f,TRACE_GREEN);

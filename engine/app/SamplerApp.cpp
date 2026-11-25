@@ -73,7 +73,7 @@ const char* SamplerApp::scaleName(int i) { return kScaleName[std::min(7, std::ma
 const char* SamplerApp::noteName(int r) { return kNote[((r % 12) + 12) % 12]; }
 
 SamplerApp::SamplerApp(Session& s, Send send) : s_(s), send_(std::move(send)) {
-    cells_.resize(400); rects_.assign(420, ~0ull); setPalette(theme::light);
+    cells_.resize(400); rects_.assign(429, ~0ull); setPalette(theme::light);
     for (int& h : heldNote_) h = -1;
     for (int i = 0; i < kTracks; i++) { ts_[i].vol = 0.8f; }
     loadEcho();
@@ -830,7 +830,6 @@ void SamplerApp::drawText(int id, int x, int y, int scale, uint16_t fg, uint16_t
 void SamplerApp::flush(uint32_t now) {
     // ONE frame per call, at least gap_ ms apart: the FM-1 has a 4-frame queue. Small commands are packed into one batch frame.
     if (pending_.empty() || now - lastSend_ < gap_) return;
-    if(pending_.front().key>=2000&&pending_.front().key<=2041&&touchedKnob_>=0&&now-touchedAt_<100&&now-lastSend_<80)return;
     lastSend_ = now;
     std::vector<uint8_t> batch = {0xf0, 0x7d, 'D', 'A', 'W', 1, 10};
     int n = 0;
@@ -853,7 +852,8 @@ void SamplerApp::heal() {   // a lost frame leaves a hole nothing would redraw: 
     healCursor_ = (healCursor_ + 1) % (int)cells_.size();
     cells_[(size_t)healCursor_].known = false; rects_[(size_t)healCursor_] = ~0ull;
     const int c2 = 100 + healCursor_ % 160; rects_[(size_t)c2] = ~0ull;
-    tileSig_[healCursor_%tileSig_.size()]=~0ull;
+    // Graphic tiles are repaired on an explicit drop report/reconnect.
+    // Do not continuously resend an unchanged picture.
     rects_[380+healCursor_%40]=~0ull;
 }
 
@@ -893,7 +893,7 @@ void SamplerApp::draw(uint32_t now) {
         fwDirty_ = true; clear(BLACK);
         std::fill(cells_.begin(), cells_.end(), SurfaceCell());
         std::fill(rects_.begin(), rects_.end(), ~0ull);
-        heroSig_.fill(~0u); tileSig_.fill(~0ull); picturePage_=-1;
+        heroSig_.fill(~0u); tileSig_.fill(~0ull); picturePage_=-1;pictureSig_=~0ull;
         std::vector<uint8_t> pal;
         for(auto c:surfaceArt::palette())cat(pal,col(rgb565(c)));
         sysex(8,pal,false,920);
@@ -903,7 +903,9 @@ void SamplerApp::draw(uint32_t now) {
         discardPending(100, 299);
         discardPending(1100, 1101);
         discardPending(2000,2041);
-        tileSig_.fill(~0ull);picturePage_=-1;
+        discardPending(420,428);
+        std::fill(rects_.begin()+420,rects_.end(),~0ull);
+        tileSig_.fill(~0ull);picturePage_=-1;pictureSig_=~0ull;
         discardPending(361, 361);
         std::fill(rects_.begin() + 100, rects_.begin() + 300, ~0ull);
         cells_[100].known = cells_[101].known = false;
@@ -1001,7 +1003,7 @@ void SamplerApp::draw(uint32_t now) {
     const char* hint = mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_LEN ? "K1 X2 OR /2  SEL AGAIN FOR TEMPO" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_TEMPO ? "K1 BARS  K2 BPM  K3 MODE" : page_ == P_KEY ? "KEYS FOLLOW THE KEY  CHANGE ANY TIME"
                      : page_ == P_ECHO ? "HOME AGAIN: GRAIN" : page_ == P_HOME && algo() == 4 ? "HOME AGAIN: ECHOFIELD  K3 MODE K4 POS" : page_ == P_EFILTER ? "FILTER MIX ON SEQ: EF MIX" : page_ == P_ETAPE ? "SEQ AGAIN  ENABLE TAPE ON EF MIX" : page_ == P_EMIX || page_ == P_SEQ ? "SEQ AGAIN: NEXT TAPE/MIX PAGE" : page_ == P_GRAIN || page_ == P_MOTION ? "HOME AGAIN: NEXT GRANULAR PAGE" : fxPage(page_) ? "FX AGAIN: NEXT EFFECT PAGE" : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
     drawText(90, 12, 228, 1, DIM, BLACK, hint, 38);
-    if(!waveform)picture(now);
+    if(!waveform)picture(now,k);
     needClear_ = false;
 }
 
@@ -1031,20 +1033,33 @@ void SamplerApp::menuMarkers() {
     }
 }
 
-void SamplerApp::picture(uint32_t now) {
-    // Coalesce changes while the USB display catches up. Static tiles
-    // are never resent merely because a frame was drawn on the phone.
-    const bool turning=touchedKnob_>=0&&now-touchedAt_<100;
-    if(!needClear_&&picturePage_==page_&&now-pictureAt_<(turning?180u:100u))return;
-    pictureAt_=now;picturePage_=page_;
+void SamplerApp::picture(uint32_t now,const Knobs& k) {
+    // Direct cached rectangles provide a responsive indication for
+    // every control, even while the lower-priority emblem catches up.
+    rect(428,12,89,216,11,WELL);
+    for(int i=0;i<4;++i){
+        const int x=12+i*54,fill=std::clamp(int(std::lround(cl(k[i].norm)*49)),0,49);
+        const uint16_t c=rgb565(theme::encoderTrace(i));
+        rect(420+2*i,x,93,std::max(1,fill),5,k[i].valid&&fill?c:WELL);
+        rect(421+2*i,x+std::max(1,fill),93,50-std::max(1,fill),5,k[i].valid?BAR:WELL);
+    }
+    uint64_t sig=1469598103934665603ull;
+    auto add=[&](uint64_t v){sig=(sig^v)*1099511628211ull;};
+    add(page_);add(track_);
+    for(const auto& knob:k){add(std::lround(cl(knob.norm)*24));add(knob.valid);}
+    if(page_==P_KEY)add(chordGhostMask());
+    if(page_==P_MIX){add(std::lround(cl(st_.scLevel[track_])*12));add(std::lround(cl(st_.scGain[track_])*12));}
+    if(page_==P_SAVE)add(std::lround(cl(st_.inputPeak*2)*24));
+    if(page_==P_LEN||page_==P_TEMPO){add(st_.loopBars);add(st_.loopSamples>0);add(std::lround(cl(st_.clipPos[track_])*32));}
+    if(!needClear_&&picturePage_==page_&&(pictureSig_==sig||now-pictureAt_<80))return;
+    pictureAt_=now;picturePage_=page_;pictureSig_=sig;
     if(!graphic_)graphic_=std::make_unique<SamplerUI>(*this,false);
-    const auto& ops=graphic_->surfaceGraphic(now);
-    surfaceArt::Raster plot(ops);
+    surfaceArt::Raster plot(graphic_->surfaceGraphic(now));
     const auto pal=surfaceArt::palette();
     int idx=0;
-    for(int y=0;y<46;y+=7)for(int x=0;x<216;x+=36,++idx) {
-        const int w=36,h=std::min(7,46-y);
-        std::array<uint8_t,252> pix{};
+    for(int y=0;y<35;y+=5)for(int x=0;x<216;x+=54,++idx){
+        constexpr int w=54,h=5;
+        std::array<uint8_t,w*h> pix{};
         int n=0;uint64_t hash=1469598103934665603ull;
         for(int j=0;j<h;++j)for(int i=0;i<w;++i){
             const auto c=surfaceArt::nearest(plot.pixel(x+i,y+j),pal);
@@ -1060,7 +1075,7 @@ void SamplerApp::picture(uint32_t now) {
             if(run>=8)p.push_back(uint8_t(run-8));
             i+=run;
         }
-        // 252 worst-case tokens + header < firmware's 300-byte frame.
+        // At most 270 tokens + 16 bytes of framing, below 300.
         sysex(9,p,false,2000+idx);
     }
 }

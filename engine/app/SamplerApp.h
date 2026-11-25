@@ -157,7 +157,7 @@ private:
     void heal();
     void discardPending(int firstKey, int lastKey);
     void hero(uint32_t now, const Knobs& k);
-    void picture(uint32_t now);
+    void picture(uint32_t now, const Knobs& k);
     void menuMarkers();
     // ---- input ----
     void button(int b, bool down);
@@ -220,7 +220,8 @@ private:
     int lastLight_ = -1, lastHeroLayout_ = -1;
     std::array<uint32_t, 100> heroSig_{};
     std::unique_ptr<SamplerUI> graphic_;
-    std::array<uint64_t,42> tileSig_{};
+    std::array<uint64_t,28> tileSig_{};
+    uint64_t pictureSig_=~0ull;
     uint32_t pictureAt_=0;
     int picturePage_=-1;
     std::vector<SurfaceCell> cells_;

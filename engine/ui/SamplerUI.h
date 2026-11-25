@@ -11,7 +11,7 @@
 class SamplerUI {
 public:
     explicit SamplerUI(SamplerApp& app, bool loadTheme = true);
-    // The same page diagram, at twice the hardware plot resolution.
+    // Reduced FM-1 emblem, at twice the hardware plot resolution.
     const std::vector<UiOp>& surfaceGraphic(uint32_t nowMs);
     void setSize(float w, float h, float topInset, float bottomInset) { W_ = w; H_ = h; top_ = topInset; bottom_ = bottomInset; }
     void setLink(bool midi, bool usbAudio) { linkMidi_ = midi; linkAudio_ = usbAudio; }
