@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdio>
 #include <stdexcept>
+#include <string>
 
 static void require(bool ok,const char* msg){if(!ok)throw std::runtime_error(msg);}
 static int n14(const uint8_t* p){return p[0]*128+p[1];}
@@ -92,12 +93,21 @@ int main(){
             const auto parent=P::menuParent(app.page());
             if(parent!=P::P_HOME)require(blits>old,"page did not send pictographic tiles");
         }
-        app.gotoPage(P::P_EFILTER);run(3000);
-        const auto beforeDrive=plot;app.knobs()[3].set(.95f);run(3000);
-        require(plot!=beforeDrive,"drive does not change hardware picture");
-        app.gotoPage(P::P_EDELAY);run(3000);
-        const auto beforeTime=plot;app.knobs()[0].set(.99f);run(3000);
-        require(plot!=beforeTime,"delay time does not change hardware picture");
+        // Exercise each of the new FX parameters at the actual
+        // firmware palette resolution, including bypassed inserts.
+        const P::Page effects[]={P::P_EFILTER,P::P_EDELAY,P::P_EREVERB,P::P_ETAPE,P::P_EMIX};
+        for(auto page:effects){
+            app.gotoPage(page);run(3000);
+            for(int j=0;j<4;++j){
+                const auto k=app.knobs()[j];
+                const float saved=k.norm;
+                k.set(0);run(2000);
+                const auto low=plot;
+                app.knobs()[j].set(1);run(2000);
+                if(plot==low)throw std::runtime_error(std::string(P::pageName(page))+" / "+k.name+" does not change hardware picture");
+                app.knobs()[j].set(saved);run(1000);
+            }
+        }
         app.gotoPage(P::P_KEY);run(48);
         app.gotoPage(P::P_MIX);run(48);
         app.gotoPage(P::P_ECHO);run(3000);

@@ -677,7 +677,7 @@ void SamplerApp::encoder(int i, int delta) {
         const bool same=m.sign==sign&&m.track==track_&&m.page==page_&&elapsed<=120;
         // A burst of single detents ramps up gradually. Preserve
         // coalesced MIDI deltas, and never accelerate enum/action knobs.
-        m.streak=same?std::min(12,m.streak+1):0;
+        m.streak=same&&elapsed<=65?std::min(12,m.streak+1):0;
         m.at=nowMs_;m.sign=sign;m.track=track_;m.page=page_;
         if(!k[idx].isChoice&&std::abs(delta)<=4&&same&&elapsed<=65) {
             const int multiplier=m.streak>=6?5:m.streak>=3?3:m.streak>=1?2:1;
@@ -761,7 +761,14 @@ void SamplerApp::sysex(int cmd, const std::vector<uint8_t>& p, bool urgent, int 
     if (cmd == 2) { pending_.clear(); pendingBytes_ = 0; }
     if (key >= 0) for (auto& f : pending_) if (f.key == key) { pendingBytes_ += m.size() - f.bytes.size(); f.bytes = std::move(m); return; }
     pendingBytes_ += m.size();
-    if (urgent) pending_.push_front({key, std::move(m)}); else pending_.push_back({key, std::move(m)});
+    if (urgent) pending_.push_front({key, std::move(m)});
+    else if(cmd==9) pending_.push_back({key,std::move(m)});
+    else {
+        // Keep labels, values and menu markers ahead of outstanding
+        // graphic tiles without disturbing their own relative order.
+        auto pos=std::find_if(pending_.begin(),pending_.end(),[](const Frame& f){return f.key>=2000&&f.key<=2041;});
+        pending_.insert(pos,{key,std::move(m)});
+    }
 }
 void SamplerApp::clear(uint16_t c) { sysex(2, col(c)); }
 void SamplerApp::discardPending(int firstKey, int lastKey) {
