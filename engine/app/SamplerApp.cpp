@@ -578,6 +578,18 @@ std::string SamplerApp::loopText() const {
     if (!loopAny_) return "LOOP EMPTY";
     return fmt("LOOP %.0fBPM ", st_.bpm) + std::to_string(st_.loopBars) + (st_.loopBars == 1 ? " BAR" : " BARS");
 }
+uint16_t SamplerApp::chordGhostMask() const {
+    if (!scale_.mode || scale_.scale>=7 || ts_[track_].algo==3) return 0;
+    uint16_t mask=0; bool held=false;
+    for(int raw=0;raw<128;++raw){
+        held|=keyCount_[raw]>0;
+        if(keyCount_[raw]>1)for(int j=0;j<keyCount_[raw];++j)
+            mask|=uint16_t(1u<<((keyNotes_[raw][j]%12+12)%12));
+    }
+    // In the absence of a held key, preview the tonic triad.
+    if(!held)for(int degree:{0,2,4})mask|=uint16_t(1u<<((degreeNote(degree,scale_.scale,scale_.root)%12+12)%12));
+    return mask;
+}
 void SamplerApp::keyEvent(int raw, bool down) {   // a key of the FM-1 (chromatic note 53+key): octave shift, chords in CHORD mode
     if (raw < 0 || raw > 127) return;
     if (down) {

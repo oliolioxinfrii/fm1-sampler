@@ -137,6 +137,7 @@ public:
     static const char* scaleName(int i);
     static bool inScale(int scale, int pitchClass);   // pitch class relative to the root: does it belong to the scale (OFF: only the root)
     static const char* noteName(int r);
+    uint16_t chordGhostMask() const;
     void playNote(int note, bool down);
     void keyEvent(int rawNote, bool down);        // FM-1 key: chromatic note from the firmware
     bool linkSeen() const { return linkSeen_; }

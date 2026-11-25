@@ -299,152 +299,232 @@ void SamplerUI::pageView(Rect r) {
         line(x+ww+depth,y-depth,x+ww,y,c);line(x+ww+depth,y-depth,x+ww+depth,y+hh-depth,c);
         line(x+ww+depth,y+hh-depth,x+ww,y+hh,c);
     };
-    auto delayDiagram = [&](float left,float width,float time,float feedback,float send,bool ping) {
-        const float rx=std::min(11.f,width*.055f), ry=rx*1.45f;
-        const float first=left+rx+3, spacing=std::max(5.f,(width-2*rx-9)*(.035f+.165f*time));
-        const float y=cy-2;
-        line(first,y+ry+5,left+width-3,y+ry+5,GRID,1);
-        float lastX=first,lastY=y;
-        for(int j=0;j<48;++j){
-            const float x=first+j*spacing;
-            if(x+rx+3>left+width-2)break;
-            const float decay=std::pow(std::max(.025f,feedback),float(std::max(0,j-1)));
-            const float strength=j==0?1.f:send*decay;
-            const float scale=j==0?1.f:.24f+.76f*std::sqrt(decay)*(.48f+.52f*send);
-            const float yy=y+(ping&&j?(j%2?1:-1)*w.h*.15f:0);
-            const uint32_t c=j==0?TRACE_AMBER:send>.001f?signal:WELL_DIM;
-            if(j)line(lastX,lastY,x,yy,withAlpha(c,int(70+150*strength)),1.3f+strength);
-            ring(x+3,yy-3,rx*scale,ry*scale,GRID,1.2f);
-            line(x,yy-ry*scale,x+3,yy-ry*scale-3,GRID,1.2f);
-            ring(x,yy,rx*scale,ry*scale,c,1.f+2.2f*strength);
-            lastX=x;lastY=yy;
+    const uint32_t metal=theme::light?0xff485362:0xff39304c;
+    const uint32_t lip=theme::light?0xff8b9295:0xff807194;
+    const uint32_t oxide=theme::light?0xff605245:0xff574050;
+    // Separate the secondary meters from the illustrated mechanism.
+    auto meter=[&](float x,float y,float width,float value,uint32_t color,const char* label) {
+        if(width<10)return;
+        const float labelW=std::min(43.f,width*.28f);
+        text(x,y+3,8,WELL_DIM,label,0,true);
+        const float bx=x+labelW,bw=width-labelW;
+        rrect({bx,y-1,bw,8},0,WELL);
+        stroke({bx,y-1,bw,8},0,lip,.8f);
+        const int n=std::max(3,int(bw/7));
+        const float pitch=(bw-4)/n;
+        for(int i=0;i<n;++i) {
+            const float fill=clamp01(value*n-i);
+            rrect({bx+2+i*pitch,y+1,std::max(.7f,pitch-1),4},0,GRID);
+            if(fill>0)rrect({bx+2+i*pitch,y+1,std::max(.7f,(pitch-1)*fill),4},0,color);
         }
-        // Send meter retains a visible distinction at zero.
-        rrect({left+2,w.y+w.h-5,width-4,3},0,GRID);
-        if(send>0)rrect({left+2,w.y+w.h-5,(width-4)*send,3},0,TRACE_GREEN);
     };
-    auto roomDiagram = [&](float left,float width,float send,float size,float damp,float shimmer) {
-        const float s=(.46f+.54f*size)*std::min(w.h*.60f,width*.55f),d=s*.42f;
-        const float fx=left+width*.5f-(s+d)/2,fy=cy-(s+d)/2+d;
-        const float v[8][2]={{fx,fy},{fx+s,fy},{fx+s,fy+s},{fx,fy+s},{fx+d,fy-d},{fx+s+d,fy-d},{fx+s+d,fy+s-d},{fx+d,fy+s-d}};
-        const float sx=fx+(s+d)/2,sy=fy+(s-d)/2;
-        auto edge=[&](int a,int b,uint32_t c,float thick=1.5f){line(v[a][0],v[a][1],v[b][0],v[b][1],c,thick);};
-        edge(7,4,GRID);edge(7,6,GRID);edge(3,7,GRID);
-        for(int i=0;i<8;++i) {
-            const float q=1.f-.72f*damp;
-            const float vx=sx+(v[i][0]-sx)*(.2f+.8f*q),vy=sy+(v[i][1]-sy)*(.2f+.8f*q);
-            line(sx,sy,vx,vy,send>.001f?TRACE_BLUE:WELL_DIM,.7f+2*send);
-            if(damp>.04f)circle(vx,vy,1+2*damp,send>.001f?TRACE_GREEN:WELL_DIM);
+    auto arc=[&](float x,float y,float rad,float from,float to,uint32_t c,float thickness) {
+        std::vector<std::pair<float,float>> p;
+        const int n=std::max(4,int(std::abs(to-from)*rad/5));
+        for(int i=0;i<=n;++i){const float a=from+(to-from)*i/n;p.push_back({x+rad*std::cos(a),y+rad*std::sin(a)});}
+        poly(p,c,thickness);
+    };
+    auto burst=[&](float x,float y,float rad,float angle,int count,float length,uint32_t c){
+        for(int i=0;i<count;++i){
+            const float a=angle+(i-(count-1)*.5f)*.32f;
+            line(x+rad*std::cos(a),y+rad*std::sin(a),x+(rad+length)*std::cos(a),y+(rad+length)*std::sin(a),c,2.2f);
         }
-        edge(0,1,signal,2);edge(1,2,signal,2);edge(2,3,signal,2);edge(3,0,signal,2);
-        edge(4,5,signal);edge(5,6,signal);edge(0,4,signal);edge(1,5,signal);edge(2,6,signal);
-        circle(sx,sy,2+3*send,TRACE_AMBER);
-        if(shimmer>0)for(int i=0;i<3;++i){
-            const float f=float(i+1)/3;
-            const float xx=sx+(s*.7f)*f,yy=sy-(s*.65f)*f;
-            ring(xx,yy,2+6*shimmer*f,1+3*shimmer*f,TRACE_AMBER,1+shimmer);
+    };
+    auto sparkle=[&](float x,float y,float r,uint32_t c){
+        tri(x-r,y,x,y-r*.32f,x+r,y,c);tri(x-r,y,x,y+r*.32f,x+r,y,c);
+        tri(x,y-r,x-r*.32f,y,x,y+r,c);tri(x,y-r,x+r*.32f,y,x,y+r,c);
+    };
+    auto cabinet=[&](float x,float y,float ww,float hh){
+        rrect({x+2,y+2,ww,hh},2,SHADOW);
+        rrect({x,y,ww,hh},2,metal);stroke({x,y,ww,hh},2,lip,1.2f);
+        const float cx=x+ww/2, rr=std::min(ww*.34f,hh*.22f);
+        circle(cx,y+hh*.25f,rr*.57f,lip);circle(cx,y+hh*.25f,rr*.35f,WELL_TEXT);
+        circle(cx,y+hh*.68f,rr+1,lip);circle(cx,y+hh*.68f,rr,WELL);circle(cx,y+hh*.68f,rr*.72f,metal);
+        circle(cx,y+hh*.68f,rr*.25f,DRIVE_TRACE);
+    };
+    auto delayDiagram=[&](float left,float width,float time,float feedback,float send,bool ping,bool full){
+        const float bottom=w.y+w.h-15,top=w.y+4,hh=bottom-top;
+        const float spw=std::min(width*.13f,hh*.32f), sph=std::min(hh*.7f,spw*1.8f);
+        const float sx=left+4,sy=top+(hh-sph)/2;
+        cabinet(sx,sy,spw,sph);
+        const float origin=sx+spw+5,y=top+hh*.5f;
+        const float available=std::max(10.f,left+width-origin-5);
+        const float pitch=std::max(9.f,available*(.035f+.22f*time));
+        const float r0=std::min({hh*.27f,pitch*.36f,17.f});
+        for(int k=0;k<2;++k)arc(origin-2,y,4+k*4,-.7f,.7f,DRIVE_TRACE,1.6f);
+        for(int j=0;j<32;++j){
+            const float x=origin+pitch*(j+.6f);
+            if(x+r0+4>left+width)break;
+            const float level=std::pow(std::max(.025f,feedback),float(j));
+            const float rr=std::max(2.f,r0*(.25f+.75f*std::sqrt(level)));
+            const float yy=y+(ping?(j%2?1:-1)*hh*.19f:0);
+            const uint32_t c=ping&&j%2?TRACE_BLUE:TRACE_VIOLET;
+            const uint32_t face=withAlpha(c,int(65+190*std::sqrt(level)*(.35f+.65f*send)));
+            // One solid pulse disc, with a narrow metallic flange. No
+            // offset outline or connecting trace behind the pulses.
+            circle(x+1.5f,yy,rr,lip);circle(x,yy,rr,metal);
+            circle(x,yy,std::max(1.f,rr-1.6f),face);
+            circle(x,yy,std::max(1.f,rr*.18f),WELL_TEXT);
+            if(rr>=5)burst(x,yy,rr+2,-kPi/2,3,std::min(5.f,rr*.38f),j==0?DRIVE_TRACE:c);
         }
-        rrect({left+3,w.y+w.h-5,width-6,3},0,GRID);
-        if(send>0)rrect({left+3,w.y+w.h-5,(width-6)*send,3},0,TRACE_GREEN);
+        meter(left+4,bottom+5,width-8,send,TRACE_GREEN,"SEND");
+        if(full)meter(left+4,top+3,std::min(width*.45f,138.f),feedback,TRACE_VIOLET,"FB");
+    };
+    auto roomDiagram=[&](float left,float width,float send,float size,float damp,float shimmer,bool full){
+        const float x=left+4,y=w.y+4,ww=width-8,hh=w.h-21;
+        if(ww<20||hh<16)return;
+        const float wall=std::min(7.f,hh*.12f);
+        rrect({x,y,ww,hh},1,metal);stroke({x,y,ww,hh},1,lip,1.4f);
+        rrect({x+wall,y+wall,ww-2*wall,hh-2*wall},0,WELL);
+        stroke({x+wall,y+wall,ww-2*wall,hh-2*wall},0,lip,.8f);
+        // Fixed rectangular room with acoustic panels. Size is the
+        // reach of the sound bands, not a change of aspect ratio.
+        for(int j=0;j<5;++j){
+            const float bx=x+ww*(.21f+j*.14f);
+            rrect({bx,y+2,ww*.085f,std::max(2.f,wall-3)},0,GRID);
+            rrect({bx,y+hh-wall+1,ww*.085f,std::max(2.f,wall-3)},0,GRID);
+        }
+        const float sw=std::min(ww*.16f,hh*.27f),sh=std::min(hh*.58f,sw*1.85f);
+        const float sx=x+wall+3,sy=y+(hh-sh)*.5f, ox=sx+sw+2,oy=y+hh*.5f;
+        cabinet(sx,sy,sw,sh);
+        const float span=std::max(5.f,x+ww-wall-ox-7);
+        const float maxR=std::min(span*.85f,hh*1.10f)*(.24f+.76f*size);
+        for(int j=0;j<4;++j){
+            const float rad=std::max(2.f,maxR*(.25f+.24f*j));
+            const float fade=(1.f-.85f*damp)*(.96f-.15f*j);
+            const float angle=std::min(.85f,std::asin(std::min(.94f,(hh*.5f-wall-3)/rad)));
+            const auto c=j==0?DRIVE_TRACE:withAlpha(TRACE_VIOLET,int(60+195*fade*(.35f+.65f*send)));
+            arc(ox,oy,rad,-angle,angle,c,1.6f+1.4f*fade);
+        }
+        if(shimmer>.001f)for(int i=0;i<7;++i){
+            const float q=(i+1)/7.f;
+            if(q>shimmer+.12f)break;
+            const float xx=ox+span*(.46f+.48f*std::fmod(i*.618f,1.f));
+            const float yy=y+wall+5+(hh-2*wall-10)*std::fmod(i*.381f+.18f,1.f);
+            sparkle(xx,yy,2.f+3.f*shimmer*(1-q*.45f),i%2?TRACE_VIOLET:DRIVE_TRACE);
+        }
+        const float my=y+hh+6;
+        meter(left+4,my,full?width*.54f-8:width-8,send,TRACE_GREEN,"SEND");
+        if(full)meter(left+width*.56f,my,width*.44f-4,damp,TRACE_BLUE,"DAMP");
+    };
+    auto tapeDiagram=[&](bool echo){
+        const float hh=w.h-12,ww=w.w,mid=w.y+hh*.49f;
+        const float a=kn[0].norm,b=kn[1].norm,c=kn[2].norm,d=kn[3].norm;
+        const float maxR=std::min(hh*.37f,ww*.135f);
+        const float r1=maxR*(.68f+.32f*(echo?a:b)),r2=maxR*(.46f+.42f*(echo?b:c));
+        const float capR=std::max(3.f,maxR*.17f);
+        struct Post{float x,y,r;};
+        const Post p[3]={{w.x+ww*.20f,mid-1,r1},{w.x+ww*.80f,mid+2,r2},
+            {w.x+ww*(.44f+.12f*(echo?c:d)),w.y+hh*.84f,capR}};
+        // Common external tangents and circular arcs for a closed tape
+        // belt. The radii/roller position are symbolic controls only.
+        float nx[3],ny[3];
+        for(int i=0;i<3;++i){
+            const auto& q=p[(i+1)%3];const auto& z=p[i];
+            const float dx=q.x-z.x,dy=q.y-z.y,dist=std::hypot(dx,dy);
+            const float k=std::clamp((z.r-q.r)/std::max(1.f,dist),-.98f,.98f),v=std::sqrt(1-k*k);
+            nx[i]=(dx*k+dy*v)/dist;ny[i]=(dy*k-dx*v)/dist;
+        }
+        std::vector<std::pair<float,float>> belt;
+        for(int i=0;i<3;++i){
+            const auto& z=p[i];const int prev=(i+2)%3;
+            float from=std::atan2(ny[prev],nx[prev]),to=std::atan2(ny[i],nx[i]);
+            while(to<from)to+=2*kPi;
+            for(int j=0;j<=12;++j){const float angle=from+(to-from)*j/12;
+                belt.push_back({z.x+z.r*std::cos(angle),z.y+z.r*std::sin(angle)});}
+        }
+        belt.push_back(belt.front());
+        if(!echo&&b>.001f)poly(belt,withAlpha(DRIVE_TRACE,int(35+95*b)),4.f+7*b);
+        poly(belt,oxide,4.4f);poly(belt,!echo&&b>.001f?DRIVE_TRACE:TRACE_AMBER,1.6f+(!echo?b:0));
+        // Derive rotation from transport position, not elapsed UI time.
+        const float ph=loopPos()*2*kPi*(echo?2.f:1.f+3.f*a);
+        reel(p[0].x,p[0].y,r1,ph);
+        reel(p[1].x,p[1].y,r2,-ph*r1/std::max(1.f,r2));
+        circle(p[2].x,p[2].y,capR,lip);circle(p[2].x,p[2].y,capR*.76f,metal);circle(p[2].x,p[2].y,capR*.38f,TRACE_GREEN);
+        const float hx=(p[0].x+p[1].x)*.5f,hy=(p[0].y+p[1].y)*.5f-(r1+r2)*.5f;
+        const float hw=std::min(24.f,ww*.10f), ht=std::min(24.f,hh*.32f);
+        rrect({hx-hw/2,hy-ht*.25f,hw,ht},1,metal);
+        stroke({hx-hw/2,hy-ht*.25f,hw,ht},1,lip,1.2f);
+        rrect({hx-2,hy-ht*.17f,4,ht*.82f},0,!echo&&b>.001f?DRIVE_TRACE:WELL_DIM);
+        for(float dx:{-hw*.32f,hw*.32f})for(float dy:{-.13f,.62f})circle(hx+dx,hy+ht*dy,1.2f,lip);
+        // Energy marks are outside the tape belt, not distortions of it.
+        const float motion=echo?a:a*.65f+.35f*d;
+        if(motion>.001f)for(int j=0;j<2;++j)arc(p[0].x,p[0].y,r1+3+j*4,2.9f,3.1f+.9f*motion,TRACE_BLUE,1.5f+motion);
+        const float accent=echo?b:c;
+        if(accent>.001f)burst(p[1].x,p[1].y,r2+3,-.85f,2+int(4*accent),3+6*accent,TRACE_VIOLET);
+        if(d>.001f) {
+            if(!echo){for(int j=0;j<2;++j)arc(p[2].x,p[2].y,capR+3+j*3,-2.65f,-.5f,TRACE_GREEN,1.2f+d);}
+            else for(int j=0;j<int(36*d);++j){
+                const float xx=w.x+ww*(.34f+.32f*std::fmod(j*.618f,1.f)),yy=w.y+hh*(.28f+.28f*std::fmod(j*.381f,1.f));
+                circle(xx,yy,1.f,TRACE_PINK);
+            }
+        }
+        if(echo&&c>.001f)for(int j=0;j<int(12*c);++j){
+            const float angle=j*2.39f;const float rr=r1*(.78f+.07f*std::fmod(j*.37f,1.f));
+            line(p[0].x+rr*std::cos(angle),p[0].y+rr*std::sin(angle),p[0].x+(rr+2)*std::cos(angle+.08f),p[0].y+(rr+2)*std::sin(angle+.08f),TRACE_AMBER,1);
+        }
+        const float my=w.y+w.h-6;
+        meter(w.x+3,my,ww*.48f-5,echo?c:b,echo?TRACE_AMBER:DRIVE_TRACE,echo?"AGE":"DRIVE");
+        meter(w.x+ww*.51f,my,ww*.49f-3,echo?d:c,echo?TRACE_PINK:TRACE_VIOLET,echo?"HISS":"LO-FI");
     };
     std::string head;
     switch (pg) {
     case P::P_EFILTER: {
-        head = ts.echoInsert.filterMix > 0.001f ? "ECHOFIELD FILTER" : "FILTER / BYPASSED";
-        
-        const float cutoff=kn[1].norm,resonance=kn[2].norm,drive=kn[3].norm;
-        std::vector<std::pair<float,float>> pts,back;
-        for(int i=0;i<=80;++i) {
-            const float f=float(i)/80,delta=(f-cutoff)*16,low=1/(1+std::exp(delta));
-            const float band=std::exp(-delta*delta*.14f);
+        head=ts.echoInsert.filterMix>.001f?"ECHOFIELD FILTER":"FILTER / BYPASSED";
+        const float cutoff=kn[1].norm,res=kn[2].norm,drive=kn[3].norm;
+        const float x0=w.x+7,x1=w.x+w.w-7,y0=w.y+5,y1=w.y+w.h-18;
+        rrect({x0,y0,x1-x0,y1-y0},1,metal);stroke({x0,y0,x1-x0,y1-y0},1,lip,1.2f);
+        rrect({x0+4,y0+4,x1-x0-8,y1-y0-8},0,WELL);
+        std::vector<std::pair<float,float>> pts,driven;
+        for(int i=0;i<=64;++i){
+            const float f=i/64.f,delta=(f-cutoff)*16,low=1/(1+std::exp(delta)),band=std::exp(-delta*delta*.14f);
             float v=ts.echoInsert.filter==0?low:ts.echoInsert.filter==1?band:1-low;
-            v=clamp01(v+resonance*.35f*band);
-            const float x=w.x+6+f*(w.w-15);
-            const float y=w.y+w.h-8-v*(w.h-19);
-            const float driven=clamp01(v+drive*.16f*std::sin(i*1.65f)+drive*.12f*v*(1-v));
-            pts.push_back({x,y});back.push_back({x,w.y+w.h-8-driven*(w.h-19)});
+            v=clamp01(v+.35f*res*band);
+            const float x=x0+7+f*(x1-x0-14),y=y1-7-v*(y1-y0-14);
+            pts.push_back({x,y});driven.push_back({x,y1-7-clamp01(v+drive*.10f*std::sin(i*1.65f))*(y1-y0-14)});
+            if(i%8==0)line(x,y0+5,x,y1-5,GRID,.8f);
         }
-        poly(pts,ts.echoInsert.filterMix>.001f?signal:WELL_DIM,2.2f);
-        if(drive>.001f)poly(back,DRIVE_TRACE,1.2f+1.8f*drive);
+        poly(pts,signal,2.5f);
+        if(drive>.001f)poly(driven,DRIVE_TRACE,1.5f+drive);
+        meter(w.x+4,w.y+w.h-6,w.w-8,drive,DRIVE_TRACE,"DRIVE");
         break; }
-    case P::P_EDELAY: {
+    case P::P_EDELAY:
         head="ECHOFIELD DELAY";
-        delayDiagram(w.x,w.w,kn[0].norm,kn[1].norm,kn[2].norm,kn[3].norm>.5f);
-        break; }
-    case P::P_EREVERB: {
+        delayDiagram(w.x,w.w,kn[0].norm,std::min(.92f,kn[1].norm),kn[2].norm,kn[3].norm>.5f,true);
+        break;
+    case P::P_EREVERB:
         head="ECHOFIELD FDN + SHIMMER";
-        roomDiagram(w.x,w.w,kn[0].norm,kn[1].norm,kn[2].norm,kn[3].norm);
-        // Eight delay lines: their decay traces shorten with damping.
-        const float side=w.w*.20f;
-        for(int j=0;j<8;++j){
-            const float x=w.x+5+(j+.5f)*side/8, h=(w.h-18)*(.2f+.8f*kn[0].norm)*(1-.75f*kn[2].norm)*(j+5)/12.f;
-            vbar(x,base-5-h,base-5,TRACE_VIOLET,2);
-        }
-        break; }
-    case P::P_ETAPE: {
+        roomDiagram(w.x,w.w,kn[0].norm,kn[1].norm,kn[2].norm,kn[3].norm,true);
+        break;
+    case P::P_ETAPE:
         head=ts.echoInsert.tape>.001f?"ECHOFIELD TAPE":"TAPE / BYPASSED";
-        
-        const float wow=kn[0].norm,flutter=kn[1].norm,age=kn[2].norm,hiss=kn[3].norm;
-        std::vector<std::pair<float,float>> pts,back;
-        for(int i=0;i<=120;++i){
-            const float f=float(i)/120;
-            const float dropout=1-age*.82f*std::pow(std::max(0.f,std::sin(f*19.2f)),14.f);
-            const float v=(.3f*std::sin(f*6*kPi+.9f*wow*std::sin(f*2*kPi))+
-                           .23f*wow*std::sin(f*2*kPi)+.13f*flutter*std::sin(f*32*kPi))*dropout;
-            const float x=w.x+4+f*(w.w-14),y=cy-v*(w.h-18);
-            const float noise=std::sin(i*13.713f)*std::cos(i*6.31f)*hiss*(w.h*.18f);
-            pts.push_back({x,y+noise});back.push_back({x+6,y-6});
-            if(i%8==0)line(x,y,x+6,y-6,GRID,1);
-            if(age>.001f&&dropout<1-age*.25f)line(x,base-3,x,base-3-age*9,TRACE_AMBER,1.4f);
-            if(hiss>.001f&&i%2==0)line(x,y-noise,x,y+noise,TRACE_BLUE,1);
-        }
-        poly(back,GRID,1.2f);
-        poly(pts,ts.echoInsert.tape>.001f?signal:WELL_DIM,1.7f);
-        break; }
+        tapeDiagram(true);break;
     case P::P_EMIX: {
         head="ECHOFIELD INSERT MIX";
-        // Stereo aperture, gain tower, and the two wet/dry paths.
-        const float x=w.x+w.w*.15f;
-        const float sx=(.035f+.09f*kn[0].norm)*w.w;
-        const float sy=cy+8;
-        line(x,sy+15,x-sx,sy-13,TRACE_BLUE,1.8f);
-        line(x,sy+15,x+sx,sy-13,TRACE_BLUE,1.8f);
-        ring(x-sx,sy-13,5,8,TRACE_BLUE,1.4f);ring(x+sx,sy-13,5,8,TRACE_BLUE,1.4f);
-        circle(x,sy+15,3,TRACE_BLUE);
-        const float hh=(w.h-20)*kn[1].norm;
-        prism(w.x+w.w*.36f,base-6-hh,w.w*.10f,hh,5,TRACE_GREEN);
-        // Recognizable tape and filter icons over paired dry/wet
-        // meters: dim is dry, colored is processed.
-        for(int j=2;j<4;++j){
-            const float left=w.x+w.w*(j==2?.53f:.77f),ww=w.w*.20f;
-            const float mx=left+ww/2,yy=cy-9,mix=kn[j].norm;
-            const uint32_t col=encoderTrace(j);
-            if(j==2){
-                const float rr=std::min(9.f,ww*.19f);
-                const float cx1=mx-rr*1.3f,cx2=mx+rr*1.3f;
-                for(float cx:{cx1,cx2}){
-                    ring(cx,yy,rr,rr,col,1.8f);
-                    circle(cx,yy,rr*.27f,col);
-                    for(int k=0;k<3;++k){float a=k*2*kPi/3;line(cx+rr*.42f*std::cos(a),yy+rr*.42f*std::sin(a),cx+rr*.76f*std::cos(a),yy+rr*.76f*std::sin(a),col,1.4f);}
-                }
-                line(cx1,yy+rr,cx2,yy+rr,col,1.6f);
-            }else{
-                std::vector<std::pair<float,float>> curve;
-                for(int k=0;k<=32;++k){float p=k/32.f;curve.push_back({left+3+p*(ww-6),yy-10+20/(1+std::exp(-16*(p-.56f)))});}
-                poly(curve,col,2.4f);
-            }
-            const float barY=cy+14,barW=ww-6;
-            rrect({left+3,barY,barW,9},0,WELL_DIM);
-            if(mix>0)rrect({left+3,barY,barW*mix,9},0,col);
-            stroke({left+3,barY,barW,9},0,col,1);
-            text(mx,barY+17,8,WELL_TEXT,num("%.0f%%",mix*100),1,true);
+        const float x=w.x,ww=w.w,y=w.y+7,h=w.h-25,mid=y+h*.5f;
+        const float mw=ww*.29f,x1=x+ww*.09f,x2=x+ww*.44f;
+        line(x+3,mid,x+ww*.82f,mid,lip,2.2f);
+        for(int j=0;j<2;++j){
+            const float xx=j?x2:x1;const uint32_t c=j?TRACE_AMBER:TRACE_VIOLET;
+            rrect({xx,y,mw,h},2,metal);stroke({xx,y,mw,h},2,lip,1.2f);
+            for(float dx:{3.f,mw-3})for(float dy:{3.f,h-3})circle(xx+dx,y+dy,1.2f,lip);
+            circle(xx,mid,3,lip);circle(xx,mid,1.5f,WELL);
+            circle(xx+mw,mid,3,lip);circle(xx+mw,mid,1.5f,c);
+            text(xx+mw*.5f,y+h*.20f,9,c,j?"02 / FILTER":"01 / TAPE",1,true);
+            meter(xx+5,y+h*.55f,mw-10,kn[j+2].norm,c,"MIX");
+            text(xx+mw*.5f,y+h*.81f,9,WELL_TEXT,kn[j+2].value,1,true);
         }
+        const float ox=x+ww*.82f,ex=x+ww*.95f,sep=std::min(h*.4f,4+kn[0].norm*h*.34f);
+        line(ox,mid,ox+4,mid,TRACE_BLUE,2);line(ox+4,mid-sep,ox+4,mid+sep,TRACE_BLUE,2);
+        for(float yy:{mid-sep,mid+sep}){line(ox+4,yy,ex,yy,TRACE_BLUE,2);circle(ex,yy,4,lip);circle(ex,yy,2.6f,TRACE_BLUE);}
+        meter(x+5,w.y+w.h-6,ww*.75f,kn[1].norm,TRACE_GREEN,"LEVEL");
+        text(ex,w.y+w.h-6,8,TRACE_BLUE,kn[0].value,1,true);
         break; }
-    case P::P_FX: {
+    case P::P_FX:
         head="REVERB + DELAY";
-        roomDiagram(w.x,w.w*.46f,kn[0].norm,kn[1].norm,0,0);
-        delayDiagram(w.x+w.w*.49f,w.w*.51f,kn[3].norm,.78f,kn[2].norm,false);
-        break; }
+        roomDiagram(w.x,w.w*.48f,kn[0].norm,kn[1].norm,0,0,false);
+        delayDiagram(w.x+w.w*.51f,w.w*.49f,kn[3].norm,.78f,kn[2].norm,false,false);
+        break;
     case P::P_ENV: {   // the ADSR curve
         head = "ENVELOPE";
         const float sa = 0.08f + 0.5f * ts.a, sd = 0.08f + 0.5f * ts.d, ss = 0.3f, sr = 0.08f + 0.5f * ts.r, tot = sa + sd + ss + sr;
@@ -506,21 +586,8 @@ void SamplerUI::pageView(Rect r) {
             rrect({w.x+6+i*pitch,base-height,bw,height},0,c);
         }
         break; }
-    case P::P_SEQ: {   // the tape: a wave that wobbles (wobble), saturates (exciter), turns into stairs (lo-fi); the speed sets how many cycles fit
-        head = "TAPE";
-        const float cyc = 2.f + 6.f * kn[0].norm, g = 1.f + 4.f * kn[1].norm, lo = kn[2].norm, wob = kn[3].norm;
-        const float steps = std::max(24.f, 150.f - lo * 126.f), lev = std::max(3.f, 40.f - lo * 37.f), amp = w.h / 2 - 6;
-        std::vector<std::pair<float, float>> pts, driven; const int n = 150;
-        for (int i = 0; i <= n; i++) {
-            const float tt = std::floor((float)i / n * steps) / steps, ph = 2 * kPi * (cyc * tt + 0.12f * wob * std::sin(2 * kPi * 1.7f * tt));
-            const float x=w.x+4+i*(w.w-8)/n, dry=std::round(std::sin(ph)*lev)/lev;
-            float v=std::tanh(g*std::sin(ph))/std::tanh(g);v=std::round(v*lev)/lev;
-            pts.push_back({x,cy-dry*amp});driven.push_back({x,cy-v*amp});
-        }
-        
-        poly(pts,signal,2.3f);
-        if(kn[1].norm>.001f)poly(driven,DRIVE_TRACE,1.8f);
-        break; }
+    case P::P_SEQ:
+        head="TAPE";tapeDiagram(false);break;
     case P::P_MIX: {   // the last four seconds of the active channel: its level as a mirrored wave (dim = what it would be, ink = what is left after the sidechain),
                        // the level of the source as an envelope with the threshold line, orange where the source is over the threshold and the track is ducked
         const int src = ts.scSrc - 1; const bool sc = src >= 0 && src != t;
@@ -556,21 +623,28 @@ void SamplerUI::pageView(Rect r) {
         line(rx,yy-1,rx+ratioW*.45f,yy-11,TRACE_AMBER,1.2f);
         line(rx+ratioW*.45f,yy-11,rx+ratioW,yy-11-(1-ts.scRatio)*9,sc?TRACE_AMBER:WELL_DIM,1.2f);
         break; }
-    case P::P_KEY: {   // two octaves of semitones: the scale in ink, the root in orange, the rest dim
-        const auto sc = app_.scale();
-        head = std::string(P::noteName(sc.root)) + " " + P::scaleName(sc.scale);
-        const float pitch = w.w / 24, kh = std::min(44.f,w.h*.52f);
-        for (int i = 0; i < 24; i++) {
-            const int pc = i % 12;
-            const int actual=(pc-sc.root+12)%12;
-            const bool in=P::inScale(sc.scale,actual);
-            const float h=kh*(sc.mode&&in?1.12f:1.f);
-            prism(w.x+i*pitch+2,cy-h/2-4,std::max(2.f,pitch-5),h,2,actual==0?TRACE_AMBER:in?signal:GRID);
-            if (actual == 0) text(w.x+i*pitch+pitch/2,cy+kh/2+12,9,WELL_DIM,P::noteName(sc.root),1,true);
+    case P::P_KEY: {
+        const auto sc=app_.scale();
+        head=std::string(P::noteName(sc.root))+" "+P::scaleName(sc.scale)+(sc.mode?" / CHORD":" / KEY");
+        const uint16_t ghosts=app_.chordGhostMask();
+        const uint32_t chordColors[]={TRACE_BLUE,TRACE_GREEN,TRACE_GREEN,TRACE_VIOLET,TRACE_PINK,TRACE_VIOLET,TRACE_PINK,WELL_DIM};
+        const uint32_t chord=chordColors[std::clamp(sc.scale,0,7)];
+        const float pitch=(w.w-8)/12,kh=std::min(w.h*.51f,43.f),ky=cy-kh*.6f;
+        for(int i=0;i<12;++i){
+            const int rel=(i-sc.root+12)%12;
+            const bool legal=P::inScale(sc.scale,rel),ghost=ghosts&(1u<<i);
+            const uint32_t c=rel==0?DRIVE_TRACE:legal?chord:WELL_DIM;
+            const float x=w.x+4+i*pitch;
+            if(ghost){rrect({x-1,ky-5,pitch,kh+10},3,withAlpha(c,60));stroke({x-1,ky-5,pitch,kh+10},3,c,1);}
+            rrect({x+2,ky,pitch-4,kh},2,legal?withAlpha(c,185):metal);
+            stroke({x+2,ky,pitch-4,kh},2,legal?c:lip,1);
+            if(legal)rrect({x+4,ky+kh-5,std::max(1.f,pitch-8),3},0,c);
+            text(x+pitch/2,ky+kh+9,8,c,P::noteName(i),1,true);
         }
-        const float ox=w.x+4+(sc.octave+3)*(w.w-8)/6;
-        rrect({w.x+4,w.y+3,w.w-8,2},0,GRID);
-        circle(ox,w.y+4,3,TRACE_AMBER);
+        const float ox=w.x+6+(sc.octave+3)*(w.w-12)/6;
+        line(w.x+6,w.y+4,w.x+w.w-6,w.y+4,lip,1);
+        for(int i=0;i<7;++i)circle(w.x+6+i*(w.w-12)/6,w.y+4,1.5f,lip);
+        circle(ox,w.y+4,3,TRACE_BLUE);
         break; }
     case P::P_SAVE: {   // what a take records: the input level against the trigger line, the source in big dim letters
         head = std::string("SOURCE: ") + kn[1].value;
