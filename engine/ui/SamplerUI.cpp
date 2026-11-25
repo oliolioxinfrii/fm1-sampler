@@ -216,7 +216,7 @@ const std::vector<UiOp>& SamplerUI::surfaceGraphic(uint32_t now) {
         }
         circle(cap,cy+26,7,TRACE_GREEN);circle(cap,cy+26,3,WELL);
         rrect({202,top+4,18,23},0,WELL_DIM);rrect({208,top+7,6,17},0,DRIVE_TRACE);
-        if((echo?d:c)>.001f)for(int i=0;i<1+int(8*(echo?d:c));++i)rrect({122+i*8,top+7+(i%2)*3,3,3},0,echo?TRACE_PINK:TRACE_VIOLET);
+        if((echo?d:c)>.001f)for(int i=0;i<1+int(8*(echo?d:c));++i)rrect({122.0f+i*8.0f,top+7+(i%2)*3,3,3},0,echo?TRACE_PINK:TRACE_VIOLET);
     };
     switch(pg){
     case P::P_EDELAY:delay(0,432,k[0].norm,std::min(.92f,k[1].norm),k[2].norm,k[3].norm>.5f);break;
