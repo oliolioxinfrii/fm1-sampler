@@ -60,7 +60,7 @@ public:
     Knobs knobs(Page p);
     static const char* algoName(int i);
     static const char* echoModeName(int i);
-    bool pageAvailable(Page p) const { return (p != P_ECHO && p != P_GRAIN && p != P_MOTION) || algo() == 4; }
+    bool pageAvailable(Page p) const { return p != P_FX && ((p != P_ECHO && p != P_GRAIN && p != P_MOTION) || algo() == 4); }
     static Page menuPage(int slot) {
         constexpr Page pages[] = {P_HOME,P_ECHO,P_GRAIN,P_MOTION,P_FX,P_EFILTER,P_EDELAY,P_EREVERB,P_ENV,P_LFO,P_ARP,P_SEQ,P_ETAPE,P_EMIX,P_MIX,P_KEY,P_SAVE,P_LEN,P_TEMPO};
         return pages[slot];
