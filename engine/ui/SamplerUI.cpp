@@ -189,9 +189,12 @@ const std::vector<UiOp>& SamplerUI::surfaceGraphic(uint32_t now) {
         const float left=x+4,right=x+width-4;
         stroke({left,top+5,right-left,bot-top-10},0,WELL_DIM,3);
         speaker(left+7,cy,24);
-        const float sx=left+31,extent=std::min(32.f,(right-sx)*.9f);
-        const float radius=extent*(.28f+.72f*size);
-        for(int i=0;i<3;++i)wave(sx,cy,std::max(3.f,radius*(i+1)/3),i==0?DRIVE_TRACE:damp>.75f?GRID:TRACE_VIOLET);
+        const float sx=left+31,extent=(right-sx)*(.23f+.63f*size);
+        for(int i=0;i<4;++i){
+            const float x=sx+extent*(i+.5f)/4;
+            const float radius=8+17*(i+1)/4.f*(1-.55f*damp);
+            wave(x,cy,radius,i<2?DRIVE_TRACE:damp>.75f?GRID:TRACE_VIOLET);
+        }
         if(shimmer>.001f)for(int i=0;i<1+int(shimmer*3);++i){
             const float xx=right-15-i*12,yy=cy+(i%2?12:-12);
             line(xx-4,yy,xx+4,yy,DRIVE_TRACE,2);line(xx,yy-5,xx,yy+5,DRIVE_TRACE,2);
@@ -300,12 +303,24 @@ const std::vector<UiOp>& SamplerUI::surfaceGraphic(uint32_t now) {
         if(st_.inputPeak>0)rrect({8,cy-9,416*clamp01(st_.inputPeak*2),18},0,TRACE_GREEN);
         const float x=8+416*k[3].norm;
         line(x,cy-24,x,cy+24,TRACE_AMBER,3);break;}
-    case P::P_LEN:case P::P_TEMPO:{
+    case P::P_LEN:{
         const int n=std::clamp(int(st_.loopBars),1,16);
         const float pitch=416.f/n;
         for(int i=0;i<n;++i)rrect({8+i*pitch,cy-16,pitch-3,32},0,st_.loopSamples>0?ink:GRID);
         const float pos=8+416*clamp01(loopPos());
         line(pos,cy-25,pos,cy+25,DRIVE_TRACE,3);break;}
+    case P::P_TEMPO:{
+        const int n=6+int(28*k[1].norm);
+        line(8,cy,424,cy,WELL_DIM,2);
+        for(int i=0;i<n;++i){
+            const float x=8+i*416.f/n;
+            const float height=i%4==0?22.f:11.f;
+            line(x,cy-height,x,cy+height,st_.loopSamples>0?ink:WELL_DIM,i%4==0?4:2);
+        }
+        const float pos=8+416*clamp01(loopPos());
+        circle(pos,cy,5,DRIVE_TRACE);
+        if(st_.tempoStretch)line(8,top+4,424,top+4,TRACE_VIOLET,3);
+        break;}
     default:break;
     }
     return ops_;
@@ -544,13 +559,19 @@ void SamplerUI::pageView(Rect r) {
         const float sx=x+wall+3,sy=y+(hh-sh)*.5f, ox=sx+sw+2,oy=y+hh*.5f;
         cabinet(sx,sy,sw,sh);
         const float span=std::max(5.f,x+ww-wall-ox-7);
-        const float maxR=std::min(span*.85f,hh*1.10f)*(.24f+.76f*size);
-        for(int j=0;j<4;++j){
-            const float rad=std::max(2.f,maxR*(.25f+.24f*j));
-            const float fade=(1.f-.85f*damp)*(.96f-.15f*j);
-            const float angle=std::min(.85f,std::asin(std::min(.94f,(hh*.5f-wall-3)/rad)));
-            const auto c=j==0?DRIVE_TRACE:withAlpha(TRACE_VIOLET,int(60+195*fade*(.35f+.65f*send)));
-            arc(ox,oy,rad,-angle,angle,c,1.6f+1.4f*fade);
+        const float reach=span*(.23f+.65f*size);
+        for(int j=0;j<5;++j){
+            const float q=(j+1)/5.f,xx=ox+reach*q;
+            const float amplitude=std::min(hh*.5f-wall-4,hh*(.10f+.25f*q))*(1.f-.52f*damp);
+            const float bow=std::min(8.f,std::max(2.f,reach/14));
+            const float fade=(1.f-.85f*damp)*(.96f-.12f*j);
+            const uint32_t c=j<2?DRIVE_TRACE:withAlpha(TRACE_VIOLET,int(60+195*fade*(.35f+.65f*send)));
+            std::vector<std::pair<float,float>> points;
+            for(int k=0;k<=12;++k){
+                const float a=-kPi*.40f+k*kPi*.8f/12;
+                points.push_back({xx+bow*std::cos(a),oy+amplitude*std::sin(a)});
+            }
+            poly(points,c,1.8f+1.3f*fade);
         }
         if(shimmer>.001f)for(int i=0;i<7;++i){
             const float q=(i+1)/7.f;

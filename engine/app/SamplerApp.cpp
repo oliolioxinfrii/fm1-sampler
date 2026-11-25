@@ -1003,6 +1003,7 @@ void SamplerApp::draw(uint32_t now) {
     const char* hint = mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_LEN ? "K1 X2 OR /2  SEL AGAIN FOR TEMPO" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_TEMPO ? "K1 BARS  K2 BPM  K3 MODE" : page_ == P_KEY ? "KEYS FOLLOW THE KEY  CHANGE ANY TIME"
                      : page_ == P_ECHO ? "HOME AGAIN: GRAIN" : page_ == P_HOME && algo() == 4 ? "HOME AGAIN: ECHOFIELD  K3 MODE K4 POS" : page_ == P_EFILTER ? "FILTER MIX ON SEQ: EF MIX" : page_ == P_ETAPE ? "SEQ AGAIN  ENABLE TAPE ON EF MIX" : page_ == P_EMIX || page_ == P_SEQ ? "SEQ AGAIN: NEXT TAPE/MIX PAGE" : page_ == P_GRAIN || page_ == P_MOTION ? "HOME AGAIN: NEXT GRANULAR PAGE" : fxPage(page_) ? "FX AGAIN: NEXT EFFECT PAGE" : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
     drawText(90, 12, 228, 1, DIM, BLACK, hint, 38);
+    plotMeters(k);
     if(!waveform)picture(now,k);
     needClear_ = false;
 }
@@ -1033,9 +1034,9 @@ void SamplerApp::menuMarkers() {
     }
 }
 
-void SamplerApp::picture(uint32_t now,const Knobs& k) {
+void SamplerApp::plotMeters(const Knobs& k) {
     // Direct cached rectangles provide a responsive indication for
-    // every control, even while the lower-priority emblem catches up.
+    // every continuous/choice parameter, including idle waveform pages.
     rect(428,12,89,216,11,WELL);
     for(int i=0;i<4;++i){
         const int x=12+i*54,fill=std::clamp(int(std::lround(cl(k[i].norm)*49)),0,49);
@@ -1043,6 +1044,9 @@ void SamplerApp::picture(uint32_t now,const Knobs& k) {
         rect(420+2*i,x,93,std::max(1,fill),5,k[i].valid&&fill?c:WELL);
         rect(421+2*i,x+std::max(1,fill),93,50-std::max(1,fill),5,k[i].valid?BAR:WELL);
     }
+}
+
+void SamplerApp::picture(uint32_t now,const Knobs& k) {
     uint64_t sig=1469598103934665603ull;
     auto add=[&](uint64_t v){sig=(sig^v)*1099511628211ull;};
     add(page_);add(track_);
@@ -1050,7 +1054,7 @@ void SamplerApp::picture(uint32_t now,const Knobs& k) {
     if(page_==P_KEY)add(chordGhostMask());
     if(page_==P_MIX){add(std::lround(cl(st_.scLevel[track_])*12));add(std::lround(cl(st_.scGain[track_])*12));}
     if(page_==P_SAVE)add(std::lround(cl(st_.inputPeak*2)*24));
-    if(page_==P_LEN||page_==P_TEMPO){add(st_.loopBars);add(st_.loopSamples>0);add(std::lround(cl(st_.clipPos[track_])*32));}
+    if(page_==P_LEN||page_==P_TEMPO){add(st_.loopBars);add(st_.loopSamples>0);add(std::lround(cl(st_.track_has_clip[track_]?st_.clipPos[track_]:(st_.loopSamples>0?float(st_.pos/st_.loopSamples):0.f))*32));}
     if(!needClear_&&picturePage_==page_&&(pictureSig_==sig||now-pictureAt_<80))return;
     pictureAt_=now;picturePage_=page_;pictureSig_=sig;
     if(!graphic_)graphic_=std::make_unique<SamplerUI>(*this,false);
@@ -1081,7 +1085,7 @@ void SamplerApp::picture(uint32_t now,const Knobs& k) {
 }
 
 void SamplerApp::hero(uint32_t now, const Knobs& k) {
-    const int x0 = 12, y0 = 54, W = 216, H = 46;
+    const int x0 = 12, y0 = 54, W = 216, H = 35;
     // one column: background (cleared only when the height changed) + bar
     auto& sig = heroSig_;
     auto column = [&](int idx, int x, int w, int h, uint16_t fg, bool fromBottom) {

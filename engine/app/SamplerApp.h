@@ -158,6 +158,7 @@ private:
     void discardPending(int firstKey, int lastKey);
     void hero(uint32_t now, const Knobs& k);
     void picture(uint32_t now, const Knobs& k);
+    void plotMeters(const Knobs& k);
     void menuMarkers();
     // ---- input ----
     void button(int b, bool down);

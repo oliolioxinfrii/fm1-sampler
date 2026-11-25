@@ -109,7 +109,10 @@ int main(){
                 k.set(0);run(2000);
                 const auto low=plot;
                 app.knobs()[j].set(1);run(2000);
-                if(plot==low)throw std::runtime_error(std::string(P::pageName(page))+" / "+k.name+" does not change hardware picture");
+                bool meterChanged=false;
+                for(int y=39;y<44;++y)for(int x=j*54;x<j*54+50;++x)
+                    meterChanged|=plot[y*216+x]!=low[y*216+x];
+                if(!meterChanged)throw std::runtime_error(std::string(P::pageName(page))+" / "+k.name+" does not change its glyph meter");
                 app.knobs()[j].set(saved);run(1000);
             }
         }
@@ -123,6 +126,13 @@ int main(){
         require(app.chordGhostMask()==((1u<<0)|(1u<<3)|(1u<<7)),"minor tonic triad preview");
         app.setScale(3,0,0,0);
         require(app.chordGhostMask()==0,"key mode should have no chord ghosts");
+        // Rapid changes must converge to the final value without
+        // replaying intermediate full-screen images.
+        app.gotoPage(P::P_EDELAY);run(2000);
+        for(int i=0;i<25;++i){app.knobs()[0].set(i/24.f);run(16);}
+        run(1500);
+        const uint16_t first=plot[39*216];
+        require(first==plot[39*216+48]&&first!=plot[39*216+49],"fast turn did not settle to full meter");
         app.gotoPage(P::P_KEY);run(48);
         app.gotoPage(P::P_MIX);run(48);
         app.gotoPage(P::P_ECHO);run(3000);
