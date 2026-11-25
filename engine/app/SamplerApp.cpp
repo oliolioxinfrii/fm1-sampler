@@ -61,7 +61,6 @@ float micThrOf(float v) { return 0.005f * std::pow(100.f, v); }       // -46..-6
 float paulFactor(float n) { return 2.f * std::pow(32.f, n); }                     // slow-down 2x .. 64x
 float scThrDb(float n) { return -40.f * (1.f - n); }                              // 0 .. -40 dB
 float scRatioOf(float n) { return 1.f + 19.f * n * n; }                          // 1:1 .. 20:1
-float loopSpeedOf(float n) { return 0.25f * std::pow(8.f, n); }       // 0.25..2
 float lfoHz(float n) { return 0.1f * std::pow(200.f, n); }            // 0.1..20
 }  // namespace
 
@@ -79,6 +78,7 @@ SamplerApp::SamplerApp(Session& s, Send send) : s_(s), send_(std::move(send)) {
     loadEcho();
     refreshLibrary();
     applyFx();
+    s_.setLoopSpeed(1.f); // normal transport; no separate varispeed page
     s_.setLoopSource(loopSrc_);
     // a first session to play with: keys on 1, a drum kit on 2, bass on 3
     auto first = [&](const char* group, int track) {
@@ -134,7 +134,7 @@ void SamplerApp::importFile(const std::string& wav) {
 
 // ---- parameters ----
 void SamplerApp::applyAll(int t) {
-    applyAlgo(t); applyRoot(t); applyEnv(t); applyLfo(t); applyHome(t); applyArp(t); applySeq(t); applyMix(t);
+    applyAlgo(t); applyRoot(t); applyEnv(t); applyLfo(t); applyHome(t); applyArp(t); applyMix(t);
 }
 void SamplerApp::applyRoot(int t) { s_.setRoot(t, ts_[t].tuned ? ts_[t].root : 60.f); }
 void SamplerApp::autoTune() {
@@ -182,11 +182,6 @@ void SamplerApp::editRange(int t,int edge,float value) {
 void SamplerApp::applyArp(int t) {
     const TrackState& x = ts_[t];
     s_.setArp(t, x.arpRate > 0, std::max(0, x.arpRate - 1), x.arpPatt, x.arpOct + 1, x.arpLen);
-}
-void SamplerApp::applySeq(int) {   // transport speed is independent of the Echofield tape insert
-    s_.setLoopSpeed(loopSpeedOf(loopSpeed_));
-    for (int i = 0; i < kTracks; i++)
-        s_.setTape(i, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f);
 }
 void SamplerApp::applyMix(int t) {
     const TrackState& x = ts_[t];
@@ -236,7 +231,7 @@ void SamplerApp::loadEcho() {
         }
     }
     int fxVersion = 0;
-    if (fscanf(f, "%d", &fxVersion) == 1 && fxVersion == 1) {
+    if (fscanf(f, "%d", &fxVersion) == 1 && (fxVersion == 1 || fxVersion == 2)) {
         for (auto& t : ts_) {
             EchoInsertParams p; float d, r;
             if (fscanf(f, "%d %f %f %f %f %f %f %f %f %f %f %f %f %f",
@@ -262,6 +257,12 @@ void SamplerApp::loadEcho() {
         }
     }
     fclose(f);
+    // One-time recovery of the default Tape Key track's insert state.
+    // Preserve the other tracks, sends, global returns and grain settings.
+    if(fxVersion==1) {
+        ts_[0].echoInsert=EchoInsertParams{};
+        saveEcho();
+    }
 }
 void SamplerApp::saveEcho() {
     const auto dir = s_.dataDir();
@@ -274,7 +275,7 @@ void SamplerApp::saveEcho() {
         const auto& p = t.echo;
         ok &= fprintf(f, "%d %.9g %.9g %.9g %.9g %.9g\n", p.mode, p.position, p.texture, p.scatter, p.drift, p.evolve) > 0;
     }
-    ok &= fprintf(f,"1\n")>0;
+    ok &= fprintf(f,"2\n")>0; // insert settings migration version
     for (const auto& t : ts_) {
         const auto& p=t.echoInsert;
         ok &= fprintf(f,"%d %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g %.9g\n",
@@ -424,9 +425,7 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
         k[3] = cont("LENGTH", &x.arpLen, [](float v) { return pct(v); }, [=] { applyArp(t); });
         break;
     }
-    case P_SEQ:
-        k[0] = cont("LOOP SPEED", &loopSpeed_, [](float v) { return fmt("%.2fX", loopSpeedOf(v)); }, [=] { applySeq(t); }, 0.02f);
-        break;
+    case P_SEQ: break; // reserved parent identifier; no standalone speed page
     case P_MIX: {
         k[0] = cont("VOLUME", &x.vol, [](float v) { return pct(v); }, [=] { applyMix(t); });
         std::vector<std::string> src = {"OFF"}; for (int i = 1; i <= kTracks; i++) src.push_back("TRACK " + std::to_string(i));
@@ -671,7 +670,7 @@ void SamplerApp::button(int b, bool down) {
     case ENV: page_ = P_ENV; break;
     case LFO: page_ = P_LFO; break;
     case ARP: page_ = P_ARP; break;
-    case SEQ: if (!wasHeld) page_ = page_ == P_SEQ ? P_ETAPE : page_ == P_ETAPE ? P_EMIX : P_SEQ; break;
+    case SEQ: if (!wasHeld) page_ = page_ == P_ETAPE ? P_EMIX : P_ETAPE; break;
     case EDIT: page_ = P_MIX; break;
     case SEL: if (!wasHeld) page_ = page_ == P_LEN ? P_TEMPO : P_LEN; break;
     case PLAY: transportPlay(); break;
@@ -990,7 +989,7 @@ void SamplerApp::draw(uint32_t now) {
         rect(70 + i, cx + std::min(101, bw), cy + 37, std::max(1, 102 - bw), 5, bw == 102 ? kc : BAR);
     }
     const char* hint = mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_LEN ? "K1 X2 OR /2  SEL AGAIN FOR TEMPO" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_TEMPO ? "K1 BARS  K2 BPM  K3 MODE" : page_ == P_KEY ? "KEYS FOLLOW THE KEY  CHANGE ANY TIME"
-                     : page_ == P_ECHO ? "HOME AGAIN: GRAIN" : page_ == P_HOME && algo() == 4 ? "HOME AGAIN: ECHOFIELD  K3 MODE K4 POS" : page_ == P_EFILTER ? "FILTER MIX ON SEQ: EF MIX" : page_ == P_ETAPE ? "SEQ AGAIN  ENABLE TAPE ON EF MIX" : page_ == P_EMIX || page_ == P_SEQ ? "SEQ AGAIN: NEXT TAPE/MIX PAGE" : page_ == P_GRAIN || page_ == P_MOTION ? "HOME AGAIN: NEXT GRANULAR PAGE" : fxPage(page_) ? "FX AGAIN: NEXT EFFECT PAGE" : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
+                     : page_ == P_ECHO ? "HOME AGAIN: GRAIN" : page_ == P_HOME && algo() == 4 ? "HOME AGAIN: ECHOFIELD  K3 MODE K4 POS" : page_ == P_EFILTER ? "FILTER MIX ON SEQ: EF MIX" : page_ == P_ETAPE ? "SEQ AGAIN  ENABLE TAPE ON EF MIX" : page_ == P_EMIX ? "SEQ AGAIN: TAPE PAGE" : page_ == P_GRAIN || page_ == P_MOTION ? "HOME AGAIN: NEXT GRANULAR PAGE" : fxPage(page_) ? "FX AGAIN: NEXT EFFECT PAGE" : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
     drawText(90, 12, 228, 1, DIM, BLACK, hint, 38);
     plotMeters(k);
     if(!waveform)picture(now,k);
