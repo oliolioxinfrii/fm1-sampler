@@ -69,6 +69,7 @@ int main(int argc, char** argv) {
     app.gotoPage(SamplerApp::P_EFILTER); dump("deck_fx_submenu");
     theme::apply(false); dump("deck_fx_submenu_dark"); theme::apply(true);
     app.gotoPage(SamplerApp::P_EMIX); dump("deck_seq_submenu");
+    app.gotoPage(SamplerApp::P_TEMPO); dump("deck_length_submenu");
     ui.openProject(true); ui.frame(now); dump("deck_project"); ui.openProject(false);
     ui.setEditor(true);
     ui.frame(now); dump("sample");

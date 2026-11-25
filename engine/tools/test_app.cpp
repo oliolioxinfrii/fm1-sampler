@@ -171,11 +171,15 @@ int main() {
         // At 860 logical pixels the primary row is 10 x 24, right aligned.
         tap(632,163);CHECK(app.page()==SamplerApp::P_FX,"deck opens FX group");
         tap(632,163);CHECK(app.page()==SamplerApp::P_EFILTER,"deck primary tab cycles submenu");
-        tap(656.5f,142);CHECK(app.page()==SamplerApp::P_EDELAY,"deck selects delay directly");
+        tap(753.5f,142);CHECK(app.page()==SamplerApp::P_EDELAY,"deck selects delay directly");
         tap(632,163);CHECK(app.page()==SamplerApp::P_EREVERB,"deck cycles from selected child");
         tap(632,163);CHECK(app.page()==SamplerApp::P_FX,"deck wraps FX group");
         tap(728,163);CHECK(app.page()==SamplerApp::P_SEQ,"deck opens SEQ group");
         tap(728,163);CHECK(app.page()==SamplerApp::P_ETAPE,"deck cycles tape submenu");
+        tap(817,142);CHECK(app.page()==SamplerApp::P_EMIX,"tape children cascade right");
+        tap(824,163);CHECK(app.page()==SamplerApp::P_LEN,"deck opens LENGTH group");
+        tap(756.5f,142);CHECK(app.page()==SamplerApp::P_TEMPO,"length children cascade left");
+        tap(824,163);CHECK(app.page()==SamplerApp::P_LEN,"length parent wraps from TEMPO");
         ui.setEditor(true);
         tap(680,66);CHECK(app.page()==SamplerApp::P_FX,"editor opens FX group");
         tap(680,66);CHECK(app.page()==SamplerApp::P_EFILTER,"editor primary button cycles submenu");

@@ -901,24 +901,52 @@ void SamplerUI::deckMenus(Rect r) {
         tap(nr,[this,i]{app_.gotoPage(nextMenuPage(app_,kMenus[i]));});
     }
     if(children<=1) return;
-    // The submenu belongs to the active primary button. Clamp the row
-    // at either panel edge rather than moving the primary buttons.
-    const float subW=std::min(49.f,(r.w-4)/children);
-    const float anchor=start+(selected+.5f)*tabW;
-    const float subX=std::clamp(anchor-children*subW/2,r.x,right-children*subW);
-    const uint32_t accent=pageColor(group.pages[0]);
-    const float sy=r.y+1, sh=17;
-    // A short stem joins the selected primary tab to its secondary row.
-    line(anchor,py-10,anchor,sy+sh,accent,1.3f);
-    for(int i=0,j=0;i<group.count;++i) {
-        Page p=group.pages[i];
-        if(!app_.pageAvailable(p)) continue;
-        Rect c{subX+j*subW,sy,subW,sh}; ++j;
-        const bool on=p==app_.page();
-        const uint32_t col=pageColor(p);
-        bevel({c.x+1,c.y,c.w-2,c.h},on?col:SURFACE,on);
-        text(c.x+c.w/2,c.y+c.h/2,8.5f,on?contrastInk(col):col,fit(group.labels[i],c.w-5,8.5f),1,true);
+    // The first child touches and overlaps its parent. The other
+    // children follow a horizontal signal rail to the right, except
+    // LENGTH/TEMPO, whose rail leads left from the last primary tab.
+    const bool leftward = group.pages[0] == Page::P_LEN;
+    const float parentLeft = start + selected * tabW + 1;
+    const float parentRight = parentLeft + tabW - 2;
+    const float edge = leftward ? parentRight : parentLeft;
+    const float room = leftward ? edge - r.x : right - edge;
+    const float gap = std::min(5.f, room / (children * 8.f));
+    const float subW = std::min(49.f, (room - (children-1)*gap)/children);
+    const float sy = r.y+1, sh=17, railY=sy+sh/2;
+    const uint32_t accent = pageColor(group.pages[0]);
+    const float last = edge + (leftward ? -1 : 1) * (children*subW+(children-1)*gap);
+    line(std::min(edge,last),railY,std::max(edge,last),railY,accent,1.4f);
+    for (int i=0,j=0;i<group.count;++i) {
+        const Page p=group.pages[i];
+        if (!app_.pageAvailable(p)) continue;
+        const float offset = j*(subW+gap);
+        const float x = leftward ? edge-offset-subW : edge+offset;
+        const Rect c{x,sy,subW,sh+(j==0?6.f:0.f)};
+        const bool on = p==app_.page();
+        const uint32_t col = pageColor(p);
+        // The first tab overlaps the top edge of the selected parent.
+        // All labels sit on the same horizontal baseline.
+        bevel(c,on?col:SURFACE,on);
+        const float font = subW < 35 ? 8.f : 8.5f;
+        const char* label=group.labels[i];
+        const char* compact=label;
+        if (subW < 37) {
+            switch(p) {
+            case Page::P_HOME: compact="SMP"; break;
+            case Page::P_EFILTER: compact="FILT"; break;
+            case Page::P_EDELAY: compact="DLY"; break;
+            case Page::P_EREVERB: compact="REV"; break;
+            case Page::P_ETAPE: compact="E.TP"; break;
+            case Page::P_EMIX: compact="E.MX"; break;
+            case Page::P_MOTION: compact="MOT"; break;
+            case Page::P_GRAIN: compact="GRN"; break;
+            case Page::P_LEN: compact="LEN"; break;
+            case Page::P_TEMPO: compact="BPM"; break;
+            default: break;
+            }
+        }
+        text(c.x+c.w/2,railY,font,on?contrastInk(col):col,fit(compact,c.w-4,font),1,true);
         tap(c,[this,p]{app_.gotoPage(p);});
+        ++j;
     }
 }
 
@@ -1065,30 +1093,63 @@ void SamplerUI::sampleArea(Rect r) {
     if (!ts_.empty()) text(r.x, std::min(br.y + br.h + 14, r.y + r.h - 7), 11, ACCENT, fit(ts_, r.w, 11), 0, true);
 }
 
+void SamplerUI::propertyTab(Rect r, const std::string& label, bool on,
+                            uint32_t col, float font) {
+    // Property-sheet tabs: stepped corners, raised top and left edges,
+    // dark right edge. The active tab has no bottom seam.
+    const uint32_t fill=on?RAISED:SURFACE;
+    rrect({r.x,r.y+3,r.w,r.h-3},0,fill);
+    rrect({r.x+3,r.y,r.w-6,3},0,fill);
+    line(r.x+3,r.y+.5f,r.x+r.w-3,r.y+.5f,HI);
+    line(r.x+.5f,r.y+3,r.x+3,r.y+.5f,HI);
+    line(r.x+.5f,r.y+3,r.x+.5f,r.y+r.h-1,HI);
+    line(r.x+r.w-3,r.y+.5f,r.x+r.w-.5f,r.y+3,SHADOW);
+    line(r.x+r.w-.5f,r.y+3,r.x+r.w-.5f,r.y+r.h-1,SHADOW);
+    if(!on) line(r.x+1,r.y+r.h-1,r.x+r.w-1,r.y+r.h-1,SHADOW);
+    else rrect({r.x+3,r.y+1,r.w-6,2},0,col);
+    text(r.x+r.w/2,r.y+r.h/2,font,on?col:TEXT,fit(label,r.w-10,font),1,on);
+}
+
 void SamplerUI::pagePanel(Rect r) {
     constexpr int cols=5;
     const int selected=activeMenu(app_.page());
     const auto& group=kMenus[selected];
     const int children=childCount(app_,group);
-    const float tw=(r.w-(cols-1)*4)/cols;
-    // Fixed two-row primary toolbar and a contextual third row.
-    // Retain the same slider geometry when changing menus.
-    for(int i=0;i<kMenuCount;++i) {
-        Rect c{r.x+(i%cols)*(tw+4),r.y+(i/cols)*32,tw,28};
-        button(c,kMenus[i].editorLabel,i==selected,[this,i]{app_.gotoPage(nextMenuPage(app_,kMenus[i]));},9.5f,true,pageColor(kMenus[i].pages[0]));
+    // The primary tabs form two slightly offset, overlapping tiers.
+    // Paint the selected property sheet last so its edges sit in front.
+    const float pitch=(r.w-9)/cols;
+    auto primaryRect=[&](int i) {
+        const int tier=i/cols;
+        const bool on=i==selected;
+        return Rect{r.x+2+(i%cols)*pitch+tier*5,
+            r.y+tier*27+(on?0.f:3.f),pitch+2,on?31.f:28.f};
+    };
+    for(int pass=0;pass<2;++pass) for(int i=0;i<kMenuCount;++i) {
+        if((i==selected)!=(pass==1)) continue;
+        const Rect c=primaryRect(i);
+        propertyTab(c,kMenus[i].editorLabel,i==selected,pageColor(kMenus[i].pages[0]),9.5f);
+        tap(c,[this,i]{app_.gotoPage(nextMenuPage(app_,kMenus[i]));});
     }
-    Rect sub{r.x,r.y+64,r.w,28};
-    bevel(sub,SURFACE,true);
+    // The contextual tabs sit on the raised property-sheet body.
+    // Neighboring tabs overlap by four pixels; the selected one is
+    // taller and erases the body's top border where it joins the sheet.
+    const float sheetY=r.y+91;
+    bevel({r.x,sheetY,r.w,r.y+r.h-sheetY},RAISED);
     if(children>1) {
-        const float cw=(sub.w-4)/children;
-        for(int i=0,j=0;i<group.count;++i) {
-            Page p=group.pages[i];
+        const float pitch=(r.w-8)/children;
+        for(int pass=0;pass<2;++pass) for(int i=0,j=0;i<group.count;++i) {
+            const Page p=group.pages[i];
             if(!app_.pageAvailable(p)) continue;
-            Rect c{sub.x+2+j*cw,sub.y+2,cw-2,24}; ++j;
-            button(c,group.labels[i],app_.page()==p,[this,p]{app_.gotoPage(p);},9.f,true,pageColor(p));
+            const bool on=app_.page()==p;
+            const float x=r.x+3+j*pitch; ++j;
+            if(on!=(pass==1)) continue;
+            const Rect c{x,sheetY-(on?28.f:24.f),pitch+4,on?30.f:24.f};
+            propertyTab(c,group.labels[i],on,pageColor(p),9.f);
+            tap(c,[this,p]{app_.gotoPage(p);});
         }
     } else {
-        text(sub.x+6,sub.y+14,T_CAPTION,pageColor(app_.page()),SamplerApp::pageName(app_.page()),0,true);
+        const Rect c{r.x+3,sheetY-28,std::min(r.w-6,112.f),30};
+        propertyTab(c,SamplerApp::pageName(app_.page()),true,pageColor(app_.page()),9.f);
     }
     auto k=app_.knobs();
     const float tabsH=104, top=r.y+tabsH, rh=(r.h-tabsH)/4;

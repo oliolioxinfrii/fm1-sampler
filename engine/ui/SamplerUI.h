@@ -55,6 +55,7 @@ private:
     void trackList(Rect r);
     void sampleArea(Rect r);
     void pagePanel(Rect r);
+    void propertyTab(Rect r, const std::string& label, bool on, uint32_t col, float font);
     void librarySheet();
     void projectSheet();
 
