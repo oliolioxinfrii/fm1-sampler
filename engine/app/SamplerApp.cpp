@@ -33,7 +33,7 @@ uint32_t pageAccent(SamplerApp::Page p) {
     default: return theme::ACCENT;
     }
 }
-const char* kPage[] = {"SAMPLE", "FX", "ENVELOPE", "LFO", "ARP", "TAPE", "MIXER", "KEY", "LOOP", "LENGTH", "TEMPO", "ECHOFIELD", "FILTER", "DELAY", "REVERB", "EF TAPE", "EF MIX", "GRAIN", "MOTION"};
+const char* kPage[] = {"SAMPLE", "FX", "ENVELOPE", "LFO", "ARP", "SPEED", "MIXER", "KEY", "LOOP", "LENGTH", "TEMPO", "ECHOFIELD", "FILTER", "DELAY", "REVERB", "EF TAPE", "EF MIX", "GRAIN", "MOTION"};
 const char* kEchoMode[] = {"CLOUD", "DUST", "TAPE", "BLOOM", "PULSE", "DRIFT"};
 const char* kAlgo[] = {"MELODIC", "ONE-SHOT", "LOOPED", "KIT/SLICE", "GRANULAR", "PAULSTRETCH"};
 const char* kScaleName[] = {"CHROM", "MIX", "MAJ", "MIN", "HMIN", "PHRYG", "MIN+", "OFF"};
@@ -79,7 +79,6 @@ SamplerApp::SamplerApp(Session& s, Send send) : s_(s), send_(std::move(send)) {
     loadEcho();
     refreshLibrary();
     applyFx();
-    s_.setRetLevel(1, 0.7f);
     s_.setLoopSource(loopSrc_);
     // a first session to play with: keys on 1, a drum kit on 2, bass on 3
     auto first = [&](const char* group, int track) {
@@ -184,21 +183,19 @@ void SamplerApp::applyArp(int t) {
     const TrackState& x = ts_[t];
     s_.setArp(t, x.arpRate > 0, std::max(0, x.arpRate - 1), x.arpPatt, x.arpOct + 1, x.arpLen);
 }
-void SamplerApp::applySeq(int) {   // loop speed and tape colour are global: every track gets them
+void SamplerApp::applySeq(int) {   // transport speed is independent of the Echofield tape insert
     s_.setLoopSpeed(loopSpeedOf(loopSpeed_));
     for (int i = 0; i < kTracks; i++)
-        s_.setTape(i, exciter_, 1.f - 0.4f * lofi_, wobble_, 0.25f * lofi_, cl(std::max(exciter_ * 3.f, std::max(wobble_, lofi_))), 1.f - 0.6f * lofi_);
+        s_.setTape(i, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f);
 }
 void SamplerApp::applyMix(int t) {
     const TrackState& x = ts_[t];
-    s_.setVolume(t, x.vol * 1.2f); s_.setPan(t, x.pan * 2.f - 1.f); s_.setSend(t, 0, x.sendR); s_.setSend(t, 1, x.sendD);
+    s_.setVolume(t, x.vol * 1.2f); s_.setPan(t, x.pan * 2.f - 1.f); s_.setSend(t, 0, 0.f); s_.setSend(t, 1, 0.f);
     s_.setSidechain(t, x.scSrc - 1, scThrDb(x.scThr), scRatioOf(x.scRatio));
 }
 void SamplerApp::applyFx() {
     s_.setEchoReturns(echoReturns_);
-    s_.setReverb(reverbSize_);
-    s_.setRetLevel(0, 0.8f); s_.setRetLevel(1, 0.7f);   // global send effects: how much of a track goes in is set per track (the sends)
-    s_.setDelay(0.05f + delayTime_ * 1.45f, delayFb_ * 0.95f);
+    s_.setRetLevel(0, 0.f); s_.setRetLevel(1, 0.f); // legacy returns bypassed
 }
 void SamplerApp::queueCommit(int t) { commitAt_ = nowMs_ + 350; commitTrack_ = t; }   // the offline stretch / pitch runs once the knob rests
 void SamplerApp::setAlgo(int a) {
@@ -294,7 +291,7 @@ void SamplerApp::saveEcho() {
 }
 void SamplerApp::setVolume(int t, float v) { ts_[t].vol = cl(v); applyMix(t); }
 void SamplerApp::setPan01(int t, float v) { ts_[t].pan = cl(v); applyMix(t); }
-void SamplerApp::setSend(int t, int w, float v) { (w ? ts_[t].sendD : ts_[t].sendR) = cl(v); applyMix(t); }
+void SamplerApp::setSend(int t, int w, float v) { (w ? ts_[t].echoDelay : ts_[t].echoRoom) = cl(v); editEchoFx(t); }
 void SamplerApp::setScale(int scale, int root, int octave, int mode) {
     scale_ = {std::min(7, std::max(0, scale)), ((root % 12) + 12) % 12, std::min(3, std::max(-3, octave)), mode & 1};
     sysex(6, {7, (uint8_t)scale_.root, (uint8_t)(scale_.octave + 3), (uint8_t)scale_.mode}, true);
@@ -406,12 +403,7 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
         k[2] = cont("TAPE MIX", &x.echoInsert.tape, [](float v) { return pct(v); }, [=, this] { editEchoFx(t); });
         k[3] = cont("FILTER MIX", &x.echoInsert.filterMix, [](float v) { return pct(v); }, [=, this] { editEchoFx(t); });
         break;
-    case P_FX:   // two global send effects; the sends are per track (the selected one), size and time are global
-        k[0] = cont("REVERB SEND", &x.sendR, [](float v) { return pct(v); }, [=] { applyMix(t); });
-        k[1] = cont("REVERB SIZE", &reverbSize_, [](float v) { return pct(v); }, [=] { applyFx(); });
-        k[2] = cont("DELAY SEND", &x.sendD, [](float v) { return pct(v); }, [=] { applyMix(t); });
-        k[3] = cont("DELAY TIME", &delayTime_, [](float v) { return fmt("%.2fS", 0.05 + v * 1.45); }, [=] { applyFx(); });
-        break;
+    case P_FX: break; // reserved legacy page; not exposed in navigation
     case P_ENV:
         k[0] = cont("ATTACK", &x.a, [=](float v) { return sec(3 * v * v); }, [=] { applyEnv(t); });
         k[1] = cont("DECAY", &x.d, [=](float v) { return sec(v); }, [=] { applyEnv(t); });
@@ -434,9 +426,6 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
     }
     case P_SEQ:
         k[0] = cont("LOOP SPEED", &loopSpeed_, [](float v) { return fmt("%.2fX", loopSpeedOf(v)); }, [=] { applySeq(t); }, 0.02f);
-        k[1] = cont("EXCITER", &exciter_, [](float v) { return pct(v); }, [=] { applySeq(t); });
-        k[2] = cont("LO-FI", &lofi_, [](float v) { return pct(v); }, [=] { applySeq(t); });
-        k[3] = cont("WOBBLE", &wobble_, [](float v) { return pct(v); }, [=] { applySeq(t); });
         break;
     case P_MIX: {
         k[0] = cont("VOLUME", &x.vol, [](float v) { return pct(v); }, [=] { applyMix(t); });
@@ -678,7 +667,7 @@ void SamplerApp::button(int b, bool down) {
     }
     if (!down) return;
     switch (b) {
-    case FX: if (!wasHeld) page_ = page_ == P_FX ? P_EFILTER : page_ >= P_EFILTER && page_ < P_EREVERB ? static_cast<Page>(page_ + 1) : P_FX; break;
+    case FX: if (!wasHeld) page_ = page_ >= P_EFILTER && page_ < P_EREVERB ? static_cast<Page>(page_ + 1) : P_EFILTER; break;
     case ENV: page_ = P_ENV; break;
     case LFO: page_ = P_LFO; break;
     case ARP: page_ = P_ARP; break;
