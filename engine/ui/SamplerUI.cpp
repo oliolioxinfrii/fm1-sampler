@@ -575,12 +575,23 @@ void SamplerUI::pageView(Rect r) {
             const float bow=std::min(8.f,std::max(2.f,reach/14));
             const float fade=(1.f-.85f*damp)*(.96f-.50f*q);
             const uint32_t c=j<2?encoderTrace(0):withAlpha(encoderTrace(1),int(60+195*fade*(.35f+.65f*send)));
-            std::vector<std::pair<float,float>> points;
-            for(int k=0;k<=12;++k){
-                const float a=-kPi*.40f+k*kPi*.8f/12;
-                points.push_back({xx+bow*std::cos(a),oy+amplitude*std::sin(a)});
-            }
-            poly(points,c,1.8f+1.3f*fade);
+            // Damp colors the two ends of each wave, growing inward.
+            // At 40% damp, each purple end spans 20% of the wave.
+            auto wavePoint=[&](float t){
+                const float a=kPi*.8f*(t-.5f);
+                return std::pair<float,float>{xx+bow*std::cos(a),oy+amplitude*std::sin(a)};
+            };
+            auto waveSection=[&](float from,float to,uint32_t color){
+                if(to-from<.0001f)return;
+                std::vector<std::pair<float,float>> points;
+                const int steps=std::max(2,int(std::ceil((to-from)*24)));
+                for(int k=0;k<=steps;++k)points.push_back(wavePoint(from+(to-from)*k/steps));
+                poly(points,color,1.8f+1.3f*fade);
+            };
+            const float edge=.5f*clamp01(damp);
+            waveSection(edge,1.f-edge,c);
+            waveSection(0.f,edge,encoderTrace(2));
+            waveSection(1.f-edge,1.f,encoderTrace(2));
         }
         // Stable pseudorandom positions across the room; increasing shimmer
         // reveals more stars without moving existing stars on every frame.
@@ -699,28 +710,43 @@ void SamplerUI::pageView(Rect r) {
         }
         poly(pts,signal,2.5f);
         if(drive>.001f) {
-            // Localized nested contours around the cutoff and shoulders,
-            // not a repeating dash pattern along the entire response.
-            const int center=std::clamp(int(cutoff*64.f),5,59);
-            const int anchors[]={center,std::clamp(center-9,5,59),std::clamp(center+10,5,59)};
-            const int groups=1+int(drive>.30f)+int(drive>.65f);
-            for(int g=0;g<groups;++g) {
-                if(g>0 && std::abs(anchors[g]-center)<5)continue;
-                const int layers=1+int(3*drive),half=3+int(2*drive);
-                for(int layer=1;layer<=layers;++layer)for(float side:{-1.f,1.f}){
-                    const float gap=layer*(2.1f+drive*.7f);
-                    std::vector<std::pair<float,float>> contour;
-                    for(int j=std::max(1,anchors[g]-half);j<=std::min(63,anchors[g]+half);++j){
-                        const float dx=pts[j+1].first-pts[j-1].first,dy=pts[j+1].second-pts[j-1].second;
-                        const float len=std::max(1.f,std::hypot(dx,dy));
-                        const float xx=pts[j].first-side*dy/len*gap,yy=pts[j].second+side*dx/len*gap;
-                        if(xx<x0+5||xx>x1-5||yy<y0+5||yy>y1-5){
-                            if(contour.size()>1)poly(contour,encoderTrace(3),1.1f+drive*.4f);
-                            contour.clear();continue;
-                        }
-                        contour.push_back({xx,yy});
+            // Fixed, irregularly spaced motion strokes along the entire
+            // response. Thresholds are nested so increasing drive never
+            // removes existing marks or rearranges the layout.
+            struct Cluster {int center,half,layers;float onset,side;};
+            constexpr Cluster clusters[]={
+                {3,2,3,.06f,1.f},{7,1,1,.30f,-1.f},
+                {11,2,4,.12f,-1.f},{15,1,2,.48f,1.f},
+                {20,3,5,.04f,1.f},{25,1,1,.70f,-1.f},
+                {29,2,3,.17f,-1.f},{34,2,4,.09f,1.f},
+                {39,1,1,.38f,1.f},{43,2,5,.03f,-1.f},
+                {48,2,2,.55f,1.f},{53,2,4,.14f,1.f},
+                {57,1,1,.76f,-1.f},{61,2,3,.10f,-1.f}
+            };
+            auto contourStroke=[&](const Cluster& cl,int layer,float side){
+                std::vector<std::pair<float,float>> contour;
+                const float gap=3.f+2.1f*(layer-1);
+                // Outer layers are shorter, like comic-book speed lines.
+                const int half=std::max(1,cl.half-(layer>=4?1:0));
+                for(int j=std::max(1,cl.center-half);j<=std::min(63,cl.center+half);++j){
+                    const float dx=pts[j+1].first-pts[j-1].first,dy=pts[j+1].second-pts[j-1].second;
+                    const float len=std::max(1.f,std::hypot(dx,dy));
+                    const float xx=pts[j].first-side*dy/len*gap,yy=pts[j].second+side*dx/len*gap;
+                    if(xx<x0+5||xx>x1-5||yy<y0+5||yy>y1-5){
+                        if(contour.size()>1)poly(contour,encoderTrace(3),1.25f);
+                        contour.clear();continue;
                     }
-                    if(contour.size()>1)poly(contour,encoderTrace(3),1.1f+drive*.4f);
+                    contour.push_back({xx,yy});
+                }
+                if(contour.size()>1)poly(contour,encoderTrace(3),1.25f);
+            };
+            for(const auto& cl:clusters){
+                for(int layer=1;layer<=cl.layers;++layer){
+                    const float threshold=cl.onset+(1.f-cl.onset)*.82f*(layer-1)/std::max(1,cl.layers-1);
+                    if(drive<threshold)continue;
+                    contourStroke(cl,layer,cl.side);
+                    if(cl.layers>=3 && drive>=threshold+.11f && layer<cl.layers)
+                        contourStroke(cl,layer,-cl.side);
                 }
             }
         }
@@ -877,7 +903,7 @@ void SamplerUI::pageView(Rect r) {
         break; }
     case P::P_KEY: {
         const auto sc=app_.scale();
-        head=std::string(P::noteName(sc.root))+" "+P::scaleName(sc.scale)+(sc.mode?" / CHORD":" / KEY");
+        head=std::string(P::noteName(sc.root))+" "+P::scaleName(sc.scale);
         const uint16_t ghosts=app_.chordGhostMask();
         const uint32_t chordColors[]={TRACE_BLUE,TRACE_GREEN,TRACE_GREEN,TRACE_VIOLET,TRACE_PINK,TRACE_VIOLET,TRACE_PINK,WELL_DIM};
         const uint32_t chord=chordColors[std::clamp(sc.scale,0,7)];
@@ -888,18 +914,20 @@ void SamplerUI::pageView(Rect r) {
             const uint32_t c=rel==0?DRIVE_TRACE:legal?chord:WELL_DIM;
             const float x=w.x+4+i*pitch;
             if(ghost) {
-                // Sweeping, nested motion strokes above the chord key.
+                // Static comic-book motion lines, offset from the key
+                // silhouette. No time-dependent animation or ghost fill.
                 const float cx=x+pitch*.5f,span=std::min(pitch*.37f,8.f);
-                const float room=std::max(0.f,ky-w.y-10);
+                const float room=std::max(0.f,ky-w.y-9);
                 for(int j=0;j<3;++j) {
-                    const float lift=2.f+j*std::min(3.f,room/4);
-                    if(lift+2>room)break;
-                    const float shift=std::sin(now_*.008f+i*.5f+j*.4f)*span*.18f;
-                    poly({{cx-span+shift,ky-lift},{cx-span*.65f+shift,ky-lift-2},
-                          {cx+span*.15f+shift,ky-lift-3},{cx+span*.65f+shift,ky-lift-1}},c,1.35f);
+                    const float lift=2.f+j*2.8f;
+                    if(lift+3>room)break;
+                    const float reach=span*(1.f-.12f*j);
+                    poly({{cx-reach,ky-lift},{cx-reach*.65f,ky-lift-2.5f},
+                          {cx,ky-lift-3.2f},{cx+reach*.7f,ky-lift-1.4f}},c,1.35f);
                 }
-                const float dy=std::min(5.f,kh*.15f);
-                poly({{cx-span,ky+kh-dy},{cx-span*.6f,ky+kh+1},{cx+span*.25f,ky+kh+3}},c,1.3f);
+                if(ky+kh+5<w.y+w.h-10)
+                    poly({{cx-span*.8f,ky+kh+2},{cx-span*.3f,ky+kh+4},
+                          {cx+span*.35f,ky+kh+4.5f},{cx+span*.8f,ky+kh+2}},c,1.3f);
             }
             rrect({x+2,ky,pitch-4,kh},2,legal?withAlpha(c,185):metal);
             stroke({x+2,ky,pitch-4,kh},2,legal?c:lip,1);
