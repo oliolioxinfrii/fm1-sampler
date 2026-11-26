@@ -52,6 +52,8 @@ private:
     void studyPhone(Rect w, SamplerApp::Page pg);
     void studyDeck();
     void generativeDeck();
+    void generativeSelector();
+    int genSelector_=-1;
     uint32_t genMapVersion_=0;int genMapKind_=-1;
     std::array<float,73*33> genMapValues_{};
     void studyTimeline(Rect r);

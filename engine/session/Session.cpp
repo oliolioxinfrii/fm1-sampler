@@ -709,7 +709,7 @@ void Session::generatorLoad(const std::string& path){
     d->job([this,path,ticket]{
         auto sm=std::make_unique<Sampler>(d->sr);
         if(!sm->load(path)){
-            if(d->genLoadTicket==ticket)d->genLoadState=3;
+            d->post([this,ticket]{if(d->genLoadTicket==ticket)d->genLoadState=3;});
             return;
         }
         sm->setMode(Sampler::MELODIC);sm->setRoot(60);

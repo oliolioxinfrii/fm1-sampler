@@ -22,8 +22,7 @@ void SamplerUI::generativeDeck(){
         const float x=30+i*76;Rect box{x,106,70,23};
         text(x,97,8,WELL_DIM,labels[i]);rrect(box,0,0xff263544);stroke(box,0,WELL_DIM,.65f);
         text(x+5,117,10,WELL_TEXT,fit(values[i],55,10));text(x+65,117,9,WELL_DIM,"V",2);
-        // Left/right halves decrease/increase; encoders offer the same controls.
-        hit(box,[this,i,box](float px,float){app_.genHarmonic(i,px<box.x+box.w*.5f?-1:1);});
+        tap(box,[this,i]{genSelector_=i;});
     }
     for(int i=0;i<12;i++){
         const float x=30+i*18.6f;Rect k{x,135,16.6f,17};
@@ -117,8 +116,8 @@ void SamplerUI::generativeDeck(){
         hit(bar,set,set);
     }
     text(14,342,11,VIOLET,"PHRASE",0,true);
-    cycle({61,333,76,19},motifNames[c.motif],[this]{app_.genMotif((app_.genConfig().motif+1)%4);});
-    cycle({140,333,36,19},std::to_string(count(c)),[this]{const auto& v=app_.genConfig();if(v.motif!=3)app_.genSteps(v.steps>=16?4:v.steps+4);});
+    cycle({61,333,76,19},motifNames[c.motif],[this]{genSelector_=3;});
+    cycle({140,333,36,19},std::to_string(count(c)),[this]{if(app_.genConfig().motif!=3)genSelector_=4;});
     text(181,342,9,DIM,"EVENTS");
     cycle({222,333,68,19},"PIN ENDS",[this]{app_.genPinEnds();});
     cycle({293,333,76,19},"CLEAR PINS",[this]{app_.genClearPins();});
@@ -146,4 +145,39 @@ void SamplerUI::generativeDeck(){
         tap({x,y-5,std::max(8.f,w),10},[this,i]{app_.genTogglePin(i);});
     }
     if(running&&p.total>0){float x=start+span*clamp01(app_.genSeconds()/p.total);line(x,375,x,431,TRACE_AMBER,1);}
+}
+
+void SamplerUI::generativeSelector(){
+    using namespace generative;
+    const int sel=genSelector_;
+    if(sel<0||sel>4)return;
+    const auto& c=app_.genConfig();
+    std::vector<std::string> names;
+    int selected=0;
+    std::string title;
+    switch(sel){
+    case 0:title="ROOT";for(int i=0;i<12;i++)names.push_back(SamplerApp::noteName(i));selected=c.root;break;
+    case 1:title="SCALE";for(auto n:scaleNames)names.push_back(n);selected=c.scale;break;
+    case 2:title="OCTAVE";for(int i=2;i<=6;i++)names.push_back(std::to_string(i));selected=c.octave-2;break;
+    case 3:title="PHRASE";for(auto n:motifNames)names.push_back(n);selected=c.motif;break;
+    default:title="EVENTS";for(int i=1;i<=16;i++)names.push_back(std::to_string(i));selected=c.steps-1;break;
+    }
+    rrect({0,0,W_,H_},0,withAlpha(BG,208));tap({0,0,W_,H_},[this]{genSelector_=-1;});
+    const int cols=names.size()>8?3:2,rows=(int(names.size())+cols-1)/cols;
+    const float ww=std::min(W_*.85f,cols*146.f),hh=std::min(H_*.85f,45.f+rows*34.f);
+    Rect box{(W_-ww)*.5f,(H_-hh)*.5f,ww,hh};bevel(box,SURFACE);tap(box,[]{});
+    strip({box.x+5,box.y+5,box.w-10,26},VIOLET,title,14);
+    const float cw=(ww-12)/cols,ch=(hh-38)/rows;
+    for(int i=0;i<int(names.size());i++){
+        Rect r{box.x+6+(i%cols)*cw,box.y+35+(i/cols)*ch,cw-3,ch-3};
+        button(r,names[i],i==selected,[this,sel,i]{
+            const auto c=app_.genConfig();
+            if(sel==0)app_.genHarmonic(0,i-c.root);
+            else if(sel==1)app_.genHarmonic(1,i-c.scale);
+            else if(sel==2)app_.genHarmonic(2,i+2-c.octave);
+            else if(sel==3)app_.genMotif(i);
+            else app_.genSteps(i+1);
+            genSelector_=-1;
+        },11,false,VIOLET);
+    }
 }

@@ -404,8 +404,10 @@ void SamplerUI::frame(uint32_t now) {
         const float scale=std::min(W_/960.f,H_/450.f),ox=(W_-960*scale)*.5f,oy=(H_-450*scale)*.5f;
         const size_t first=ops_.size();generativeDeck();scaleStudy(scale,ox,oy,first);
         if(sheetOpen_)librarySheet();
+        if(genSelector_>=0)generativeSelector();
         return;
     }
+    genSelector_=-1;
     const float tb = 44, left = 176, right = 252;
     if (!app_.editor()) {   // the cassette deck fills the screen; the old sample / page editor stays one tap away (EDIT)
         const float scale=std::min(W_/960.f,H_/450.f);
