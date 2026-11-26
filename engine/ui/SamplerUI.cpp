@@ -8,7 +8,7 @@ using namespace theme;
 
 // Shared shell colors; signal displays use the high-contrast trace palette.
 namespace {
-constexpr float kPi = 3.14159265f;
+// Use the shared DSP kPi from Sampler.h / Common.h.
 uint32_t kBg, kPaper, kOrange, kInk, kLine, kDim;
 void syncColors() { kBg = theme::BG; kPaper = theme::TEXT; kOrange = theme::AMBER; kInk = theme::BG; kLine = theme::TRACK; kDim = theme::DIM; }
 }
