@@ -77,6 +77,9 @@ private:
     int scopeEnergyTrack_ = -1;
     uint32_t scopeEnergyAt_ = 0;
     float scopeEnergyMid_ = 0.f, scopeEnergySide_ = 0.f;
+    int lfoSweepTrack_ = -1;
+    float lfoSweepRate_ = -1.f;
+    uint32_t lfoSweepOrigin_ = 0;
     Session::Status st_{};
     bool linkMidi_ = false, linkAudio_ = false, sheetOpen_ = false, projectOpen_ = false;
     float sheetScroll_ = 0, sheetLastY_ = 0, sheetMoved_ = 0;

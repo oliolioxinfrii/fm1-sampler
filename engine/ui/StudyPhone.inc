@@ -201,13 +201,20 @@ void SamplerUI::studyPhone(Rect w, SamplerApp::Page pg) {
             quad({p[j-1].first,90},p[j-1],p[j],{p[j].first,90},al(dim,.15f));
         }
         D(p,blue,2.5f);
-        // The leftmost cycle represents the actual current oscillator phase.
-        // S&H uses the current held value rather than the preview's arbitrary sequence.
+        // Anchor the first visible period on page entry or a rate change.
+        // The audio thread counts wraps, so skipped UI frames cannot lose cycles.
+        if(lfoSweepTrack_!=t || lfoSweepRate_!=a){
+            lfoSweepTrack_=t;
+            lfoSweepRate_=a;
+            lfoSweepOrigin_=st_.lfoCycle[t];
+        }
+        const uint32_t elapsed=(st_.lfoCycle[t]+Session::kLfoCycleMod-lfoSweepOrigin_)%Session::kLfoCycleMod;
+        const int activeCycle=int(elapsed%uint32_t(n));
         const float phase=clamp01(st_.lfoPhase[t]);
         const float live=std::clamp(st_.lfoValue[t],-1.f,1.f);
-        const float hx=20+334.f*phase/n,hy=90-live*124*.45f*b;
+        const float hx=20+334.f*(activeCycle+phase)/n,hy=90-live*124*.45f*b;
         if(shape==3 && b>.001f){
-            const float start=20.f,end=20+334.f/n;
+            const float start=20+334.f*activeCycle/n,end=20+334.f*(activeCycle+1)/n;
             R(start,29,end-start,122,WELL);
             L(start,90,end,90,GRID,.8f);
             L(start,hy,end,hy,blue,2.5f);

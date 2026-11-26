@@ -396,6 +396,7 @@ const std::vector<UiOp>& SamplerUI::surfaceGraphic(uint32_t now) {
 void SamplerUI::frame(uint32_t now) {
     now_ = now;
     st_ = app_.status();
+    if (app_.page() != SamplerApp::P_LFO || app_.editor()) lfoSweepTrack_ = -1;
     syncColors();
     ops_.clear(); hits_.clear();
     rrect({0, 0, W_, H_}, 0, BG);

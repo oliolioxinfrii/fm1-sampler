@@ -18,6 +18,8 @@ public:
     static constexpr int kVoiceMax = 32;
     static constexpr int kLoopBins = 400;
     static constexpr int kScopePoints = 48;
+    // Common multiple of the 1..7 cycles drawn by the LFO page.
+    static constexpr uint32_t kLfoCycleMod = 420;
 
     struct Status {
         bool playing;
@@ -41,6 +43,7 @@ public:
         float clipPos[kTracks];  // 0..1 read position of the loops (follows the loop speed)
         float lfoValue[kTracks]; // -1..1, for the UI
         float lfoPhase[kTracks]; // normalized oscillator phase, read-only UI telemetry
+        uint32_t lfoCycle[kTracks]; // completed periods modulo kLfoCycleMod, coherent with lfoPhase
         float scGain[kTracks], scLevel[kTracks];   // sidechain: the gain a track is pulled down to (1 = untouched) and the level it is measured by (its own level before the fader)
         int voiceN[kTracks]; float voicePos[kTracks][kVoiceMax], voiceLvl[kTracks][kVoiceMax];   // + their envelope levels (a voice shrinks as it dies away)   // sounding voices (every grain in granular mode): read positions 0..1 of the whole sample
     };

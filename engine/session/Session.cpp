@@ -34,6 +34,7 @@ struct Session::Impl {
         Arp arp; bool arpOn = false;
         Lowpass filt; bool filtOn = false;
         Session::Lfo lfo; float lfoPhase = 0, lfoSH = 0, lfoVal = 0;
+        uint32_t lfoCycle = 0;
         TapeInsert tape;
         EchoInsert echoInsert;
         int mode = 0;
@@ -137,7 +138,9 @@ struct Session::Impl {
     std::atomic<uint32_t> a_cpu{0}, a_clip_mask{0}, a_cliprec_mask{0};
     std::atomic<int> a_bars{4}, a_sampleState{0}, a_sampleTrack{0}, a_sampleVersion{0}, a_sampleFails{0};
     std::atomic<int32_t> a_loop{0};
-    std::atomic<float> a_clipPos{0.f}, a_lfo[kTracks], a_lfoPhase[kTracks], a_scGain[kTracks], a_scLevel[kTracks];
+    std::atomic<float> a_clipPos{0.f}, a_lfo[kTracks], a_scGain[kTracks], a_scLevel[kTracks];
+    // High 16 bits: completed periods; low 16 bits: fractional phase.
+    std::atomic<uint32_t> a_lfoClock[kTracks];
     std::atomic<int> a_voiceN[kTracks]; std::atomic<float> a_voicePos[kTracks][kVoiceMax], a_voiceLvl[kTracks][kVoiceMax];
 
     std::vector<float> bus, tmp, sendBus[2], echoBus[2], wet;
@@ -149,7 +152,7 @@ struct Session::Impl {
         for (auto& a : a_lpk) a = 0.f;
         for (auto& r : a_tpk) for (auto& a : r) a = 0.f;
         for (auto& a : a_lfo) a = 0.f;
-        for (auto& a : a_lfoPhase) a = 0.f;
+        for (auto& a : a_lfoClock) a = 0u;
         for (auto& a : a_scGain) a = 1.f;
         for (auto& a : a_scLevel) a = 0.f;
         for (auto& a : a_voiceN) a = 0;
@@ -452,7 +455,13 @@ struct Session::Impl {
             // LFO: one value per block (about 170 Hz)
             float lfoGain = 1.f, lfoPan = 0.f, bend = 0.f; bool filterOn = false;
             if (t.lfo.depth > 0.001f) {
-                t.lfoPhase += t.lfo.rate * n / sr; if (t.lfoPhase >= 1.f) { t.lfoPhase -= std::floor(t.lfoPhase); t.lfoSH = (float)(rand() % 2001 - 1000) / 1000.f; }
+                t.lfoPhase += t.lfo.rate * n / sr;
+                if (t.lfoPhase >= 1.f) {
+                    const float wraps = std::floor(t.lfoPhase);
+                    t.lfoPhase -= wraps;
+                    t.lfoCycle = (t.lfoCycle + uint32_t(wraps)) % Session::kLfoCycleMod;
+                    t.lfoSH = (float)(rand() % 2001 - 1000) / 1000.f;
+                }
                 const float ph = t.lfoPhase;
                 const float v = t.lfo.shape == 0 ? std::sin(2.f * kPi * ph) : t.lfo.shape == 1 ? (ph < 0.5f ? 4 * ph - 1 : 3 - 4 * ph) : t.lfo.shape == 2 ? (ph < 0.5f ? 1.f : -1.f) : t.lfoSH;
                 t.lfoVal = v;
@@ -463,7 +472,8 @@ struct Session::Impl {
             } else t.lfoVal = 0.f;
             if (filterOn != t.filtOn) { t.filtOn = filterOn; t.filt.reset(); }
             a_lfo[ti].store(t.lfoVal);
-            a_lfoPhase[ti].store(t.lfoPhase);
+            const uint32_t phaseBits = std::min(65535u, uint32_t(t.lfoPhase * 65536.f));
+            a_lfoClock[ti].store((t.lfoCycle << 16) | phaseBits);
             a_scGain[ti].store(t.scGain); a_scLevel[ti].store(t.scEnv);
             // notes of the block: live ones at the start, the arpeggiator's with sample accurate offsets
             evs.clear();
@@ -920,7 +930,7 @@ Session::Status Session::status() const {
     for (int i = 0; i < kTracks; i++) {
         s.track_peak[i] = d->tracks[(size_t)i]->peak;
         s.track_has_clip[i] = cm >> i & 1; s.track_clip_rec[i] = rm >> i & 1;
-        s.clipPos[i] = d->a_clipPos; s.lfoValue[i] = d->a_lfo[i]; s.lfoPhase[i] = d->a_lfoPhase[i]; s.scGain[i] = d->a_scGain[i]; s.scLevel[i] = d->a_scLevel[i];
+        s.clipPos[i] = d->a_clipPos; s.lfoValue[i] = d->a_lfo[i]; const uint32_t clock = d->a_lfoClock[i].load(); s.lfoPhase[i] = float(clock & 65535u) / 65536.f; s.lfoCycle[i] = clock >> 16; s.scGain[i] = d->a_scGain[i]; s.scLevel[i] = d->a_scLevel[i];
         s.voiceN[i] = std::min(kVoiceMax, d->a_voiceN[i].load()); for (int j = 0; j < s.voiceN[i]; j++) { s.voicePos[i][j] = d->a_voicePos[i][j]; s.voiceLvl[i][j] = d->a_voiceLvl[i][j]; }
     }
     s.freeRecording = d->a_free; s.freeArmed = d->a_freeArmed; s.freeSeconds = d->a_freeSec;

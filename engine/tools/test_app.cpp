@@ -264,6 +264,48 @@ int main() {
     // LFO on each target
     btn(SamplerApp::LFO);
     for (int tg = 0; tg < 4; tg++) { auto k = app.knobs(); while (app.state(0).lfoTarget < tg) k[2].step(1); enc(3, 40); run(0.2); double r = play(60, 1.2); CHECK(r > 0.002, "LFO target %d sounds (rms %.4f), lfo value %.2f", tg, r, app.status().lfoValue[0]); }
+    { // LFO sweep must advance through every visible period, then wrap.
+        app.gotoPage(SamplerApp::P_LFO);
+        const auto savedLfo=app.knobs();
+        app.knobs()[0].set(.5f);
+        app.knobs()[1].set(.5f);
+        app.knobs()[3].set(0.f);
+        run(.15);
+        SamplerUI ui(app);
+        ui.setEditor(false); ui.setSize(960,450,0,0);
+        ui.frame(now);
+        constexpr int periods=4; // 1 + round(6 * .5)
+        const uint32_t origin=app.status().lfoCycle[app.track()];
+        bool visited[periods]={},correct=true;
+        bool wrapped=false;int previous=-1;
+        for(int j=0;j<40;j++){
+            ui.frame(now);
+            const auto st=app.status();
+            const int tr=app.track();
+            const uint32_t elapsed=(st.lfoCycle[tr]+Session::kLfoCycleMod-origin)%Session::kLfoCycleMod;
+            const int active=int(elapsed%periods);
+            const float expected=439.f+334.f*(active+st.lfoPhase[tr])/periods;
+            bool found=false;
+            for(const auto& op:ui.ops()){
+                if(op.type==UiOp::CIRCLE && op.color==theme::TRACE_AMBER &&
+                   std::fabs(op.f[2]-1.8f)<.01f &&
+                   op.f[0]>=439.f && op.f[0]<=773.f &&
+                   op.f[1]>=68.f && op.f[1]<=192.f){
+                    if(std::fabs(op.f[0]-expected)<.05f) found=true;
+                }
+            }
+            correct=correct&&found;
+            visited[active]=true;
+            if(previous==periods-1&&active==0)wrapped=true;
+            previous=active;
+            run(.1);
+        }
+        CHECK(correct,"LFO cursor follows oscillator phase and cycle count");
+        CHECK(visited[0]&&visited[1]&&visited[2]&&visited[3]&&wrapped,
+              "LFO cursor traverses all four visible cycles and wraps");
+        for(int i=0;i<4;i++)if(savedLfo[i].valid&&savedLfo[i].set)
+            app.knobs()[i].set(savedLfo[i].norm);
+    }
     enc(3, -80); run(0.3);
     // stretch + pitch (offline processing, applied when the knob rests)
     btn(SamplerApp::HOME); enc(4, 20); enc(5, 12); run(2.0); { double r = play(60, 1.0); CHECK(r > 0.002, "stretch + pitch sound (rms %.4f)", r); }
