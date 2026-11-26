@@ -221,4 +221,5 @@ FN(jobjectArray, uiFrame)(JNIEnv* env, jclass, jlong h, jfloat w, jfloat hh, jfl
     return r;
 }
 FN(void, uiTouch)(JNIEnv*, jclass, jlong h, jint action, jfloat x, jfloat y, jlong now) { auto& e = *E(h); std::lock_guard<std::mutex> l(e.surfaceMtx); e.ui->touch(action, x, y, (uint32_t)now); }
+FN(void, uiGesture)(JNIEnv*, jclass, jlong h, jint action, jfloat x1, jfloat y1, jfloat x2, jfloat y2, jlong now) { auto& e=*E(h);std::lock_guard<std::mutex> l(e.surfaceMtx);e.ui->gesture(action,x1,y1,x2,y2,(uint32_t)now); }
 }

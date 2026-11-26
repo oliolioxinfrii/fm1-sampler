@@ -12,6 +12,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+struct SampleBuf;
 
 class Session {
 public:
@@ -149,6 +150,7 @@ public:
     std::vector<std::string> sampleLibrary() const;   // saved recordings, newest first
 
     // ---- views ----
+    std::shared_ptr<const SampleBuf> sampleSource(int track,bool generator=false) const;
     std::vector<float> samplePeaksOf(int track, int bins) const;   // waveform of the track's sample (empty if none)
     std::string trackLabel(int track) const;                       // file name of the track's sample without extension
     // Bounded, coherent snapshot of actual post-insert stereo samples.

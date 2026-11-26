@@ -104,6 +104,24 @@ int main(){
  key(pinnedPc);assert(a.genConfig().pins[1]<0);
  SamplerUI view(a,false);view.setSize(960,450,0,0);view.frame(now);
  assert(!view.ops().empty());
+ // Deck-only mappings: a short action does not invoke a hub page.
+ auto shortPress=[&](int b){button(b,true);run(32);button(b,false);run(32);};
+ shortPress(SamplerApp::SAVE);assert(a.genPage()==1);
+ shortPress(SamplerApp::ARP);assert(a.genPage()==2);
+ shortPress(SamplerApp::SEQ);assert(a.genPage()==3);
+ shortPress(SamplerApp::HOME);assert(a.genPage()==0);
+ int apply=a.genConfig().apply;shortPress(SamplerApp::LFO);assert(a.genConfig().apply==(apply+1)%3);
+ int map=a.genMap();shortPress(SamplerApp::EDIT);assert(a.genMap()==(map+1)%3);
+ shortPress(SamplerApp::SEL);assert(a.genConfig().pins[0]>=0);shortPress(SamplerApp::ENV);assert(a.genConfig().pins[0]<0);
+ int root=a.genConfig().root;shortPress(SamplerApp::GLO);assert(a.genConfig().root==(root+1)%12);
+ button(SamplerApp::GLO,true);run(800);button(SamplerApp::GLO,false);assert(a.genConfig().root==(root+1)%12);
+ view.frame(now);
+ const float span0=a.genConfig().span,angle0=a.genConfig().angle;
+ view.gesture(0,480,145,600,145,now);
+ view.gesture(1,475,170,605,120,now);
+ view.gesture(2,0,0,0,0,now);
+ assert(a.genConfig().span>span0&&a.genConfig().angle!=angle0);
+
  button(SamplerApp::HOME,true);run(800);assert(a.editor()&&a.generativeDeck());button(SamplerApp::HOME,false);
  button(SamplerApp::HOME,true);run(800);assert(!a.editor()&&a.generativeDeck());button(SamplerApp::HOME,false);
  button(SamplerApp::REC,true);run(800);assert(!a.generativeDeck());button(SamplerApp::REC,false);

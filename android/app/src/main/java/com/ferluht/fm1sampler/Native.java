@@ -20,5 +20,6 @@ public final class Native {
     public static native void uiLink(long h, boolean midi, boolean usbAudio);
     public static native Object[] uiFrame(long h, float w, float hh, float top, float bottom, long nowMs);
     public static native void uiTouch(long h, int action, float x, float y, long nowMs);
+    public static native void uiGesture(long h, int action, float x1, float y1, float x2, float y2, long nowMs);
     private Native() { }
 }

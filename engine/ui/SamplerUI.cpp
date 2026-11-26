@@ -1,4 +1,5 @@
 #include "SamplerUI.h"
+#include "../dsp/Sampler.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -416,10 +417,13 @@ void SamplerUI::frame(uint32_t now) {
     if (app_.page() != SamplerApp::P_LFO || app_.editor()) lfoSweepTrack_ = -1;
     syncColors();
     ops_.clear(); hits_.clear();
+    waveRect_={};fieldRect_={};waveTrack_=-1;
     rrect({0, 0, W_, H_}, 0, BG);
     if(app_.generativeDeck()&&!app_.editor()){
         const float scale=std::min(W_/960.f,H_/450.f),ox=(W_-960*scale)*.5f,oy=(H_-450*scale)*.5f;
         const size_t first=ops_.size();generativeDeck();scaleStudy(scale,ox,oy,first);
+        fieldRect_={ox+fieldRect_.x*scale,oy+fieldRect_.y*scale,fieldRect_.w*scale,fieldRect_.h*scale};
+        if(sheetOpen_||genSelector_>=0)fieldRect_={};
         if(sheetOpen_)librarySheet();
         if(genSelector_>=0)generativeSelector();
         return;
@@ -441,7 +445,7 @@ void SamplerUI::frame(uint32_t now) {
     trackList({MARGIN, tb + MARGIN, left - MARGIN, H_ - tb - 2 * MARGIN});
     sampleArea({left + MARGIN, tb + MARGIN, W_ - left - right - 2 * MARGIN, H_ - tb - 2 * MARGIN});
     pagePanel({W_ - right, tb + MARGIN, right - MARGIN, H_ - tb - 2 * MARGIN});
-    if (sheetOpen_) librarySheet();
+    if (sheetOpen_) {librarySheet();waveRect_={};}
 }
 
 void SamplerUI::topBar(Rect r) {
@@ -1666,32 +1670,8 @@ void SamplerUI::sampleArea(Rect r) {
         }
         goto after_wave;
     }
-    {
-    auto pk = app_.peaks(t, bins);
-    const float cy = w.y + w.h / 2, bw = w.w / bins;
-    for (int i = 0; i < (int)pk.size(); i++) {
-        const float pos = (i + 0.5f) / bins, v = std::min(1.f, pk[(size_t)i] * 1.1f);
-        const bool in = pos >= ts.start && pos <= ts.end;
-        rrect({w.x + i * bw + 0.5f, cy - std::max(1.f, v * (w.h / 2 - 8)), std::max(1.f, bw - 1), std::max(2.f, v * (w.h - 16))}, 0, in ? TRACE_GREEN : WELL_DIM);
-    }
-    if (pk.empty()) text(w.x + w.w / 2, cy, T_BODY, WELL_DIM, "NO SAMPLE", 1, false);
-    for (int j = 0; j < st_.voiceN[t]; j++) {   // where the sounding voices are reading
-        const float vx = w.x + 4 + clamp01(st_.voicePos[t][j]) * (w.w - 8);
-        line(vx, w.y + 22, vx, w.y + w.h - 10, encoderTrace(j), 1.5f);
-        circle(vx, w.y + w.h - 10, 3.5f, encoderTrace(j));
-    }
-    }
+    waveform(w,true);
     after_wave:
-    // start / end handles (not while the microphone take is shown)
-    for (int h = 0; h < (app_.micState() == 1 || app_.micState() == 2 ? 0 : 2); h++) {
-        const float v = h ? ts.end : ts.start, hx = w.x + 2 + v * (w.w - 4);
-        line(hx, w.y + 4, hx, w.y + w.h - 4, encoderTrace(h), 2);
-        rrect({hx - (h ? 10 : 0), w.y + 4, 10, 14}, 0, encoderTrace(h));
-        hit({hx - 18, w.y, 36, w.h},
-            [](float, float) {},
-            [this, h, w](float x, float) { auto k = app_.knobs(SamplerApp::P_HOME); k[(size_t)h].set(clamp01((x - w.x - 2) / (w.w - 4))); });
-    }
-    if (ts.algo == 4 && app_.micState() == 0 && app_.hasSample(t)) echoPosition(w, 2.f);
     // loop strip under the waveform
     Rect ls{r.x, w.y + w.h + 6, r.w, 34};
     scope(ls, false);
@@ -1725,8 +1705,9 @@ void SamplerUI::sampleArea(Rect r) {
             app_.scrub(1, clamp01((x - x0) / span));
         }, [this] { app_.scrub(2, 0); });
     }
-    // library row
-    Rect lr{r.x, ls.y + ls.h + 12, r.w, 34};
+    // Tools occupy the freed space, source and record/load align with the bottom of track 8.
+    Rect lr{r.x, r.y+r.h-80, r.w, 34};
+    if(app_.micState()==0)waveTools({r.x,ls.y+ls.h+5,r.w,std::max(0.f,lr.y-ls.y-ls.h-10)},true);
     const auto& lib = app_.library();
     const int cur = app_.libraryCursor();
     button({lr.x, lr.y, 34, lr.h}, "<", false, [this] { app_.browse(-1); }, 15);
@@ -1746,7 +1727,7 @@ void SamplerUI::sampleArea(Rect r) {
     button({br.x, br.y, br.w * 0.6f - 3, br.h}, micLab[ms], ms == 2, [this] { app_.micSample(); }, 12, ms != 0, RED);
     button({br.x + br.w * 0.6f + 3, br.y, br.w * 0.4f - 3, br.h}, "LOAD FILE FROM DISK", false, [this] { app_.requestFile(); }, 11);
     const std::string ts_ = app_.toast();
-    if (!ts_.empty()) text(r.x, std::min(br.y + br.h + 14, r.y + r.h - 7), 11, ACCENT, fit(ts_, r.w, 11), 0, true);
+    if (!ts_.empty()&&app_.micState()!=0) text(r.x, ls.y+ls.h+14, 10, ACCENT, fit(ts_, r.w, 10), 0, true);
 }
 
 void SamplerUI::propertyTab(Rect r, const std::string& label, bool on,
@@ -1916,3 +1897,5 @@ void SamplerUI::projectSheet() {
 }
 
 #include "GenerativeDeck.inc"
+
+#include "WaveformGestures.inc"

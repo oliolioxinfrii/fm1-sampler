@@ -80,11 +80,33 @@ public class SamplerView extends View {
         postInvalidateOnAnimation();
     }
 
+    private boolean multi=false, suppressSingle=false;
+    private int firstId=-1,secondId=-1;
     @Override public boolean onTouchEvent(MotionEvent e) {
-        int act = e.getActionMasked();
-        int a = act == MotionEvent.ACTION_DOWN ? 0 : act == MotionEvent.ACTION_MOVE ? 1 : (act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_CANCEL) ? 2 : -1;
-        if (a < 0) return super.onTouchEvent(e);
-        Native.uiTouch(h, a, e.getX() / d, e.getY() / d, SystemClock.uptimeMillis());
+        final int act=e.getActionMasked();final long now=SystemClock.uptimeMillis();
+        if(act==MotionEvent.ACTION_DOWN){
+            multi=suppressSingle=false;firstId=e.getPointerId(0);secondId=-1;
+            Native.uiTouch(h,0,e.getX()/d,e.getY()/d,now);return true;
+        }
+        if(act==MotionEvent.ACTION_POINTER_DOWN&&!multi&&!suppressSingle&&e.getPointerCount()==2){
+            secondId=e.getPointerId(e.getActionIndex());int a=e.findPointerIndex(firstId),b=e.findPointerIndex(secondId);
+            if(a>=0&&b>=0){multi=true;Native.uiGesture(h,0,e.getX(a)/d,e.getY(a)/d,e.getX(b)/d,e.getY(b)/d,now);}
+            return true;
+        }
+        if(multi){
+            if(act==MotionEvent.ACTION_MOVE){
+                int a=e.findPointerIndex(firstId),b=e.findPointerIndex(secondId);
+                if(a>=0&&b>=0)Native.uiGesture(h,1,e.getX(a)/d,e.getY(a)/d,e.getX(b)/d,e.getY(b)/d,now);
+            }else if(act==MotionEvent.ACTION_UP||act==MotionEvent.ACTION_CANCEL||
+                    (act==MotionEvent.ACTION_POINTER_UP&&(e.getPointerId(e.getActionIndex())==firstId||e.getPointerId(e.getActionIndex())==secondId))){
+                Native.uiGesture(h,2,0,0,0,0,now);multi=false;suppressSingle=true;
+            }
+            return true;
+        }
+        if(suppressSingle){if(act==MotionEvent.ACTION_UP||act==MotionEvent.ACTION_CANCEL)suppressSingle=false;return true;}
+        int a=act==MotionEvent.ACTION_MOVE?1:(act==MotionEvent.ACTION_UP||act==MotionEvent.ACTION_CANCEL)?2:-1;
+        if(a>=0)Native.uiTouch(h,a,e.getX()/d,e.getY()/d,now);
         return true;
     }
+
 }

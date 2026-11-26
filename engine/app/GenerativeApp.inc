@@ -104,6 +104,7 @@ void SamplerApp::genSteps(int n){
     genChanged();
 }
 void SamplerApp::genRelocate(float x,float y){gen().config.cx=cl(x);gen().config.cy=cl(y);genChanged();}
+void SamplerApp::genTransform(float span,float angle){gen().config.span=cl(span,.12f,.94f);gen().config.angle=std::fmod(std::fmod(angle,360.f)+360.f,360.f);genChanged();}
 void SamplerApp::genTogglePin(int i){
     if(i<0||i>=gen().phrase.n||i>=generative::count(gen().config))return;
     auto& pin=gen().config.pins[i];

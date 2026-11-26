@@ -80,6 +80,7 @@ public:
     void genMotif(int m);
     void genSteps(int n);
     void genRelocate(float x,float y);
+    void genTransform(float span,float angle);
     void genTogglePin(int event);
     void genPinEnds();
     void genClearPins();

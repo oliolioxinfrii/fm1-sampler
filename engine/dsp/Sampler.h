@@ -12,12 +12,15 @@
 #include "Paul.h"
 #include "Slicer.h"
 #include <memory>
+#include <array>
 #include <string>
 #include <vector>
 
 struct SampleBuf {
     std::vector<float> d;   // interleaved stereo
     int frames = 0, sr = SAMPLERATE;
+    static constexpr int waveBlock=256;
+    std::vector<std::array<float,2>> waveBounds; // signed extrema across both channels
 };
 
 class Sampler {

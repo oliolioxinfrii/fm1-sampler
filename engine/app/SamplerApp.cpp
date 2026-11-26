@@ -4,6 +4,7 @@
 #include "../ui/SurfaceArt.h"
 #include <Common.h>
 #include <algorithm>
+#include "../dsp/Sampler.h"
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -172,8 +173,10 @@ void SamplerApp::applyHome(int t, bool commit) {
 void SamplerApp::editRange(int t,int edge,float value) {
     auto& x=ts_[t];
     const double anchor=x.start+double(x.echo.position)*(x.end-x.start);
-    if(edge==0)x.start=std::clamp(value,0.f,x.end-.02f);
-    else x.end=std::clamp(value,x.start+.02f,1.f);
+    auto source=s_.sampleSource(t);
+    const float minimum=source?std::min(1.f,64.f/std::max(64,source->frames)):.02f;
+    if(edge==0)x.start=std::clamp(value,0.f,std::max(0.f,x.end-minimum));
+    else x.end=std::clamp(value,std::min(1.f,x.start+minimum),1.f);
     // Keep the absolute source coordinate whenever it lies inside the
     // new region. Clamp only when the edited boundary crosses it.
     x.echo.position=cl(float((anchor-x.start)/(x.end-x.start)));
@@ -686,25 +689,28 @@ void SamplerApp::button(int b, bool down) {
         }
         return;
     }
+    // GLO short/long is disambiguated on release in every view.
+    if(b==GLO){
+        if(down&&!wasHeld){gloAt_=nowMs_;gloLong_=false;}
+        else if(!down&&wasHeld&&!gloLong_){
+            if(genDeck_&&!editor_)genHarmonic(0,1);
+            else page_=P_KEY;
+        }
+        return;
+    }
     if(genDeck_){
         if(!down||wasHeld)return;
         if(b==OCT_DOWN||b==OCT_UP){genHarmonic(2,b==OCT_UP?1:-1);return;}
         if(!editor_){
             switch(b){
-            case ENV:genSetPage(1);break;case LFO:genSetPage(2);break;case FX:genSetPage(3);break;
-            case ARP:genApply((gen().config.apply+1)%3);break;case SEQ:genSetMap((gen().map+1)%3);break;
-            case EDIT:genMotif((gen().config.motif+1)%4);break;case SAVE:genBrowse(1);break;
-            case GLO:genStop(true);break;case PLAY:transportPlay();break;default:break;
+            case SAVE:genSetPage(1);break;case ARP:genSetPage(2);break;case SEQ:genSetPage(3);break;
+            case FX:genMotif((gen().config.motif+1)%4);break;case SEL:genPinEnds();break;case ENV:genClearPins();break;
+            case LFO:genApply((gen().config.apply+1)%3);break;case EDIT:genSetMap((gen().map+1)%3);break;
+            case PLAY:transportPlay();break;default:break;
             }return;
         }
         if(b==SEL){page_=P_ARP;return;}
-        if(b==GLO){page_=P_KEY;return;}
         // Hub uses ordinary ENV / LFO / FX / MIX / TAPE pages.
-    }
-    if (b == GLO) {
-        if (down && !wasHeld) { gloAt_ = nowMs_; gloLong_ = false; }
-        else if (!down && wasHeld && !gloLong_) page_ = P_KEY;
-        return;
     }
     if (b == SAVE) {   // only the LOOP page: saving and clearing loops lives in the phone's PROJECT menu
         if (down) page_ = P_SAVE;
@@ -790,7 +796,7 @@ void SamplerApp::tick(uint32_t now) {
     if ((held_ & (1u << HOME)) && !homeLong_ && now - homeAt_ >= 600) {
         homeLong_ = true;setEditor(!editor_);
     }
-    if (!genDeck_ && (held_ & (1u << GLO)) && !gloLong_ && now - gloAt_ >= 600) {
+    if ((held_ & (1u << GLO)) && !gloLong_ && now - gloAt_ >= 600) {
         setLight(!theme::light); gloLong_ = true;
     }
     if (fwDirty_) { fwDirty_ = false; if(genDeck_){genOctAck_=false;genOctSentAt_=now;} sysex(6, {7, (uint8_t)(genDeck_?0:scale_.root), (uint8_t)(genDeck_?gen().config.octave-1:scale_.octave + 3), (uint8_t)(genDeck_?0:scale_.mode)}, true); }
@@ -909,7 +915,7 @@ void SamplerApp::leds() {
     uint64_t m = 0;
     const bool blinkFast = (nowMs_ / 250) & 1, blinkSlow = (nowMs_ / 500) & 1;
     if(genDeck_){
-        constexpr int btn[]={HOME,ENV,LFO,FX};
+        constexpr int btn[]={HOME,SAVE,ARP,SEQ};
         m|=1ull<<(editor_?(page_==P_ENV?ENV:page_==P_LFO?LFO:fxPage(page_)?FX:page_==P_ARP?ARP:page_==P_MIX?EDIT:page_==P_SAVE?SAVE:page_==P_KEY?GLO:page_==P_ETAPE||page_==P_EMIX?SEQ:HOME):btn[gen().page]);
         if(outputRecordState()==1?blinkFast:true)m|=1ull<<REC;
         if(gen().running)m|=1ull<<PLAY;

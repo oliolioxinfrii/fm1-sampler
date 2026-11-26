@@ -60,7 +60,7 @@ void SamplerUI::generativeDeck(){
     text(588,51,9,WELL_DIM,"APPLY",2);
     button({594,43,70,17},applyNames[c.apply],false,[this]{app_.genApply((app_.genConfig().apply+1)%3);},9);
     for(int i=0;i<3;i++)button({807.f+i*44,43,42,17},mapNames[i],kind==i,[this,i]{app_.genSetMap(i);},9,false,RAISED);
-    Rect map{316,65,574,176};
+    Rect map{316,65,574,176};fieldRect_=map;
     if(genMapVersion_!=app_.genVersion()||genMapKind_!=kind||genMapTrack_!=app_.track()){
         genMapVersion_=app_.genVersion();genMapKind_=kind;genMapTrack_=app_.track();
         for(int j=0;j<=32;j++)for(int i=0;i<=72;i++)
@@ -211,20 +211,10 @@ void SamplerUI::generativeHub(Rect r){
     const float cw=(r.w-20)/6;
     for(int i=0;i<6;i++)button({r.x+i*(cw+4),r.y+30,cw,28},app_.contextualPageName(pages[i]),app_.page()==pages[i],[this,i,pages=std::array<SamplerApp::Page,6>{pages[0],pages[1],pages[2],pages[3],pages[4],pages[5]}]{app_.gotoPage(pages[i]);},9.5f);
     Rect m{r.x,r.y+66,r.w,118};scope(m);
-    // Retain the original waveform window; only the loop strip becomes a phrase.
-    auto pk=app_.session().generatorPeaks(t);
-    if(pk.empty())text(m.x+m.w*.5f,m.y+m.h*.5f,11,WELL_DIM,"NO SAMPLE",1);
-    else{
-        const int n=std::max(20,int(m.w/3));const float bw=m.w/n,cy=m.y+m.h*.5f;
-        for(int i=0;i<n;i++){
-            size_t a=size_t(i)*pk.size()/n,b=std::min(pk.size(),std::max(a+1,size_t(i+1)*pk.size()/n));float v=0;
-            for(size_t j=a;j<b;j++)v=std::max(v,pk[j]);
-            float h=std::max(1.f,clamp01(v*1.1f)*(m.h*.5f-8));rrect({m.x+i*bw+.5f,cy-h,std::max(1.f,bw-1),2*h},0,TRACE_GREEN);
-        }
-        for(int j=0;j<st_.voiceN[t];j++){float xx=m.x+4+clamp01(st_.voicePos[t][j])*(m.w-8);line(xx,m.y+22,xx,m.y+m.h-10,encoderTrace(j),1.5f);}
-    }
+    waveform(m,false);
     Rect ls{r.x,m.y+m.h+6,r.w,34};generativePhrase(ls);
-    Rect lr{r.x,ls.y+ls.h+12,r.w,34};
+    Rect lr{r.x,r.y+r.h-80,r.w,34};
+    waveTools({r.x,ls.y+ls.h+5,r.w,std::max(0.f,lr.y-ls.y-ls.h-10)},false);
     button({lr.x,lr.y,34,lr.h},"<",false,[this]{app_.genBrowse(-1);},15);
     button({lr.x+lr.w-34,lr.y,34,lr.h},">",false,[this]{app_.genBrowse(1);},15);
     button({lr.x+40,lr.y,lr.w-80,lr.h},app_.genSource(),false,[this]{sheetOpen_=true;app_.refreshLibrary();},11);

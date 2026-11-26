@@ -30,6 +30,16 @@ bool Sampler::load(const std::string& path) {
             v = x;
         }
     }
+    // Exact signed envelope; block reduction keeps zoom redraw cost bounded.
+    buf->waveBounds.resize((buf->frames+SampleBuf::waveBlock-1)/SampleBuf::waveBlock);
+    for(int b=0;b<int(buf->waveBounds.size());b++){
+        float lo=1.f,hi=-1.f;
+        for(int i=b*SampleBuf::waveBlock;i<std::min(buf->frames,(b+1)*SampleBuf::waveBlock);i++){
+            lo=std::min({lo,buf->d[2*size_t(i)],buf->d[2*size_t(i)+1]});
+            hi=std::max({hi,buf->d[2*size_t(i)],buf->d[2*size_t(i)+1]});
+        }
+        buf->waveBounds[b]={lo,hi};
+    }
     peaks_.assign(512, 0.f);
     for (int b = 0; b < 512; b++) {
         const long a = (long)buf->frames * b / 512, e = std::max(a + 1, (long)buf->frames * (b + 1) / 512), step = std::max(1L, (e - a) / 64);
@@ -60,10 +70,10 @@ std::vector<float> Sampler::sliceFractions() const {
 }
 void Sampler::setMode(int m) { mode_ = std::min(kModes - 1, std::max(0, m)); }
 void Sampler::setEnv(float a, float d, float s, float r) { atk_ = a; dec_ = d; sus_ = s; rel_ = r; }
-void Sampler::setRange(float a, float b) { rangeA_ = clampf(a, 0.f, 1.f); rangeB_ = clampf(b, 0.f, 1.f); if (rangeB_ < rangeA_ + 0.005f) rangeB_ = std::min(1.f, rangeA_ + 0.005f); if(mode_!=GRAIN)reslice(); }
+void Sampler::setRange(float a, float b) { const float minSpan=orig_?std::min(1.f,64.f/std::max(64,orig_->frames)):.005f;rangeA_=clampf(a,0.f,1.f-minSpan);rangeB_=clampf(b,rangeA_+minSpan,1.f);if(mode_!=GRAIN)reslice(); }
 void Sampler::setProcessed(std::shared_ptr<const SampleBuf> p, float a, float b) {
     if (proc_ && proc_ != p) retired_.push_back(std::move(proc_));
-    proc_ = std::move(p); procA_ = a; procB_ = std::max(a + 0.001f, b);
+    proc_ = std::move(p); procA_ = a; procB_ = std::max(a + 1e-7f, b);
 }
 std::shared_ptr<const SampleBuf> Sampler::takeUnusedProcessed() {
     for (auto it = retired_.begin(); it != retired_.end(); ++it) {

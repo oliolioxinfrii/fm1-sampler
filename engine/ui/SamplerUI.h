@@ -20,6 +20,7 @@ public:
     void setEditor(bool on) { app_.setEditor(on); }   // false: the cassette deck, true: sample / page editor
     const std::vector<UiOp>& ops() const { return ops_; }
     void touch(int action /*0 down 1 move 2 up*/, float x, float y, uint32_t nowMs);
+    void gesture(int action,float x1,float y1,float x2,float y2,uint32_t nowMs);
 
 private:
     struct Rect { float x, y, w, h; bool has(float px, float py) const { return px >= x && px < x + w && py >= y && py < y + h; } };
@@ -69,6 +70,24 @@ private:
     void reel(float cx, float cy, float r, float ang);
     void trackList(Rect r);
     void sampleArea(Rect r);
+    struct WaveView {std::weak_ptr<const SampleBuf> source;float lo=0,span=1;};
+    std::array<WaveView,2*SamplerApp::kTracks> waveViews_{};
+    WaveView& waveView();
+    Rect waveRect_{},fieldRect_{};
+    int waveTrack_=-1,gestureKind_=0,gestureTrack_=-1;
+    bool gestureGen_=false;
+    float gestureDist_=1,gestureAngle_=0,gestureMid_=0,gestureAnchor_=0,gestureSpan_=1,gestureRouteAngle_=0;
+    float wavePanX_=0,wavePanLo_=0;
+    std::weak_ptr<const SampleBuf> waveCacheSource_;
+    float waveCacheLo_=-1,waveCacheSpan_=-1;
+    int waveCacheBins_=0;
+    std::vector<std::array<float,2>> waveCache_;
+    void waveform(Rect r,bool editable);
+    void waveTools(Rect r,bool editable);
+    void waveZoom(float factor,float center=.5f);
+    void waveFit();
+    void waveSet(float lo,float span);
+    float waveMinimum()const;
     void pagePanel(Rect r);
     void propertyTab(Rect r, const std::string& label, bool on, uint32_t col, float font);
     void librarySheet();

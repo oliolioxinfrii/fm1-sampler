@@ -90,7 +90,7 @@ struct Session::Impl {
         bool running=false;
         generative::Config next;
         generative::Snapshot view,published;
-        mutable std::mutex peaksMutex;std::vector<float> peaks;
+        mutable std::mutex peaksMutex;std::vector<float> peaks;std::shared_ptr<const SampleBuf> source;
         mutable std::mutex mutex;
         int64_t frame=0;
         uint16_t started=0,ended=0;
@@ -745,7 +745,7 @@ void Session::generatorLoad(const std::string& path,int t){
         }
         sm->setMode(Sampler::MELODIC);sm->setRoot(60);
         auto holder=std::make_shared<std::unique_ptr<Sampler>>(std::move(sm));
-        {auto& g=d->generators[t];std::lock_guard<std::mutex> lock(g.peaksMutex);if(g.ticket==ticket)g.peaks=(*holder)->peaks();}
+        {auto& g=d->generators[t];std::lock_guard<std::mutex> lock(g.peaksMutex);if(g.ticket==ticket){g.peaks=(*holder)->peaks();g.source=(*holder)->original();}}
         d->post([this,t,ticket,holder]{
             auto& g=d->generators[t];
             if(g.ticket==ticket){
@@ -1051,6 +1051,11 @@ std::vector<std::string> Session::sampleLibrary() const {
 }
 
 // ---- views ----
+std::shared_ptr<const SampleBuf> Session::sampleSource(int t,bool generator)const{
+    if(t<0||t>=kTracks)return {};
+    if(generator){auto& g=d->generators[t];std::lock_guard<std::mutex> l(g.peaksMutex);return g.source;}
+    auto& tr=*d->tracks[t];std::lock_guard<std::mutex> l(tr.infoMtx);return tr.orig;
+}
 std::vector<float> Session::samplePeaksOf(int t, int bins) const {
     std::vector<float> out;
     if (t < 0 || t >= kTracks || bins <= 0) return out;
