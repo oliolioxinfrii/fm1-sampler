@@ -166,7 +166,7 @@ void SamplerUI::studyScopeEnergy(int track,float& mid,float& side) {
         const float dt=std::min(1.f,float(now_-scopeEnergyAt_)*.001f);
         scopeEnergyAt_=now_;
         auto smooth=[dt](float old,float target){
-            const float tc=target>old?.095f:.23f;
+            const float tc=target>old?.040f:.180f;
             return old+(1.f-std::exp(-dt/tc))*(target-old);
         };
         scopeEnergyMid_=smooth(scopeEnergyMid_,mr);
@@ -190,12 +190,20 @@ InsertVizPoint insertViz(float q,uint32_t now,float width,float level,float midR
     const float dy=gain*(.72f*std::cos(u)+.20f*2.02f*std::cos(2.02f*u+.6f*t));
     const float norm=std::max(.08f,std::hypot(dx,dy));
     const float energy=std::hypot(midRms,sideRms);
-    const float amplitude=.105f*std::tanh(3.f*energy);
-    // Smooth onset along the path, with the most visible ripple at the head.
-    const float taper=q*q*(3.f-2.f*q);
-    const float ripple=amplitude*taper*(.74f*std::sin(tau*13*q+5.2f*t)+.26f*std::sin(tau*19*q-3.1f*t));
-    return {std::clamp(baseS-ripple*dy/norm,-.99f,.99f),
-            std::clamp(baseM+ripple*dx/norm,-.99f,.99f)};
+    // A small noise floor and compressive response make quiet material
+    // visible without allowing loud material to overwhelm the idle figure.
+    const float amplitude=.26f*std::tanh(3.8f*std::sqrt(std::max(0.f,energy-.0005f)));
+    const float sideFraction=energy>0.f?clamp01(sideRms*sideRms/(energy*energy)):.5f;
+    // A ripple travels toward the head (increasing q), rather than
+    // remaining localized at its tip. The tail still moves more gently.
+    const float taper=.35f+.65f*q*q*(3.f-2.f*q);
+    const float ripple=amplitude*taper*(.78f*std::sin(tau*9*q-7.2f*t)+.22f*std::sin(tau*14*q-10.4f*t));
+    // Bias the normal displacement toward the dominant M/S component.
+    // Keep a nonzero response on both axes so mono signals still wiggle.
+    const float sideWeight=.70f+.30f*sideFraction;
+    const float midWeight=1.f-.30f*sideFraction;
+    return {std::clamp(baseS-ripple*dy/norm*sideWeight,-.99f,.99f),
+            std::clamp(baseM+ripple*dx/norm*midWeight,-.99f,.99f)};
 }
 }
 #include "StudyGraphic.inc"
