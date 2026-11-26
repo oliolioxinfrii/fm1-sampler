@@ -65,6 +65,7 @@ void SamplerApp::setGenerativeDeck(bool on){
 void SamplerApp::genLoadEntry(int i){
     if(i<0||i>=int(lib_.size()))return;
     genStop();gen().entry=i;gen().source=lib_[i].label;gen().path=lib_[i].path;
+    applyEnv(track_);
     s_.generatorLoad(gen().path,track_);
 }
 void SamplerApp::genBrowse(int d){
@@ -75,6 +76,7 @@ void SamplerApp::genPlay(){
     if(!genDeck_||gen().running)return;
     if(generative::count(gen().config)==0){say("CUSTOM: ENTER STARTING NOTES");return;}
     if(s_.generatorLoadState(track_)!=2){say("SELECT A READY SAMPLE");return;}
+    gen().audioSerial=s_.generatorSnapshot(track_).serial;
     gen().running=true;gen().cursor=-1;gen().active=0;gen().seconds=0;
     gen().phrase=generative::makePhrase(gen().config,gen().pass);++gen().version;
     s_.generatorPlay(gen().config,gen().pass,track_);
@@ -164,6 +166,12 @@ SamplerApp::Knobs SamplerApp::genKnobs(){
     }
     return k;
 }
+void SamplerApp::genPalette(){
+    std::vector<uint8_t> pal;
+    for(int i=0;i<14;i++)cat(pal,col(rgb565(generative::color(-1+2.f*i/13))));
+    cat(pal,col(rgb565(0xffedf2ee)));cat(pal,col(rgb565(0xffffc361)));
+    sysex(8,pal,false,920);
+}
 void SamplerApp::drawGenerator(uint32_t now){
     using namespace generative;
     const bool full=needClear_;
@@ -171,10 +179,7 @@ void SamplerApp::drawGenerator(uint32_t now){
         clear(WELL);
         // Same five-stop heatmap as the phone, quantized to 14 bins;
         // two spare palette slots are the white path and amber traversal.
-        std::vector<uint8_t> pal;
-        for(int i=0;i<14;i++)cat(pal,col(rgb565(color(-1+2.f*i/13))));
-        cat(pal,col(rgb565(0xffedf2ee)));cat(pal,col(rgb565(0xffffc361)));
-        sysex(8,pal,false,920);genTileSig_.fill(~0ull);genMapVersion_=0;
+        genPalette();genTileSig_.fill(~0ull);genMapVersion_=0;genTileCursor_=0;
         needClear_=false;fwDirty_=true;
     }
     if(!full&&(now-genDrawAt_<80||pending_.size()>3))return;
@@ -201,8 +206,10 @@ void SamplerApp::drawGenerator(uint32_t now){
     }
     // Entire 240x240 screen is the very same normalized map. 12x12 pixels
     // per sample; 60x12 tiles keep even worst-case RLE below 300 bytes.
-    int idx=0;
-    for(int y=0;y<240;y+=12)for(int x=0;x<240;x+=60,++idx){
+    const int start=genTileCursor_;
+    for(int step=0;step<80;step++){
+        int idx=(start+step)%80,x=(idx%4)*60,y=(idx/4)*12;
+        genTileCursor_=(idx+1)%80;
         std::array<uint8_t,720> pix{};uint64_t h=1469598103934665603ull;int n=0;
         for(int j=0;j<12;j++)for(int i=0;i<60;i++){uint8_t v=image[((y+j)/12)*20+(x+i)/12];pix[n++]=v;h=(h^v)*1099511628211ull;}
         if(genTileSig_[idx]==h)continue;genTileSig_[idx]=h;

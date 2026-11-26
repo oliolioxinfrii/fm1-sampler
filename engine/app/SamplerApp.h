@@ -238,7 +238,8 @@ private:
     GenTrack& gen(){return genTracks_[track_];}
     const GenTrack& gen()const{return genTracks_[track_];}
     uint32_t genDrawAt_=0,genMapVersion_=0,genOctSentAt_=0;
-    int genDrawMap_=-1,genDrawTrack_=-1;
+    int genDrawMap_=-1,genDrawTrack_=-1,genTileCursor_=0;
+    void genPalette();
     bool genOctAck_=false;
     std::array<uint8_t,20*20> genCells_{};
     std::array<uint64_t,80> genTileSig_{};

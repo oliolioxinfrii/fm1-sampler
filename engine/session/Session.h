@@ -65,6 +65,7 @@ public:
     void generatorEnable(bool on);
     void generatorLoad(const std::string& path,int track=0);
     int generatorLoadState(int track=0) const;
+    std::vector<float> generatorPeaks(int track) const;
     void generatorConfigure(const generative::Config& c,int track=0);
     void generatorPlay(const generative::Config& c,uint32_t pass=0,int track=0);
     void generatorStop(int track=0);

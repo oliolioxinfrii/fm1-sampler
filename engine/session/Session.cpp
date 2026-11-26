@@ -90,6 +90,7 @@ struct Session::Impl {
         bool running=false;
         generative::Config next;
         generative::Snapshot view,published;
+        mutable std::mutex peaksMutex;std::vector<float> peaks;
         mutable std::mutex mutex;
         int64_t frame=0;
         uint16_t started=0,ended=0;
@@ -567,7 +568,9 @@ struct Session::Impl {
                 auto& g=generators[ti];
                 if(g.sampler)g.sampler->setBend(bend);
                 genRender(g,bus.data(),n);
-                a_voiceN[ti].store(0);
+                float vp[kVoiceMax],vl[kVoiceMax];const int vn=g.sampler?g.sampler->voicePositions(vp,kVoiceMax,vl):0;
+                for(int i=0;i<vn;i++){a_voicePos[ti][i].store(vp[i]);a_voiceLvl[ti][i].store(vl[i]);}
+                a_voiceN[ti].store(vn);
             }else if (t.sampler) {
                 t.sampler->setBend(bend);
                 int cur = 0;
@@ -679,7 +682,7 @@ struct Session::Impl {
         for (int i = 0; i < n * 2; i++) { const float v = std::tanh(out[i] * masterVol); out[i] = v; mp = std::max(mp, std::fabs(v)); }
         a_master.store(std::max(mp, a_master.load() * 0.92f));
         if(outputTake){
-            const size_t count=std::min<size_t>(2*n,outputTake->capacity()-outputTake->size());
+            const size_t count=std::min<size_t>(2*n,size_t(sr)*360-outputTake->size());
             outputTake->insert(outputTake->end(),out,out+count);
             outputSeconds=float(outputTake->size())/(2.f*sr);
             if(outputTake->size()>=size_t(sr)*360)finishOutputTake();
@@ -742,6 +745,7 @@ void Session::generatorLoad(const std::string& path,int t){
         }
         sm->setMode(Sampler::MELODIC);sm->setRoot(60);
         auto holder=std::make_shared<std::unique_ptr<Sampler>>(std::move(sm));
+        {auto& g=d->generators[t];std::lock_guard<std::mutex> lock(g.peaksMutex);if(g.ticket==ticket)g.peaks=(*holder)->peaks();}
         d->post([this,t,ticket,holder]{
             auto& g=d->generators[t];
             if(g.ticket==ticket){
@@ -754,6 +758,7 @@ void Session::generatorLoad(const std::string& path,int t){
     });
 }
 int Session::generatorLoadState(int t)const{return t>=0&&t<kTracks?d->generators[t].loadState.load():0;}
+std::vector<float> Session::generatorPeaks(int t)const{if(t<0||t>=kTracks)return {};auto& g=d->generators[t];std::lock_guard<std::mutex> lock(g.peaksMutex);return g.peaks;}
 void Session::generatorConfigure(const generative::Config& c,int t){if(t>=0&&t<kTracks)d->post([this,c,t]{d->generators[t].next=c;});}
 void Session::generatorPlay(const generative::Config& c,uint32_t pass,int t){
     if(t<0||t>=kTracks)return;

@@ -221,6 +221,23 @@ const std::vector<UiOp>& SamplerUI::surfaceGraphic(uint32_t now) {
     constexpr float top=22,bot=92,cy=57;
     const uint32_t ink=pageColor(pg,true);
     rrect({0,top,432,bot-top},0,WELL);
+    if(app_.generativeDeck()&&(pg==P::P_HOME||pg==P::P_ECHO||pg==P::P_GRAIN||pg==P::P_MOTION||pg==P::P_KEY||pg==P::P_ARP||pg==P::P_SAVE)){
+        const auto& p=app_.genPhrase();
+        if(pg==P::P_SAVE){
+            const bool rec=app_.outputRecordState()==1;circle(216,57,17,rec?TRACE_RED:WELL_DIM);
+            if(rec)circle(216,57,8,WELL);
+        }else if(pg==P::P_KEY||pg==P::P_ARP){
+            for(int i=0;i<12;i++){uint32_t c=app_.genKeyState(i)==3?TRACE_AMBER:app_.genKeyState(i)?TRACE_BLUE:GRID;rrect({8.f+i*35,39,31,36},0,c);}
+        }else{
+            int kind=app_.genMap();
+            for(int y=0;y<8;y++)for(int x=0;x<32;x++){
+                float v=generative::field(p,(x+.5f)/32,1-(y+.5f)/8,kind);
+                rrect({x*13.5f,top+y*8.75f,13.5f,8.75f},0,generative::color(v));
+            }
+            for(int i=1;i<p.n;i++)line(432*p.event[i-1].point.x,top+70*(1-p.event[i-1].point.y),432*p.event[i].point.x,top+70*(1-p.event[i].point.y),i<=app_.genCursor()?TRACE_AMBER:WELL_TEXT,2);
+        }
+        return ops_;
+    }
     if(studyGraphic({0,top,432,bot-top},pg,true))return ops_;
     auto path=[&](const std::vector<std::pair<float,float>>& pts,uint32_t c,float width=3.f){
         for(size_t i=1;i<pts.size();++i)line(pts[i-1].first,pts[i-1].second,pts[i].first,pts[i].second,c,width);
@@ -450,7 +467,7 @@ void SamplerUI::topBar(Rect r) {
     x += 94;
     button({x, 6, 56, r.h - 12}, "SAVE", false, [this] { app_.loopSave(); }, 11, true, GREEN);
     x += 62;
-    button({x, 6, 56, r.h - 12}, "CLEAR", false, [this] { app_.loopClear(); }, 11, true, RED);
+    button({x, 6, 56, r.h - 12}, app_.generativeDeck()?"PINS":"CLEAR", false, [this] { app_.loopClear(); }, 11, true, RED);
     x += 62;
     button({x, 6, 56, r.h - 12}, "DECK", false, [this] { app_.setEditor(false); }, 11);
     x += 70;

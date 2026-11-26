@@ -29,7 +29,9 @@ int main(){
  std::vector<float> pcm(44100*2);
  for(int i=0;i<44100;i++)pcm[2*i]=pcm[2*i+1]=.3f*std::sin(tau*220*i/44100);
  assert(writeWav16(path.string(),pcm,44100));
- Session s(44100);s.generatorEnable(true);s.generatorLoad(path.string());
+ auto data=std::filesystem::temp_directory_path()/("fm1-gen-capture-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+ std::filesystem::create_directories(data);
+ Session s(44100);s.setDataDir(data.string());s.generatorEnable(true);s.generatorLoad(path.string());
  float out[512]{};
  for(int i=0;i<2000&&s.generatorLoadState()!=2;i++){s.process(out,nullptr,256);std::this_thread::sleep_for(std::chrono::milliseconds(1));}
  assert(s.generatorLoadState()==2);s.generatorPlay(c);
@@ -38,20 +40,31 @@ int main(){
  s.generatorLoad(path.string(),1);
  for(int i=0;i<2000&&s.generatorLoadState(1)!=2;i++){s.process(out,nullptr,256);std::this_thread::sleep_for(std::chrono::milliseconds(1));}
  assert(s.generatorLoadState(1)==2);auto c2=c;c2.root=5;c2.seed=91;s.generatorPlay(c2,0,1);s.process(out,nullptr,256);assert(s.generatorSnapshot(1).running);
+ // Record actual final master samples with both tracks active and sends enabled.
+ s.setEchoSend(0,0,.5f);s.setEchoSend(1,1,.6f);
+ s.outputRecordStart();std::vector<float> reference;
+ for(int i=0;i<160;i++){s.process(out,nullptr,256);reference.insert(reference.end(),out,out+512);}
+ s.outputRecordStop();
+ for(int i=0;i<2000&&s.outputRecordState()!=3&&s.outputRecordState()!=4;i++){s.process(out,nullptr,256);std::this_thread::sleep_for(std::chrono::milliseconds(1));}
+ assert(s.outputRecordState()==3);
+ std::vector<float> recorded;int rate=0;assert(readWav(s.outputRecordPath(),recorded,rate));
+ assert(rate==44100&&recorded.size()==reference.size());
+ for(size_t i=0;i<reference.size();i++)assert(std::abs(recorded[i]-reference[i])<.00015f);
+ assert(s.generatorSnapshot().running&&s.generatorSnapshot(1).running);
  s.generatorStop();s.process(out,nullptr,256);assert(!s.generatorSnapshot().running&&s.generatorSnapshot(1).running);
  s.generatorStop(1);
  s.generatorStop();s.process(out,nullptr,256);assert(!s.generatorSnapshot().running&&!s.generatorSnapshot(1).running);
  s.generatorEnable(false);s.process(out,nullptr,256);assert(!s.generatorSnapshot().enabled);
- std::filesystem::remove(path);
+ std::filesystem::remove(path);std::filesystem::remove_all(data);
  // Real app-side hardware routing and full-screen RLE transfer.
  Session hw(44100);
- bool pal=false;std::array<bool,240*240> coverage{};uint64_t leds=0;
+ bool pal=false;std::array<bool,240*240> coverage{};uint64_t leds=0;int clears=0;
  SamplerApp a(hw,[&](const uint8_t* m,size_t n){
    assert(n<=300);if(n<8)return;
    auto n14=[](const uint8_t* b){return int(b[0])*128+b[1];};
    auto cmd=[&](const uint8_t* b,size_t len){
       if(!len)return;
-      if(b[0]==2){coverage.fill(false);pal=false;}
+      if(b[0]==2){coverage.fill(false);pal=false;++clears;}
       if(b[0]==8){assert(len==49);pal=true;}
       if(b[0]==1&&len==7){leds=0;for(int i=0;i<6;i++)leds|=uint64_t(b[i+1])<<(7*i);}
       if(b[0]==9){
@@ -76,6 +89,12 @@ int main(){
  button(SamplerApp::REC,true);run(800);assert(a.generativeDeck());button(SamplerApp::REC,false);
  run(18000);assert(std::all_of(coverage.begin(),coverage.end(),[](bool v){return v;}));
  assert(!a.recordingNow()&&!a.loopExists());
+ auto pong=[&](int drop){uint8_t m[30]={0xf0,0x7d,'D','A','W',1,0x40};m[28]=uint8_t(drop);m[29]=0xf7;a.onSysex(m,30);};
+ pong(0);run(18000);int before=clears;pong(1);run(2000);assert(clears==before);
+ a.selectTrack(1);a.genHarmonic(0,5);assert(a.genConfig().root==5);a.selectTrack(0);assert(a.genConfig().root==0);
+ // ACK the selected octave, then emulate the physical OCT+ scale report.
+ uint8_t scale[]={0xf0,0x7d,'D','A','W',1,0x41,7,0,3,0,0xf7};run(1000);a.onSysex(scale,sizeof scale);scale[9]=4;a.onSysex(scale,sizeof scale);assert(a.genConfig().octave==5);
+
  a.genMotif(3);
  key(9);key(5);key(7);key(0);key(7);assert(a.genConfig().customCount==4);
  run(1000);

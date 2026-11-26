@@ -109,6 +109,7 @@ void SamplerApp::refreshLibrary() {
         lib_.push_back({nm, "User", p, false});
     }
     if (libCursor_ >= (int)lib_.size()) libCursor_ = 0;
+    for(auto& g:genTracks_){g.entry=-1;for(int i=0;i<int(lib_.size());i++)if(lib_[i].path==g.path){g.entry=i;break;}}
 }
 void SamplerApp::browse(int d) {
     if (lib_.empty()) return;
@@ -654,7 +655,7 @@ void SamplerApp::onSysex(const uint8_t* m, size_t n) {
     }
     else if (m[6] == 0x40 && n >= 30) {   // PONG: frames the FM-1 had to drop
         uint32_t d = 0; for (int i = 0; i < 5; i++) d = d << 7 | (m[24 + i] & 127);
-        if (haveDropBase_ && d != dropped_) { gap_ = std::min<uint32_t>(250, gap_ * 16 / 10 + 1); lastLoss_ = nowMs_; if(genDeck_&&!editor_){discardPending(3000,3079);genTileSig_.fill(~0ull);}else{needClear_=true;pending_.clear();pendingBytes_=0;} }
+        if (haveDropBase_ && d != dropped_) { gap_ = std::min<uint32_t>(250, gap_ * 16 / 10 + 1); lastLoss_ = nowMs_; if(genDeck_&&!editor_){discardPending(3000,3079);genTileSig_.fill(~0ull);genPalette();}else{needClear_=true;pending_.clear();pendingBytes_=0;} }
         if (!haveDropBase_) { needClear_ = true; repaintAt_ = genDeck_&&!editor_?0:nowMs_ + 1500; }   // first contact: whatever the firmware drew (its splash) goes
         if (!haveDropBase_) fwDirty_ = true;
         dropped_ = d; haveDropBase_ = true;
@@ -992,9 +993,9 @@ void SamplerApp::draw(uint32_t now) {
     char b[96];
     const Knobs k = knobs();
     // header: the track number and the sample name, the transport state as the same pictogram as on the phone
-    const bool recNow = st_.freeRecording || st_.track_clip_rec[track_];
+    const bool recNow = genDeck_?outputRecordState()==1:(st_.freeRecording || st_.track_clip_rec[track_]);
     {
-        const std::string lab = s_.trackLabel(track_);
+        const std::string lab = genDeck_?gen().source:s_.trackLabel(track_);
         const uint32_t tc = theme::trackColor(track_);
         // Side strips leave the text cell independent of cache repairs.
         rect(371, 8, 7, 22, 1, rgb565(tc));
@@ -1003,7 +1004,7 @@ void SamplerApp::draw(uint32_t now) {
         rect(374, 26, 8, 4, 24, rgb565(tc));
         drawText(0, 12, 8, 3, rgb565(theme::contrastInk(tc)), rgb565(tc), std::to_string(track_ + 1), 1);
         drawText(1, 38, 12, 2, lab.empty() ? DIM : PAPER, rgb565(theme::RAISED), lab.empty() ? "EMPTY" : lab, 16);
-        const int stt = recNow ? 2 : st_.playing ? 1 : 0;
+        const int stt = recNow ? 2 : (genDeck_?gen().running:st_.playing) ? 1 : 0;
         static int lastSt = -1; if (stt != lastSt || needClear_) { lastSt = stt; rects_[26] = ~0ull; for (int i = 0; i < 16; i++) rects_[300 + i] = ~0ull; }
         rect(26, 212, 12, 16, 16, PANEL);
         for (int i = 0; i < 16; i++) {
@@ -1014,7 +1015,7 @@ void SamplerApp::draw(uint32_t now) {
         }
     }
     const uint32_t pc = pageAccent(page_);
-    drawText(20, 12, 36, 2, rgb565(theme::contrastInk(pc)), rgb565(pc), kPage[page_], 9);
+    drawText(20, 12, 36, 2, rgb565(theme::contrastInk(pc)), rgb565(pc), contextualPageName(page_), 9);
     menuMarkers();
     if(waveform) hero(now,k);
     // the loop: a thin bar with the position, under it the state (mic / toast / audition, else the sample mode and the loop)
@@ -1023,10 +1024,11 @@ void SamplerApp::draw(uint32_t now) {
     else if (mic_ == 2) line = fmt("MIC: RECORDING %.1fS", st_.sampleSeconds);
     else if (!toast().empty()) line = toast();
     else if (auditionAt_) { const Entry& e = lib_[(size_t)libCursor_]; line = ">" + e.label + "  " + e.group; }
+    else if(genDeck_)line=loopText();
     else line = (algo() == 4 ? std::string("GRANULAR/") + echoModeName(ts_[track_].echo.mode) : std::string(kAlgo[ts_[track_].algo])) + "  " + loopText();
     const bool hot = !toast().empty() || mic_ || auditionAt_ || st_.freeRecording || recNow || st_.freeArmed;
-    const bool hasLoopBar = loopAny_ && st_.loopSamples > 0;
-    const int px = std::min(215, std::max(0, (int)(cl(st_.track_has_clip[track_] ? st_.clipPos[track_] : (hasLoopBar ? st_.pos / st_.loopSamples : 0)) * 215)));
+    const bool hasLoopBar = genDeck_?gen().phrase.total>0:(loopAny_ && st_.loopSamples > 0);
+    const int px = std::min(215, std::max(0, (int)(cl(genDeck_?(gen().phrase.total>0?gen().seconds/gen().phrase.total:0.f):(st_.track_has_clip[track_] ? st_.clipPos[track_] : (hasLoopBar ? st_.pos / st_.loopSamples : 0))) * 215)));
     const uint16_t loopCol = recNow ? rgb565(theme::TRACE_RED) : TIME;
     if (needClear_) rect(24, 12, 103, 216, 4, WELL);
     if (hasLoopBar || recNow) {
@@ -1064,7 +1066,7 @@ void SamplerApp::draw(uint32_t now) {
     }
     const char* hint = mic_ == 1 ? (page_ == P_SAVE ? "K4 = TRIGGER LEVEL  LINE = THRESHOLD" : "K1 = TRIGGER LEVEL  LINE = THRESHOLD") : mic_ == 2 ? "RECORDING  K1 ON LOOP PAGE STOPS"  : page_ == P_LEN ? "K1 X2 OR /2  SEL AGAIN FOR TEMPO" : page_ == P_SAVE ? "SAVE AND CLEAR LOOPS: PROJECT MENU ON THE PHONE" : page_ == P_TEMPO ? "K1 BARS  K2 BPM  K3 MODE" : page_ == P_KEY ? "KEYS FOLLOW THE KEY  CHANGE ANY TIME"
                      : page_ == P_ECHO ? "HOME AGAIN: GRAIN" : page_ == P_HOME && algo() == 4 ? "HOME AGAIN: ECHOFIELD  K3 MODE K4 POS" : page_ == P_EFILTER ? "FILTER MIX ON SEQ: EF MIX" : page_ == P_ETAPE ? "SEQ AGAIN  ENABLE TAPE ON EF MIX" : page_ == P_EMIX ? "SEQ AGAIN: TAPE PAGE" : page_ == P_GRAIN || page_ == P_MOTION ? "HOME AGAIN: NEXT GRANULAR PAGE" : fxPage(page_) ? "FX AGAIN: NEXT EFFECT PAGE" : "SEL TRACK  PRE BROWSE  ALG ALGORITHM";
-    drawText(90, 12, 228, 1, DIM, BLACK, hint, 38);
+    drawText(90, 12, 228, 1, DIM, BLACK, genDeck_?"SEL TRACK  ALG SOUND  OCT +/-  REC MIX":hint, 38);
     plotMeters(k);
     if(!waveform)picture(now,k);
     needClear_ = false;

@@ -10,8 +10,8 @@ void SamplerUI::generativeDeck(){
     };
     auto cycle=[&](Rect r,const std::string& v,std::function<void()> f){button(r,v,false,std::move(f),10);};
     rrect({0,0,960,450},0,DECK_BG);
-    header({14,12,254,23},"GENERATOR / "+std::to_string(app_.track()+1),"FIELD II");
-    button({235,12,33,23},std::to_string(app_.track()+1),running,[this]{app_.selectTrack((app_.track()+1)%SamplerApp::kTracks);},14,false,trackColor(app_.track()));
+    header({14,12,217,23},"GENERATOR","FIELD II");
+    button({235,12,33,23},std::to_string(app_.track()+1),true,[this]{genSelector_=5;},14,false,trackColor(app_.track()));
     bevel({14,39,254,285},WELL,true);
     text(23,53,11,running?TRACE_GREEN:WELL_DIM,running?"PLAYING":"STOPPED",0,true);
     text(260,53,10,WELL_TEXT,"PASS "+std::to_string(p.pass+1)+" / "+std::to_string(p.n),2);
@@ -153,7 +153,7 @@ void SamplerUI::generativeDeck(){
 void SamplerUI::generativeSelector(){
     using namespace generative;
     const int sel=genSelector_;
-    if(sel<0||sel>4)return;
+    if(sel<0||sel>5)return;
     const auto& c=app_.genConfig();
     std::vector<std::string> names;
     int selected=0;
@@ -163,7 +163,8 @@ void SamplerUI::generativeSelector(){
     case 1:title="SCALE";for(auto n:scaleNames)names.push_back(n);selected=c.scale;break;
     case 2:title="OCTAVE";for(int i=2;i<=6;i++)names.push_back(std::to_string(i));selected=c.octave-2;break;
     case 3:title="PHRASE";for(auto n:motifNames)names.push_back(n);selected=c.motif;break;
-    default:title="EVENTS";for(int i=1;i<=16;i++)names.push_back(std::to_string(i));selected=c.steps-1;break;
+    case 4:title="EVENTS";for(int i=1;i<=16;i++)names.push_back(std::to_string(i));selected=c.steps-1;break;
+    default:title="TRACK";for(int i=0;i<SamplerApp::kTracks;i++)names.push_back(std::to_string(i+1)+(app_.genTrackRunning(i)?" / PLAY":" / STOP"));selected=app_.track();break;
     }
     rrect({0,0,W_,H_},0,withAlpha(BG,208));tap({0,0,W_,H_},[this]{genSelector_=-1;});
     const int cols=names.size()>8?3:2,rows=(int(names.size())+cols-1)/cols;
@@ -179,7 +180,8 @@ void SamplerUI::generativeSelector(){
             else if(sel==1)app_.genHarmonic(1,i-c.scale);
             else if(sel==2)app_.genHarmonic(2,i+2-c.octave);
             else if(sel==3)app_.genMotif(i);
-            else app_.genSteps(i+1);
+            else if(sel==4)app_.genSteps(i+1);
+            else app_.selectTrack(i);
             genSelector_=-1;
         },11,false,VIOLET);
     }
@@ -202,22 +204,25 @@ void SamplerUI::generativePhrase(Rect r){
 }
 void SamplerUI::generativeHub(Rect r){
     using namespace generative;
-    const auto& p=app_.genPhrase();const auto& c=app_.genConfig();const int t=app_.track(),kind=app_.genMap();
+    const int t=app_.track();
     strip({r.x,r.y,r.w,24},trackColor(t),fit(app_.genSource(),r.w-100,T_TITLE),16);
     text(r.x+r.w-5,r.y+12,T_CAPTION,contrastInk(trackColor(t)),"TRACK "+std::to_string(t+1),2,true);
-    for(int i=0;i<3;i++)button({r.x+i*r.w/3,r.y+30,r.w/3-3,28},mapNames[i],i==kind,[this,i]{app_.genSetMap(i);},10);
+    const SamplerApp::Page pages[]={SamplerApp::P_HOME,SamplerApp::P_ECHO,SamplerApp::P_GRAIN,SamplerApp::P_MOTION,SamplerApp::P_ARP,SamplerApp::P_SAVE};
+    const float cw=(r.w-20)/6;
+    for(int i=0;i<6;i++)button({r.x+i*(cw+4),r.y+30,cw,28},app_.contextualPageName(pages[i]),app_.page()==pages[i],[this,i,pages=std::array<SamplerApp::Page,6>{pages[0],pages[1],pages[2],pages[3],pages[4],pages[5]}]{app_.gotoPage(pages[i]);},9.5f);
     Rect m{r.x,r.y+66,r.w,118};scope(m);
-    // The original waveform window becomes the same selected field; the
-    // original loop strip becomes the selected track's live phrase.
-    if(genMapVersion_!=app_.genVersion()||genMapKind_!=kind||genMapTrack_!=t){
-        genMapVersion_=app_.genVersion();genMapKind_=kind;genMapTrack_=t;
-        for(int j=0;j<=32;j++)for(int i=0;i<=72;i++)genMapValues_[j*73+i]=field(p,i/72.f,1-j/32.f,kind);
+    // Retain the original waveform window; only the loop strip becomes a phrase.
+    auto pk=app_.session().generatorPeaks(t);
+    if(pk.empty())text(m.x+m.w*.5f,m.y+m.h*.5f,11,WELL_DIM,"NO SAMPLE",1);
+    else{
+        const int n=std::max(20,int(m.w/3));const float bw=m.w/n,cy=m.y+m.h*.5f;
+        for(int i=0;i<n;i++){
+            size_t a=size_t(i)*pk.size()/n,b=std::min(pk.size(),std::max(a+1,size_t(i+1)*pk.size()/n));float v=0;
+            for(size_t j=a;j<b;j++)v=std::max(v,pk[j]);
+            float h=std::max(1.f,clamp01(v*1.1f)*(m.h*.5f-8));rrect({m.x+i*bw+.5f,cy-h,std::max(1.f,bw-1),2*h},0,TRACE_GREEN);
+        }
+        for(int j=0;j<st_.voiceN[t];j++){float xx=m.x+4+clamp01(st_.voicePos[t][j])*(m.w-8);line(xx,m.y+22,xx,m.y+m.h-10,encoderTrace(j),1.5f);}
     }
-    for(int j=0;j<32;j++)for(int i=0;i<72;i++)rrect({m.x+m.w*i/72,m.y+m.h*j/32,m.w/72+.1f,m.h/32+.1f},0,color(genMapValues_[j*73+i]));
-    auto X=[&](float x){return m.x+m.w*x;};auto Y=[&](float y){return m.y+m.h*(1-y);};
-    for(int i=1;i<p.n;i++){auto a=p.event[i-1].point,b=p.event[i].point;line(X(a.x),Y(a.y),X(b.x),Y(b.y),i<=app_.genCursor()?TRACE_AMBER:WELL_TEXT,1.5f);}
-    for(int i=0;i<p.n;i++){auto a=p.event[i].point;circle(X(a.x),Y(a.y),2.5f,c.pins[i]>=0||i==app_.genCursor()?TRACE_AMBER:WELL_TEXT);}
-    auto relocate=[this,m](float x,float y){app_.genRelocate(clamp01((x-m.x)/m.w),1-clamp01((y-m.y)/m.h));};hit(m,relocate,relocate);
     Rect ls{r.x,m.y+m.h+6,r.w,34};generativePhrase(ls);
     Rect lr{r.x,ls.y+ls.h+12,r.w,34};
     button({lr.x,lr.y,34,lr.h},"<",false,[this]{app_.genBrowse(-1);},15);
