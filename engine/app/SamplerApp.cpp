@@ -304,6 +304,7 @@ void SamplerApp::selectTrack(int t) {
     motion_={};
     if (st_.track_clip_rec[track_]) s_.clipRecord(track_, false);   // an overdub belongs to the track it was started on
     track_ = t;
+    if(genDeck_){genEnsureSound();fwDirty_=true;genMapVersion_=0;genDrawTrack_=-1;lastLed_=~0ull;}
     if (!pageAvailable(page_)) page_ = P_HOME;
     if (ts_[t].entry >= 0) libCursor_ = ts_[t].entry;   // PRESETS starts from the sample this track plays
 }
@@ -328,6 +329,12 @@ SamplerApp::Knob SamplerApp::choice(const char* name, int* v, std::vector<std::s
 
 SamplerApp::Knobs SamplerApp::knobs() { return knobs(page_); }
 SamplerApp::Knobs SamplerApp::knobs(Page p) {
+    if(genDeck_){
+        if(p==P_HOME||p==P_ECHO||p==P_GRAIN||p==P_MOTION){int save=gen().page;gen().page=p==P_HOME?0:p==P_ECHO?1:p==P_GRAIN?2:3;auto k=genKnobs();gen().page=save;return k;}
+        if(p==P_ARP||p==P_KEY)return genGlobalKnobs();
+        if(p==P_LEN||p==P_TEMPO)return {};
+        if(p==P_SAVE){Knobs k; k[0].name="RESAMPLE";k[0].valid=k[0].isChoice=true;k[0].value=outputRecordState()==1?"RECORDING":outputRecordState()==2?"SAVING":"READY";k[0].norm=outputRecordState()==1?1:0;k[0].step=[this](int){outputRecordToggle();};k[0].set=[this](float){outputRecordToggle();};return k;}
+    }
     Knobs k;
     TrackState& x = ts_[track_];
     const int t = track_;
@@ -509,15 +516,18 @@ void SamplerApp::endRecording() {
     if (st_.freeArmed || st_.freeRecording) { s_.freeRecord(track_, false); say(st_.freeArmed && !st_.freeRecording ? "CANCELLED" : "LOOP SET"); }
     for (int t = 0; t < kTracks; t++) if (st_.track_clip_rec[t]) s_.clipRecord(t, false);
 }
-void SamplerApp::transportPlay() {   // while recording the first press ends the recording (the loop plays on), the next one stops the tape
+void SamplerApp::transportPlay() {
+    if(genDeck_){if(gen().running)genStop();else genPlay();return;}   // while recording the first press ends the recording (the loop plays on), the next one stops the tape
     if (recordingNow()) { endRecording(); return; }
     s_.play(!st_.playing, editor_);
 }
 void SamplerApp::transportSet(bool play) {
+    if(genDeck_){if(play)genPlay();else genStop();return;}
     if (recordingNow()) { if (!play) endRecording(); return; }
     s_.play(play, editor_);
 }
 void SamplerApp::loopRecord() {
+    if(genDeck_){outputRecordToggle();return;}
     if (st_.freeArmed || st_.freeRecording) { s_.freeRecord(track_, false); say("LOOP SET"); return; }
     if (!loopAny_ && !st_.track_clip_rec[track_]) {   // a clean looper: arm the first take, it starts with the first note (or sound) and sets the loop length
         s_.freeRecord(track_, true);
@@ -537,6 +547,7 @@ void SamplerApp::lenAction(bool dbl) {   // loop x2 (the content repeats) or /2;
     if (dbl) { s_.loopDouble(); say("LOOP DOUBLED"); } else { s_.loopHalve(); say("LOOP HALVED"); }
 }
 void SamplerApp::loopSave() {
+    if(genDeck_){if(outputRecordState()==1)outputRecordToggle();else say("RESAMPLING AUTOSAVES");return;}
     if (!s_.saveClip(track_)) { say("NO LOOP TO SAVE"); return; }
     say("LOOP SAVED TO LIBRARY");
     previewAfterLoad_ = false;
@@ -549,7 +560,8 @@ void SamplerApp::loopClearTrack() {
     s_.clipClear(track_);
     say("LOOP OF TRACK " + std::to_string(track_ + 1) + " CLEARED");
 }
-void SamplerApp::loopClear() {   // PROJECT menu: every loop of every track, so the looper is clean again
+void SamplerApp::loopClear() {
+    if(genDeck_){genClearPins();return;}   // PROJECT menu: every loop of every track, so the looper is clean again
     s_.clipClearAll();
     say("ALL LOOPS CLEARED");
 }
@@ -561,6 +573,7 @@ void SamplerApp::micSample() {
     else if (mic_ == 2) { s_.recorderStop(); mic_ = 3; say("SAVING"); }
 }
 std::string SamplerApp::loopText() const {
+    if(genDeck_)return outputRecordState()==1?"REC "+fmt("%.1fS",outputRecordSeconds()):outputRecordState()==2?"SAVING":gen().running?"GENERATING":"GENERATOR READY";
     if (st_.freeArmed) return loopSrc_ ? "PLAY A KEY TO START" : "WAITING FOR SOUND";
     if (st_.freeRecording) return fmt("RECORDING %.1fS", st_.freeSeconds);
     if (st_.track_clip_rec[track_]) return "OVERDUB";
@@ -629,14 +642,20 @@ void SamplerApp::onSysex(const uint8_t* m, size_t n) {
     if (n < 8 || m[1] != 0x7d || m[2] != 'D' || m[3] != 'A' || m[4] != 'W') return;
     linkSeen_ = true;
     if (m[6] == 0x41 && n >= 12) {
-        if(genDeck_){if((m[7]&7)!=7)fwDirty_=true;return;}   // the firmware's own SEL screen / OCT buttons: its scale index is the tonality unless it is the OFF we keep it on
+        if(genDeck_){
+            if((m[7]&7)!=7){fwDirty_=true;return;}
+            const int oct=std::clamp(int(m[9])+1,2,6);
+            if(oct==gen().config.octave){genOctAck_=true;return;}
+            if(genOctAck_||nowMs_-genOctSentAt_>750){gen().config.octave=oct;genChanged();genOctAck_=true;}
+            return;
+        }   // the firmware's own SEL screen / OCT buttons: its scale index is the tonality unless it is the OFF we keep it on
         if ((m[7] & 7) != 7) { scale_.scale = m[7] & 7; fwDirty_ = true; }
         scale_.root = m[8] % 12; scale_.octave = (int)m[9] - 3; scale_.mode = m[10] & 1;
     }
     else if (m[6] == 0x40 && n >= 30) {   // PONG: frames the FM-1 had to drop
         uint32_t d = 0; for (int i = 0; i < 5; i++) d = d << 7 | (m[24 + i] & 127);
-        if (haveDropBase_ && d != dropped_) { gap_ = std::min<uint32_t>(250, gap_ * 16 / 10 + 1); lastLoss_ = nowMs_; needClear_ = true; pending_.clear(); pendingBytes_ = 0; }
-        if (!haveDropBase_) { needClear_ = true; repaintAt_ = nowMs_ + 1500; }   // first contact: whatever the firmware drew (its splash) goes
+        if (haveDropBase_ && d != dropped_) { gap_ = std::min<uint32_t>(250, gap_ * 16 / 10 + 1); lastLoss_ = nowMs_; if(genDeck_&&!editor_){discardPending(3000,3079);genTileSig_.fill(~0ull);}else{needClear_=true;pending_.clear();pendingBytes_=0;} }
+        if (!haveDropBase_) { needClear_ = true; repaintAt_ = genDeck_&&!editor_?0:nowMs_ + 1500; }   // first contact: whatever the firmware drew (its splash) goes
         if (!haveDropBase_) fwDirty_ = true;
         dropped_ = d; haveDropBase_ = true;
     }
@@ -655,22 +674,31 @@ void SamplerApp::button(int b, bool down) {
     if (down) { held_ |= 1u << b; if(!wasHeld) motion_={}; } else held_ &= ~(1u << b);
     if(b==REC){
         if(down&&!wasHeld){recAt_=nowMs_;recLong_=false;}
-        else if(!down&&wasHeld&&!recLong_&&!genDeck_)loopRecord();
+        else if(!down&&wasHeld&&!recLong_)loopRecord();
+        return;
+    }
+    if(b==HOME){
+        if(down&&!wasHeld){homeAt_=nowMs_;homeLong_=false;}
+        else if(!down&&wasHeld&&!homeLong_){
+            if(genDeck_&&!editor_)genSetPage(0);
+            else page_=(genDeck_||algo()==4)?(page_==P_HOME?P_ECHO:page_==P_ECHO?P_GRAIN:page_==P_GRAIN?P_MOTION:P_HOME):P_HOME;
+        }
         return;
     }
     if(genDeck_){
         if(!down||wasHeld)return;
-        switch(b){
-        case HOME:genSetPage(0);break;case ENV:genSetPage(1);break;case LFO:genSetPage(2);break;case FX:genSetPage(3);break;
-        case ARP:genApply((genConfig_.apply+1)%3);break;case SEQ:genSetMap((genMap_+1)%3);break;
-        case EDIT:genMotif((genConfig_.motif+1)%4);break;case SAVE:genBrowse(1);break;
-        case GLO:genStop(true);break;case PLAY:if(genRunning_)genStop();else genPlay();break;default:break;
-        }return;
-    }
-    if (b == HOME) {
-        if (down && !wasHeld) { homeAt_ = nowMs_; homeLong_ = false; }
-        else if (!down && wasHeld && !homeLong_) page_ = algo()!=4 ? P_HOME : page_==P_HOME ? P_ECHO : page_==P_ECHO ? P_GRAIN : page_==P_GRAIN ? P_MOTION : P_HOME;
-        return;
+        if(b==OCT_DOWN||b==OCT_UP){genHarmonic(2,b==OCT_UP?1:-1);return;}
+        if(!editor_){
+            switch(b){
+            case ENV:genSetPage(1);break;case LFO:genSetPage(2);break;case FX:genSetPage(3);break;
+            case ARP:genApply((gen().config.apply+1)%3);break;case SEQ:genSetMap((gen().map+1)%3);break;
+            case EDIT:genMotif((gen().config.motif+1)%4);break;case SAVE:genBrowse(1);break;
+            case GLO:genStop(true);break;case PLAY:transportPlay();break;default:break;
+            }return;
+        }
+        if(b==SEL){page_=P_ARP;return;}
+        if(b==GLO){page_=P_KEY;return;}
+        // Hub uses ordinary ENV / LFO / FX / MIX / TAPE pages.
     }
     if (b == GLO) {
         if (down && !wasHeld) { gloAt_ = nowMs_; gloLong_ = false; }
@@ -700,10 +728,10 @@ SamplerApp::~SamplerApp() = default;
 void SamplerApp::encoder(int i, int delta, uint32_t eventMs) {
     if (!delta || i < 0 || i > 6) return;
     if(genDeck_){
-        if(i==0)genHarmonic(0,delta);
+        if(i==0)selectTrack(track_+delta);
         else if(i==6)genHarmonic(1,delta);
-        else if(i==1)genHarmonic(2,delta);
-        else {auto k=genKnobs();if(k[i-2].step)k[i-2].step(delta);}
+        else if(i==1)genBrowse(delta);
+        else {auto k=editor_?knobs():genKnobs();if(k[i-2].step)k[i-2].step(delta);}
         return;
     }
     if (i == 0) { selectTrack(track_ + delta); return; }
@@ -756,13 +784,15 @@ void SamplerApp::tick(uint32_t now) {
         recLong_=true;setGenerativeDeck(!genDeck_);
     }
     if(genDeck_)genRefresh();
-    if (!genDeck_ && (held_ & (1u << HOME)) && !homeLong_ && now - homeAt_ >= 600) {
-        editor_ = !editor_; homeLong_ = true;
+    const int os=outputRecordState();
+    if(os!=lastOutputState_){lastOutputState_=os;if(os==3){latestTake_=s_.outputRecordPath();refreshLibrary();say("RESAMPLE SAVED");if(!genDeck_)selectSavedTake();}else if(os==4)say("RESAMPLE SAVE FAILED");}
+    if ((held_ & (1u << HOME)) && !homeLong_ && now - homeAt_ >= 600) {
+        homeLong_ = true;setEditor(!editor_);
     }
     if (!genDeck_ && (held_ & (1u << GLO)) && !gloLong_ && now - gloAt_ >= 600) {
         setLight(!theme::light); gloLong_ = true;
     }
-    if (fwDirty_) { fwDirty_ = false; sysex(6, {7, (uint8_t)(genDeck_?0:scale_.root), (uint8_t)(genDeck_?3:scale_.octave + 3), (uint8_t)(genDeck_?0:scale_.mode)}, true); }
+    if (fwDirty_) { fwDirty_ = false; if(genDeck_){genOctAck_=false;genOctSentAt_=now;} sysex(6, {7, (uint8_t)(genDeck_?0:scale_.root), (uint8_t)(genDeck_?gen().config.octave-1:scale_.octave + 3), (uint8_t)(genDeck_?0:scale_.mode)}, true); }
     if (repaintAt_ && now >= repaintAt_) { repaintAt_ = 0; needClear_ = true; }
     st_ = s_.status();
     loopAny_ = false;
@@ -796,7 +826,7 @@ void SamplerApp::tick(uint32_t now) {
     if (mic_ == 3 && st_.sampleState == 0 && !st_.samplePending && now - lastDraw_ > 3000) mic_ = 0;   // too short: nothing was kept
     if (now - lastDraw_ >= 33) {
         lastDraw_ = now;
-        if (now - healAt_ >= 150 && pending_.size() < 4) { healAt_ = now; if (!needClear_&&!genDeck_) heal(); }
+        if (now - healAt_ >= 150 && pending_.size() < 4) { healAt_ = now; if (!needClear_&&(!genDeck_||editor_)) heal(); }
         draw(now);
         leds();
     }
@@ -879,8 +909,9 @@ void SamplerApp::leds() {
     const bool blinkFast = (nowMs_ / 250) & 1, blinkSlow = (nowMs_ / 500) & 1;
     if(genDeck_){
         constexpr int btn[]={HOME,ENV,LFO,FX};
-        m|=1ull<<btn[genPage_];m|=1ull<<REC;
-        if(genRunning_)m|=1ull<<PLAY;
+        m|=1ull<<(editor_?(page_==P_ENV?ENV:page_==P_LFO?LFO:fxPage(page_)?FX:page_==P_ARP?ARP:page_==P_MIX?EDIT:page_==P_SAVE?SAVE:page_==P_KEY?GLO:page_==P_ETAPE||page_==P_EMIX?SEQ:HOME):btn[gen().page]);
+        if(outputRecordState()==1?blinkFast:true)m|=1ull<<REC;
+        if(gen().running)m|=1ull<<PLAY;
         for(int k=0;k<27;k++){
             const int state=genKeyState((53+k)%12);
             if(state==3?blinkFast:state!=0)m|=1ull<<(14+k);
@@ -917,8 +948,8 @@ void SamplerApp::leds() {
 // Layout (240x240): track tags, page and state, sample name, a 60 px picture that depends on the page, the loop strip, four knobs, a hint.
 void SamplerApp::draw(uint32_t now) {
     if ((int)theme::light != lastLight_) { lastLight_ = theme::light; setPalette(theme::light); needClear_ = true; }
-    if(genDeck_){drawGenerator(now);return;}
-    const bool waveform=mic_==1||mic_==2||page_==P_HOME;
+    if(genDeck_&&!editor_){drawGenerator(now);return;}
+    const bool waveform=!genDeck_&&(mic_==1||mic_==2||page_==P_HOME);
     const int layout=waveform?0:1;
     if (needClear_) {
         fwDirty_ = true; clear(BLACK);
@@ -1080,7 +1111,7 @@ void SamplerApp::plotMeters(const Knobs& k) {
 void SamplerApp::picture(uint32_t now,const Knobs& k) {
     uint64_t sig=1469598103934665603ull;
     auto add=[&](uint64_t v){sig=(sig^v)*1099511628211ull;};
-    add(page_);add(track_);
+    add(page_);add(track_);add(genDeck_);if(genDeck_)add(gen().version);
     for(const auto& knob:k){add(std::lround(cl(knob.norm)*24));add(knob.valid);}
     if(page_==P_KEY)add(chordGhostMask());
     if(page_==P_ECHO||page_==P_GRAIN||page_==P_MOTION){add(now/500);for(const auto& v:knobs(P_HOME))add(std::lround(cl(v.norm)*96));}

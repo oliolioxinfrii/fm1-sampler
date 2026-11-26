@@ -35,7 +35,12 @@ int main(){
  assert(s.generatorLoadState()==2);s.generatorPlay(c);
  double sum=0;for(int i=0;i<400;i++){s.process(out,nullptr,256);for(float v:out)sum+=v*v;}
  assert(sum>1&&s.generatorSnapshot().running);
- s.generatorStop();s.process(out,nullptr,256);for(float v:out)assert(v==0);
+ s.generatorLoad(path.string(),1);
+ for(int i=0;i<2000&&s.generatorLoadState(1)!=2;i++){s.process(out,nullptr,256);std::this_thread::sleep_for(std::chrono::milliseconds(1));}
+ assert(s.generatorLoadState(1)==2);auto c2=c;c2.root=5;c2.seed=91;s.generatorPlay(c2,0,1);s.process(out,nullptr,256);assert(s.generatorSnapshot(1).running);
+ s.generatorStop();s.process(out,nullptr,256);assert(!s.generatorSnapshot().running&&s.generatorSnapshot(1).running);
+ s.generatorStop(1);
+ s.generatorStop();s.process(out,nullptr,256);assert(!s.generatorSnapshot().running&&!s.generatorSnapshot(1).running);
  s.generatorEnable(false);s.process(out,nullptr,256);assert(!s.generatorSnapshot().enabled);
  std::filesystem::remove(path);
  // Real app-side hardware routing and full-screen RLE transfer.
@@ -69,7 +74,7 @@ int main(){
  auto button=[&](int k,bool down){const uint8_t m[]={uint8_t(down?0x91:0x81),uint8_t(k),uint8_t(down?100:0)};a.onMidi(m,3);};
  auto key=[&](int pc){const uint8_t down[]={0x90,uint8_t(60+pc),100},up[]={0x80,uint8_t(60+pc),0};a.onMidi(down,3);a.onMidi(up,3);};
  button(SamplerApp::REC,true);run(800);assert(a.generativeDeck());button(SamplerApp::REC,false);
- run(9000);assert(std::all_of(coverage.begin(),coverage.end(),[](bool v){return v;}));
+ run(18000);assert(std::all_of(coverage.begin(),coverage.end(),[](bool v){return v;}));
  assert(!a.recordingNow()&&!a.loopExists());
  a.genMotif(3);
  key(9);key(5);key(7);key(0);key(7);assert(a.genConfig().customCount==4);
@@ -80,6 +85,8 @@ int main(){
  key(pinnedPc);assert(a.genConfig().pins[1]<0);
  SamplerUI view(a,false);view.setSize(960,450,0,0);view.frame(now);
  assert(!view.ops().empty());
+ button(SamplerApp::HOME,true);run(800);assert(a.editor()&&a.generativeDeck());button(SamplerApp::HOME,false);
+ button(SamplerApp::HOME,true);run(800);assert(!a.editor()&&a.generativeDeck());button(SamplerApp::HOME,false);
  button(SamplerApp::REC,true);run(800);assert(!a.generativeDeck());button(SamplerApp::REC,false);
  assert(!a.recordingNow());
  std::puts("generative field, constraints, timing, custom keys and isolated PCM passed");

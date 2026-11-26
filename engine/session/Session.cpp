@@ -38,6 +38,7 @@ struct Session::Impl {
         TapeInsert tape;
         EchoInsert echoInsert;
         int mode = 0;
+        float envA=.012f,envD=.12f,envS=.85f,envR=.09f;
         bool latch = false;
         std::array<bool,128> latchNotes{}, latchHeld{};
         float echoSend[2]{};
@@ -82,70 +83,86 @@ struct Session::Impl {
     };
 
     int sr;
-    // Separate sampler and clock; tape processing is suspended in this deck.
-    std::unique_ptr<Sampler> genSampler;
-    bool genEnabled=false,genRunning=false;
-    generative::Config genNext;
-    generative::Snapshot genView;
-    mutable std::mutex genViewMutex;
-    generative::Snapshot genPublished;
-    int64_t genFrame=0;
-    uint16_t genStarted=0,genEnded=0;
-    std::atomic<int> genLoadState{0};
-    std::atomic<uint32_t> genLoadTicket{0};
-    void genPublish(){
-        std::unique_lock<std::mutex> lock(genViewMutex,std::try_to_lock);
+    // Separate source voices, same processing channel. Tape clips remain
+    // intact and their transport is suspended while the generative source is selected.
+    struct Generator {
+        std::unique_ptr<Sampler> sampler;
+        bool running=false;
+        generative::Config next;
+        generative::Snapshot view,published;
+        mutable std::mutex mutex;
+        int64_t frame=0;
+        uint16_t started=0,ended=0;
+        std::atomic<int> loadState{0};
+        std::atomic<uint32_t> ticket{0};
+    };
+    std::array<Generator,kTracks> generators;
+    bool genEnabled=false;
+    std::shared_ptr<std::vector<float>> outputTake;
+    std::atomic<int> outputState{0};
+    std::atomic<float> outputSeconds{0};
+    mutable std::mutex outputMutex;
+    std::string outputPath;
+    void genPublish(Generator& g){
+        std::unique_lock<std::mutex> lock(g.mutex,std::try_to_lock);
         if(lock.owns_lock()){
-            genView.running=genRunning;genView.enabled=genEnabled;
-            genView.seconds=float(double(genFrame)/sr);
-            genPublished=genView;
+            g.view.running=g.running;g.view.enabled=genEnabled;
+            g.view.seconds=float(double(g.frame)/sr);g.published=g.view;
         }
     }
-    void genStop(){
-        genRunning=false;
-        if(genSampler)genSampler->allOff();
-        genView.active=0;genView.cursor=-1;
+    void genStop(Generator& g){
+        g.running=false;
+        if(g.sampler)g.sampler->allOff();
+        g.view.active=0;g.view.cursor=-1;
     }
-    void genBegin(uint32_t pass){
-        genView.phrase=generative::makePhrase(genNext,pass);
-        genView.serial++;
-        genFrame=0;genStarted=genEnded=0;genView.active=0;genView.cursor=-1;
-        if(genView.phrase.n==0)genStop();
+    void genBegin(Generator& g,uint32_t pass){
+        g.view.phrase=generative::makePhrase(g.next,pass);++g.view.serial;
+        g.frame=0;g.started=g.ended=0;g.view.active=0;g.view.cursor=-1;
+        if(!g.view.phrase.n)genStop(g);
     }
-    void genBlock(float* out,int n){
-        std::fill(out,out+2*n,0.f);
-        if(genRunning&&genSampler){
+    void genRender(Generator& g,float* out,int n){
+        if(g.running&&g.sampler){
             int done=0;
-            // Event boundaries are sample positions, not UI ticks or beat-grid positions.
-            while(done<n&&genRunning){
-                const auto& p=genView.phrase;
+            while(done<n&&g.running){
+                const auto& p=g.view.phrase;
                 const int64_t end=std::max<int64_t>(1,std::llround(double(p.total)*sr));
                 for(int i=0;i<p.n;i++){
                     const uint16_t bit=uint16_t(1u<<i);
-                    if((genStarted&bit)&&!(genEnded&bit)&&genFrame>=std::llround(double(p.event[i].off)*sr)){
-                        genSampler->noteOffEvent(i);genEnded|=bit;genView.active&=uint16_t(~bit);
+                    if((g.started&bit)&&!(g.ended&bit)&&g.frame>=std::llround(double(p.event[i].off)*sr)){
+                        g.sampler->noteOffEvent(i);g.ended|=bit;g.view.active&=uint16_t(~bit);
                     }
                 }
-                if(genFrame>=end){genBegin(p.pass+1);continue;}
+                if(g.frame>=end){genBegin(g,p.pass+1);continue;}
                 int64_t next=end;
                 for(int i=0;i<p.n;i++){
-                    const uint16_t bit=uint16_t(1u<<i);
-                    const auto& e=p.event[i];
+                    const uint16_t bit=uint16_t(1u<<i);const auto& e=p.event[i];
                     const auto on=std::llround(double(e.on)*sr),off=std::llround(double(e.off)*sr);
-                    if(!(genStarted&bit)&&genFrame>=on){
-                        genSampler->noteOn(e.midi,100,i);genStarted|=bit;genView.active|=bit;genView.cursor=i;
+                    if(!(g.started&bit)&&g.frame>=on){
+                        g.sampler->noteOn(e.midi,100,i);g.started|=bit;g.view.active|=bit;g.view.cursor=i;
                     }
-                    if(!(genStarted&bit))next=std::min<int64_t>(next,on);
-                    else if(!(genEnded&bit))next=std::min<int64_t>(next,off);
+                    if(!(g.started&bit))next=std::min<int64_t>(next,on);
+                    else if(!(g.ended&bit))next=std::min<int64_t>(next,off);
                 }
-                const int k=int(std::min<int64_t>(n-done,std::max<int64_t>(1,next-genFrame)));
-                genSampler->render(out+2*done,k);genFrame+=k;done+=k;
+                const int k=int(std::min<int64_t>(n-done,std::max<int64_t>(1,next-g.frame)));
+                g.sampler->render(out+2*done,k);g.frame+=k;done+=k;
             }
         }
-        float peak=0;
-        for(int i=0;i<2*n;i++){out[i]=std::tanh(out[i]*masterVol);peak=std::max(peak,std::abs(out[i]));}
-        a_master.store(std::max(peak,a_master.load()*.92f));
-        genPublish();
+        genPublish(g);
+    }
+    void finishOutputTake(){
+        if(!outputTake)return;
+        auto pcm=std::move(outputTake);
+        outputState=2;
+        const std::string dir=dataDir;
+        const int rate=sr;
+        job([this,pcm,dir,rate]{
+            if(dir.empty()||pcm->size()<128){outputState=4;return;}
+            auto ms=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            const std::string path=dir+"/sample_Gen_"+std::to_string(ms)+".wav";
+            const bool ok=writeWav16(path,*pcm,rate);
+            if(ok){std::lock_guard<std::mutex> lock(outputMutex);outputPath=path;}
+            outputState=ok?3:4;
+        });
     }
     std::vector<std::unique_ptr<Track>> tracks;
     Reverb reverb; TapeDelay delay;
@@ -434,13 +451,13 @@ struct Session::Impl {
             if (sampling || armedWait) captureMono(in, n);
         }
         const int32_t p0 = (int32_t)(loopSamples > 0 && !freeRec ? tapePos : pos);
-        const bool tl = playing && !freeRec && loopSamples > 0;
+        const bool tl = !genEnabled && playing && !freeRec && loopSamples > 0;
         updateLoopPeaks();
         const double pitchRate = tapeSpeed.load();
         const double spd = pitchRate * tempoRate;
         if (!playing) { rate = 1.0; stopping = false; digitalStop = false; }
         bool ramp = false; double rateSum = n, tapeEnd = tapePos;
-        const bool scrubbing = (scrubActive || scrubTail) && loopSamples > 0 && !freeRec;
+        const bool scrubbing = !genEnabled && (scrubActive || scrubTail) && loopSamples > 0 && !freeRec;
         if (loopSamples <= 0 || freeRec) scrubActive = scrubTail = false;
         if (scrubbing) {   // the read position is driven by the finger: speed follows (target - position), smoothed, so there are no jumps and no clicks
             ramp = true; rateSum = 0;
@@ -515,7 +532,7 @@ struct Session::Impl {
         std::vector<Arp::Ev> evs;
         for (int ti = 0; ti < kTracks; ti++) {
             Track& t = *tracks[(size_t)ti];
-            if (!t.sampler && !t.clipHas && !t.clipRec && t.pending.empty()) { t.peak.store(t.peak.load() * 0.9f); t.scEnv *= 0.8f; t.scGain = 1.f; a_voiceN[ti].store(0); t.publishScope(nullptr,0); continue; }
+            if (!genEnabled && !t.sampler && !t.clipHas && !t.clipRec && t.pending.empty()) { t.peak.store(t.peak.load() * 0.9f); t.scEnv *= 0.8f; t.scGain = 1.f; a_voiceN[ti].store(0); t.publishScope(nullptr,0); continue; }
             std::fill(bus.begin(), bus.begin() + n * 2, 0.f);
             // LFO: one value per block (about 170 Hz)
             float lfoGain = 1.f, lfoPan = 0.f, bend = 0.f; bool filterOn = false;
@@ -544,9 +561,14 @@ struct Session::Impl {
             evs.clear();
             for (auto& nt : t.pending) evs.push_back({0, nt.note, nt.vel});
             t.pending.clear();
-            if (t.arpOn) t.arp.run(n, bpm, sr, evs);
+            if (!genEnabled && t.arpOn) t.arp.run(n, bpm, sr, evs);
             std::stable_sort(evs.begin(), evs.end(), [](const Arp::Ev& a, const Arp::Ev& b) { return a.offset < b.offset; });
-            if (t.sampler) {
+            if(genEnabled){
+                auto& g=generators[ti];
+                if(g.sampler)g.sampler->setBend(bend);
+                genRender(g,bus.data(),n);
+                a_voiceN[ti].store(0);
+            }else if (t.sampler) {
                 t.sampler->setBend(bend);
                 int cur = 0;
                 for (auto& e : evs) {
@@ -656,13 +678,19 @@ struct Session::Impl {
         float mp = 0.f;
         for (int i = 0; i < n * 2; i++) { const float v = std::tanh(out[i] * masterVol); out[i] = v; mp = std::max(mp, std::fabs(v)); }
         a_master.store(std::max(mp, a_master.load() * 0.92f));
-        if (playing) {
+        if(outputTake){
+            const size_t count=std::min<size_t>(2*n,outputTake->capacity()-outputTake->size());
+            outputTake->insert(outputTake->end(),out,out+count);
+            outputSeconds=float(outputTake->size())/(2.f*sr);
+            if(outputTake->size()>=size_t(sr)*360)finishOutputTake();
+        }
+        if (!genEnabled && playing) {
             pos += rateSum;
             if (freeRec) a_freeSec = (float)(pos / sr);
             else if (loopSamples > 0 && pos >= loopSamples) pos -= loopSamples;
         }
         if (scrubbing || tl) pos = tapePos;
-        if (stopping && !scrubbing && (!tl || (digitalStop ? transportGain <= 0.f : rate <= 0.0))) {
+        if (!genEnabled && stopping && !scrubbing && (!tl || (digitalStop ? transportGain <= 0.f : rate <= 0.0))) {
             playing = false; stopping = digitalStop = false; rate = 1.0; transportGain = 1.f;
             for (auto& t : tracks) releaseAll(*t);
         }
@@ -683,8 +711,7 @@ void Session::process(float* out, const float* in, int frames) {
     d->run.clear();
     for (int done = 0; done < frames; done += kBlock) {
         const int n = std::min(kBlock, frames - done);
-        if(d->genEnabled)d->genBlock(out+2*done,n);
-        else d->block(out + 2 * done, in ? in + 2 * done : nullptr, n);
+        d->block(out + 2 * done, in ? in + 2 * done : nullptr, n);
     }
     d->a_pos = d->pos; d->a_playing = d->playing && !d->stopping; d->a_free = d->freeRec;
     uint32_t cm = 0, rm = 0;
@@ -698,45 +725,63 @@ void Session::process(float* out, const float* in, int frames) {
 void Session::generatorEnable(bool on){
     d->post([this,on]{
         if(d->genEnabled==on)return;
-        d->genStop();
         if(on)for(auto& t:d->tracks)d->releaseAll(*t);
-        d->genEnabled=on;d->genPublish();
+        d->genEnabled=on;
+        for(auto& g:d->generators){d->genStop(g);d->genPublish(g);}
     });
 }
-void Session::generatorLoad(const std::string& path){
-    const uint32_t ticket=++d->genLoadTicket;d->genLoadState=1;
-    d->post([this]{d->genStop();d->genPublish();});
-    d->job([this,path,ticket]{
+void Session::generatorLoad(const std::string& path,int t){
+    if(t<0||t>=kTracks)return;
+    auto& g=d->generators[t];const uint32_t ticket=++g.ticket;g.loadState=1;
+    d->post([this,t]{auto& g=d->generators[t];d->genStop(g);d->genPublish(g);});
+    d->job([this,path,t,ticket]{
         auto sm=std::make_unique<Sampler>(d->sr);
         if(!sm->load(path)){
-            d->post([this,ticket]{if(d->genLoadTicket==ticket)d->genLoadState=3;});
+            d->post([this,t,ticket]{auto& g=d->generators[t];if(g.ticket==ticket)g.loadState=3;});
             return;
         }
         sm->setMode(Sampler::MELODIC);sm->setRoot(60);
-        sm->setEnv(.012f,.12f,.85f,.09f);
         auto holder=std::make_shared<std::unique_ptr<Sampler>>(std::move(sm));
-        d->post([this,ticket,holder]{
-            if(d->genLoadTicket==ticket){
-                d->genStop();std::swap(d->genSampler,*holder);d->genLoadState=2;d->genPublish();
+        d->post([this,t,ticket,holder]{
+            auto& g=d->generators[t];
+            if(g.ticket==ticket){
+                d->genStop(g);std::swap(g.sampler,*holder);
+                const auto& tr=*d->tracks[t];g.sampler->setEnv(tr.envA,tr.envD,tr.envS,tr.envR);
+                g.loadState=2;d->genPublish(g);
             }
             d->bury(std::move(*holder));
         });
     });
 }
-int Session::generatorLoadState()const{return d->genLoadState.load();}
-void Session::generatorConfigure(const generative::Config& c){d->post([this,c]{d->genNext=c;});}
-void Session::generatorPlay(const generative::Config& c,uint32_t pass){
-    d->post([this,c,pass]{
-        d->genStop();d->genNext=c;
-        d->genRunning=d->genEnabled&&d->genSampler&&d->genLoadState==2;
-        if(d->genRunning)d->genBegin(pass);
-        d->genPublish();
+int Session::generatorLoadState(int t)const{return t>=0&&t<kTracks?d->generators[t].loadState.load():0;}
+void Session::generatorConfigure(const generative::Config& c,int t){if(t>=0&&t<kTracks)d->post([this,c,t]{d->generators[t].next=c;});}
+void Session::generatorPlay(const generative::Config& c,uint32_t pass,int t){
+    if(t<0||t>=kTracks)return;
+    d->post([this,c,pass,t]{
+        auto& g=d->generators[t];d->genStop(g);g.next=c;
+        g.running=d->genEnabled&&g.sampler&&g.loadState==2;
+        if(g.running)d->genBegin(g,pass);
+        d->genPublish(g);
     });
 }
-void Session::generatorStop(){d->post([this]{d->genStop();d->genPublish();});}
-generative::Snapshot Session::generatorSnapshot()const{
-    std::lock_guard<std::mutex> lock(d->genViewMutex);return d->genPublished;
+void Session::generatorStop(int t){if(t>=0&&t<kTracks)d->post([this,t]{auto& g=d->generators[t];d->genStop(g);d->genPublish(g);});}
+generative::Snapshot Session::generatorSnapshot(int t)const{
+    if(t<0||t>=kTracks)return {};
+    auto& g=d->generators[t];std::lock_guard<std::mutex> lock(g.mutex);return g.published;
 }
+void Session::outputRecordStart(){
+    int old=d->outputState.load();
+    if(old==1||old==2)return;
+    // Reserve outside the callback: maximum three minutes of stereo PCM.
+    auto pcm=std::make_shared<std::vector<float>>();
+    pcm->reserve(size_t(d->sr)*360);
+    d->outputSeconds=0;d->outputState=1;
+    d->post([this,pcm]{d->outputTake=pcm;});
+}
+void Session::outputRecordStop(){if(d->outputState==1)d->post([this]{d->finishOutputTake();});}
+int Session::outputRecordState()const{return d->outputState.load();}
+float Session::outputRecordSeconds()const{return d->outputSeconds.load();}
+std::string Session::outputRecordPath()const{std::lock_guard<std::mutex> l(d->outputMutex);return d->outputPath;}
 
 // ---- transport and notes ----
 void Session::play(bool on, bool digital) {
@@ -775,7 +820,7 @@ void Session::loadSamplePath(const std::string& path, bool kit, int track) {
 }
 void Session::setMode(int t, int m) { if (t >= 0 && t < kTracks) d->post([=] { auto& tr=*d->tracks[t]; if(tr.mode==4 && m!=4) d->releaseLatch(tr); tr.mode=m; if(tr.sampler) tr.sampler->setMode(m); }); }
 void Session::setEchoLatch(int t, bool on) { if(t>=0 && t<kTracks) d->post([=]{auto& tr=*d->tracks[t]; if(tr.latch && !on) d->releaseLatch(tr); tr.latch=on;}); }
-void Session::setEnv(int t, float a, float dc, float s, float r) { if (t >= 0 && t < kTracks) d->post([=] { if (d->tracks[(size_t)t]->sampler) d->tracks[(size_t)t]->sampler->setEnv(a, dc, s, r); }); }
+void Session::setEnv(int t, float a, float dc, float s, float r) { if (t >= 0 && t < kTracks) d->post([=] { auto& tr=*d->tracks[t];tr.envA=a;tr.envD=dc;tr.envS=s;tr.envR=r;if(tr.sampler)tr.sampler->setEnv(a,dc,s,r);if(d->generators[t].sampler)d->generators[t].sampler->setEnv(a,dc,s,r); }); }
 void Session::setRoot(int t, float note) { if (t >= 0 && t < kTracks) d->post([=] { if (d->tracks[(size_t)t]->sampler) d->tracks[(size_t)t]->sampler->setRoot(note); }); }
 float Session::detectRoot(int t) const {
     if (t < 0 || t >= kTracks) return -1.f;

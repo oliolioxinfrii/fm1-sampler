@@ -10,14 +10,15 @@ void SamplerUI::generativeDeck(){
     };
     auto cycle=[&](Rect r,const std::string& v,std::function<void()> f){button(r,v,false,std::move(f),10);};
     rrect({0,0,960,450},0,DECK_BG);
-    header({14,12,254,23},"GENERATOR / 01","FIELD II");
+    header({14,12,254,23},"GENERATOR / "+std::to_string(app_.track()+1),"FIELD II");
+    button({235,12,33,23},std::to_string(app_.track()+1),running,[this]{app_.selectTrack((app_.track()+1)%SamplerApp::kTracks);},14,false,trackColor(app_.track()));
     bevel({14,39,254,285},WELL,true);
     text(23,53,11,running?TRACE_GREEN:WELL_DIM,running?"PLAYING":"STOPPED",0,true);
     text(260,53,10,WELL_TEXT,"PASS "+std::to_string(p.pass+1)+" / "+std::to_string(p.n),2);
     rrect({22,68,238,91},0,0xff202c39);stroke({22,68,238,91},0,GRID);
     text(30,80,11,WELL_DIM,"HARMONIC REGISTER",0,true);text(252,80,10,WELL_DIM,"1 OCT",2);
     const std::string values[]={SamplerApp::noteName(c.root),scaleNames[c.scale],std::to_string(c.octave)};
-    const char* labels[]={"SEL / ROOT","PRE / SCALE","ALG / OCT"};
+    const char* labels[]={"ROOT","PRE / SCALE","OCT +/-"};
     for(int i=0;i<3;i++){
         const float x=30+i*76;Rect box{x,106,70,23};
         text(x,97,8,WELL_DIM,labels[i]);rrect(box,0,0xff263544);stroke(box,0,WELL_DIM,.65f);
@@ -45,12 +46,14 @@ void SamplerUI::generativeDeck(){
     if(app_.genSourceState()==1)source="LOADING "+source;else if(app_.genSourceState()==3)source="LOAD FAILED";
     cycle({22,255,25,23},"<",[this]{app_.genBrowse(-1);});
     cycle({49,255,166,23},fit(source,156,10),[this]{sheetOpen_=true;sheetScroll_=std::max(0.f,float(app_.libraryCursor())*34-100);app_.refreshLibrary();});
-    cycle({217,255,43,23},"LOAD",[this]{app_.requestFile();});
+    button({217,255,43,23},"REC",app_.outputRecordState()==1,[this]{app_.outputRecordToggle();},10,false,RED);
     button({22,283,56,30},"PLAY",running,[this]{app_.genPlay();},11,false,GREEN);
     cycle({80,283,56,30},"STOP",[this]{app_.genStop();});
-    cycle({138,283,60,30},"RESET",[this]{bool run=app_.genRunning();app_.genStop(true);if(run)app_.genPlay();});
+    cycle({138,283,60,30},"HUB",[this]{sheetOpen_=false;app_.setEditor(true);});
     button({200,283,60,30},"TAPE",false,[this]{sheetOpen_=false;app_.setGenerativeDeck(false);},11,true,RED);
-    if(!app_.toast().empty())text(23,318,8,TRACE_AMBER,fit(app_.toast(),236,8));
+    if(app_.outputRecordState()==1)text(23,318,9,TRACE_RED,"REC MASTER / "+num("%.1f S",app_.outputRecordSeconds()),0,true);
+    else if(app_.outputRecordState()==2)text(23,318,9,TRACE_AMBER,"SAVING RESAMPLE");
+    else if(!app_.toast().empty())text(23,318,8,TRACE_AMBER,fit(app_.toast(),236,8));
     header({282,12,664,23},"FIELD / TRAVERSAL",std::string(mapNames[kind])+" / SEED "+std::to_string(p.config.seed));
     bevel({282,39,664,226},WELL,true);
     text(291,51,9,WELL_DIM,"GRADIENT FIELD / NORMALIZED");
@@ -58,8 +61,8 @@ void SamplerUI::generativeDeck(){
     button({594,43,70,17},applyNames[c.apply],false,[this]{app_.genApply((app_.genConfig().apply+1)%3);},9);
     for(int i=0;i<3;i++)button({807.f+i*44,43,42,17},mapNames[i],kind==i,[this,i]{app_.genSetMap(i);},9,false,RAISED);
     Rect map{316,65,574,176};
-    if(genMapVersion_!=app_.genVersion()||genMapKind_!=kind){
-        genMapVersion_=app_.genVersion();genMapKind_=kind;
+    if(genMapVersion_!=app_.genVersion()||genMapKind_!=kind||genMapTrack_!=app_.track()){
+        genMapVersion_=app_.genVersion();genMapKind_=kind;genMapTrack_=app_.track();
         for(int j=0;j<=32;j++)for(int i=0;i<=72;i++)
             genMapValues_[j*73+i]=field(p,i/72.f,1-j/32.f,kind);
     }
@@ -180,4 +183,47 @@ void SamplerUI::generativeSelector(){
             genSelector_=-1;
         },11,false,VIOLET);
     }
+}
+
+void SamplerUI::generativePhrase(Rect r){
+    using namespace generative;
+    const auto& p=app_.genPhrase();const auto& c=app_.genConfig();
+    scope(r,false);
+    const float x=r.x+4,w=r.w-8,y=r.y+4,h=r.h-8;
+    if(!p.n||p.total<=0){text(r.x+r.w/2,r.y+r.h/2,9,WELL_DIM,"EMPTY PHRASE",1);return;}
+    auto Y=[&](int semi){return y+h*(1-std::clamp(semi,0,12)/12.f);};
+    for(int i=0;i<7;i++)line(x,y+h*i/6,x+w,y+h*i/6,GRID,.6f);
+    for(int i=0;i<p.n;i++){
+        const auto& e=p.event[i];const float bx=x+w*e.nominalOn/p.total,bw=w*(e.nominalOff-e.nominalOn)/p.total;
+        line(bx,y,bx,y+h,GRID,.6f);stroke({bx,Y(e.base)-1.5f,bw,3},0,WELL_DIM,.6f);
+        rrect({x+w*e.on/p.total,Y(e.midi-rootMidi(p.config))-1.5f,std::max(1.f,w*(e.off-e.on)/p.total),3},0,c.pins[i]>=0?TRACE_AMBER:TRACE_BLUE);
+    }
+    if(app_.genRunning()){float xx=x+w*clamp01(app_.genSeconds()/p.total);line(xx,r.y+1,xx,r.y+r.h-1,TRACE_AMBER,1);}
+}
+void SamplerUI::generativeHub(Rect r){
+    using namespace generative;
+    const auto& p=app_.genPhrase();const auto& c=app_.genConfig();const int t=app_.track(),kind=app_.genMap();
+    strip({r.x,r.y,r.w,24},trackColor(t),fit(app_.genSource(),r.w-100,T_TITLE),16);
+    text(r.x+r.w-5,r.y+12,T_CAPTION,contrastInk(trackColor(t)),"TRACK "+std::to_string(t+1),2,true);
+    for(int i=0;i<3;i++)button({r.x+i*r.w/3,r.y+30,r.w/3-3,28},mapNames[i],i==kind,[this,i]{app_.genSetMap(i);},10);
+    Rect m{r.x,r.y+66,r.w,118};scope(m);
+    // The original waveform window becomes the same selected field; the
+    // original loop strip becomes the selected track's live phrase.
+    if(genMapVersion_!=app_.genVersion()||genMapKind_!=kind||genMapTrack_!=t){
+        genMapVersion_=app_.genVersion();genMapKind_=kind;genMapTrack_=t;
+        for(int j=0;j<=32;j++)for(int i=0;i<=72;i++)genMapValues_[j*73+i]=field(p,i/72.f,1-j/32.f,kind);
+    }
+    for(int j=0;j<32;j++)for(int i=0;i<72;i++)rrect({m.x+m.w*i/72,m.y+m.h*j/32,m.w/72+.1f,m.h/32+.1f},0,color(genMapValues_[j*73+i]));
+    auto X=[&](float x){return m.x+m.w*x;};auto Y=[&](float y){return m.y+m.h*(1-y);};
+    for(int i=1;i<p.n;i++){auto a=p.event[i-1].point,b=p.event[i].point;line(X(a.x),Y(a.y),X(b.x),Y(b.y),i<=app_.genCursor()?TRACE_AMBER:WELL_TEXT,1.5f);}
+    for(int i=0;i<p.n;i++){auto a=p.event[i].point;circle(X(a.x),Y(a.y),2.5f,c.pins[i]>=0||i==app_.genCursor()?TRACE_AMBER:WELL_TEXT);}
+    auto relocate=[this,m](float x,float y){app_.genRelocate(clamp01((x-m.x)/m.w),1-clamp01((y-m.y)/m.h));};hit(m,relocate,relocate);
+    Rect ls{r.x,m.y+m.h+6,r.w,34};generativePhrase(ls);
+    Rect lr{r.x,ls.y+ls.h+12,r.w,34};
+    button({lr.x,lr.y,34,lr.h},"<",false,[this]{app_.genBrowse(-1);},15);
+    button({lr.x+lr.w-34,lr.y,34,lr.h},">",false,[this]{app_.genBrowse(1);},15);
+    button({lr.x+40,lr.y,lr.w-80,lr.h},app_.genSource(),false,[this]{sheetOpen_=true;app_.refreshLibrary();},11);
+    Rect br{r.x,lr.y+lr.h+8,r.w,38};
+    button({br.x,br.y,br.w*.6f-3,br.h},app_.outputRecordState()==1?"REC "+num("%.1f S",app_.outputRecordSeconds()):"RESAMPLE MASTER",app_.outputRecordState()==1,[this]{app_.outputRecordToggle();},11,false,RED);
+    button({br.x+br.w*.6f+3,br.y,br.w*.4f-3,br.h},"LOAD FILE",false,[this]{app_.requestFile();},10);
 }

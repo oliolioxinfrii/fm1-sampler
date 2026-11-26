@@ -52,9 +52,11 @@ private:
     void studyPhone(Rect w, SamplerApp::Page pg);
     void studyDeck();
     void generativeDeck();
+    void generativeHub(Rect r);
+    void generativePhrase(Rect r);
     void generativeSelector();
     int genSelector_=-1;
-    uint32_t genMapVersion_=0;int genMapKind_=-1;
+    uint32_t genMapVersion_=0;int genMapKind_=-1,genMapTrack_=-1;
     std::array<float,73*33> genMapValues_{};
     void studyTimeline(Rect r);
     void studyScopeEnergy(int track,float& mid,float& side);

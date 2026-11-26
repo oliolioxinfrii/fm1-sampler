@@ -61,14 +61,19 @@ public:
     void noteOn(int track, int note, int vel);
     void noteOff(int track, int note);
 
-    // Independent generative deck: existing library PCM, dry audio, its own clock.
+    // Eight independent schedulers, sharing the track processing and mixer.
     void generatorEnable(bool on);
-    void generatorLoad(const std::string& path);
-    int generatorLoadState() const; // 0 empty, 1 loading, 2 ready, 3 failed
-    void generatorConfigure(const generative::Config& c);
-    void generatorPlay(const generative::Config& c,uint32_t pass=0);
-    void generatorStop();
-    generative::Snapshot generatorSnapshot() const;
+    void generatorLoad(const std::string& path,int track=0);
+    int generatorLoadState(int track=0) const;
+    void generatorConfigure(const generative::Config& c,int track=0);
+    void generatorPlay(const generative::Config& c,uint32_t pass=0,int track=0);
+    void generatorStop(int track=0);
+    generative::Snapshot generatorSnapshot(int track=0) const;
+    void outputRecordStart();
+    void outputRecordStop();
+    int outputRecordState() const; // idle, recording, saving, saved, failed
+    float outputRecordSeconds() const;
+    std::string outputRecordPath() const;
 
     // ---- sampler (per track) ----
     void loadSamplePath(const std::string& path, bool kit, int track);          // worker thread builds it, then it replaces the track's sampler

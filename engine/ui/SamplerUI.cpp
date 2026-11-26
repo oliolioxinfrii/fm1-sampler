@@ -400,7 +400,7 @@ void SamplerUI::frame(uint32_t now) {
     syncColors();
     ops_.clear(); hits_.clear();
     rrect({0, 0, W_, H_}, 0, BG);
-    if(app_.generativeDeck()){
+    if(app_.generativeDeck()&&!app_.editor()){
         const float scale=std::min(W_/960.f,H_/450.f),ox=(W_-960*scale)*.5f,oy=(H_-450*scale)*.5f;
         const size_t first=ops_.size();generativeDeck();scaleStudy(scale,ox,oy,first);
         if(sheetOpen_)librarySheet();
@@ -434,18 +434,18 @@ void SamplerUI::topBar(Rect r) {
     float x = MARGIN;
     // PLAY / STOP
     Rect pl{x, 6, 44, r.h - 12};
-    bevel(pl, st_.playing ? GREEN : RAISED, st_.playing);
-    if (st_.playing) { rrect({pl.x + 15, cy - 8, 5, 16}, 0, contrastInk(GREEN)); rrect({pl.x + 24, cy - 8, 5, 16}, 0, contrastInk(GREEN)); }
+    bevel(pl, (app_.generativeDeck()?app_.genRunning():st_.playing) ? GREEN : RAISED, app_.generativeDeck()?app_.genRunning():st_.playing);
+    if (app_.generativeDeck()?app_.genRunning():st_.playing) { rrect({pl.x + 15, cy - 8, 5, 16}, 0, contrastInk(GREEN)); rrect({pl.x + 24, cy - 8, 5, 16}, 0, contrastInk(GREEN)); }
     else tri(pl.x + 16, cy - 9, pl.x + 16, cy + 9, pl.x + 30, cy, GREEN);
     tap(pl, [this] { app_.transportPlay(); });
     x += 52;
     // REC: arms the first take on a clean looper, overdub afterwards
     Rect rc{x, 6, 86, r.h - 12};
-    const bool recOn = st_.freeRecording || st_.track_clip_rec[app_.track()], armed = st_.freeArmed;
+    const bool recOn = app_.generativeDeck()?app_.outputRecordState()==1:(st_.freeRecording || st_.track_clip_rec[app_.track()]), armed = !app_.generativeDeck()&&st_.freeArmed;
     bevel(rc, recOn ? RED : RAISED, recOn);
     if (armed) stroke(rc, 0, RED, 2);
     circle(rc.x + 18, cy, 6, recOn ? contrastInk(RED) : RED);
-    text(rc.x + 28, cy, 9.5f, recOn ? contrastInk(RED) : TEXT, app_.loopExists() ? "OVERDUB" : "REC", 0, true);
+    text(rc.x + 28, cy, 9.5f, recOn ? contrastInk(RED) : TEXT, app_.generativeDeck()?"REC":app_.loopExists() ? "OVERDUB" : "REC", 0, true);
     tap(rc, [this] { app_.loopRecord(); });
     x += 94;
     button({x, 6, 56, r.h - 12}, "SAVE", false, [this] { app_.loopSave(); }, 11, true, GREEN);
@@ -455,8 +455,8 @@ void SamplerUI::topBar(Rect r) {
     button({x, 6, 56, r.h - 12}, "DECK", false, [this] { app_.setEditor(false); }, 11);
     x += 70;
     text(x, cy - 6, 12, st_.freeRecording || recOn || armed ? RED : AMBER, app_.loopText(), 0, true);
-    text(x, cy + 11, 9.5f, DIM, std::string("LOOP SOURCE: ") + (app_.knobs(SamplerApp::P_SAVE)[1].value), 0, false);
-    tap({x - 4, 0, 200, r.h}, [this] { auto k = app_.knobs(SamplerApp::P_SAVE); k[1].step(k[1].norm > 0.5f ? -1 : 1); });
+    text(x, cy + 11, 9.5f, DIM, app_.generativeDeck()?std::string("SOURCE: MASTER OUTPUT"):std::string("LOOP SOURCE: ") + (app_.knobs(SamplerApp::P_SAVE)[1].value), 0, false);
+    tap({x - 4, 0, 200, r.h}, [this] { auto k = app_.knobs(SamplerApp::P_SAVE); if(k[1].step)k[1].step(k[1].norm > 0.5f ? -1 : 1); });
     // link state and load
     const uint32_t lc = linkMidi_ && linkAudio_ ? GREEN : linkMidi_ ? AMBER : DIM;
     circle(W_ - 22, cy, 5, lc);
@@ -1596,19 +1596,21 @@ void SamplerUI::trackList(Rect r) {
         bevel(row, sel ? RAISED : SURFACE, sel);
         rrect({row.x + 3, row.y + 3, 22, rh - 6}, 0, sel ? col : TRACK);
         text(row.x + 14, row.y + rh / 2, T_TITLE, sel ? contrastInk(col) : TEXT, std::to_string(i + 1), 1, true);
-        const std::string lab = app_.sampleLabel(i);
+        const std::string lab = app_.generativeDeck()?app_.genTrackSource(i):app_.sampleLabel(i);
         text(row.x + 30, row.y + rh / 2 - 6, 11, lab.empty() ? DIM : TEXT, fit(lab.empty() ? "EMPTY" : lab, r.w - 40, 11), 0, true);
         // level and loop mark
         const float lv = std::min(1.f, st_.track_peak[i] * 1.5f);
         rrect({row.x + 30, row.y + rh - 12, r.w - 44, 3}, 0, OUTLINE);
         rrect({row.x + 30, row.y + rh - 12, (r.w - 44) * lv, 3}, 0, col);
-        if (st_.track_clip_rec[i]) circle(row.x + r.w - 10, row.y + 10, 4, RED);
+        if(app_.generativeDeck()){if(app_.genTrackRunning(i))circle(row.x+r.w-10,row.y+10,3.5f,GREEN);}
+        else if (st_.track_clip_rec[i]) circle(row.x + r.w - 10, row.y + 10, 4, RED);
         else if (st_.track_has_clip[i]) circle(row.x + r.w - 10, row.y + 10, 3.5f, GREEN);
         tap(row, [this, i] { app_.selectTrack(i); });
     }
 }
 
 void SamplerUI::sampleArea(Rect r) {
+    if(app_.generativeDeck()){generativeHub(r);return;}
     const int t = app_.track();
     const auto ts = app_.state(t);
     const std::string lab = app_.sampleLabel(t);
@@ -1768,7 +1770,8 @@ void SamplerUI::pagePanel(Rect r) {
     for(int pass=0;pass<2;++pass) for(int i=0;i<kMenuCount;++i) {
         if((i==selected)!=(pass==1)) continue;
         const Rect c=primaryRect(i);
-        propertyTab(c,kMenus[i].editorLabel,i==selected,pageColor(kMenus[i].pages[0]),9.5f);
+        if(app_.generativeDeck()&&i==9){propertyTab(c,"--",false,DIM,9.5f);continue;}
+        propertyTab(c,app_.generativeDeck()&&i==4?"GLOBAL":kMenus[i].editorLabel,i==selected,pageColor(kMenus[i].pages[0]),9.5f);
         tap(c,[this,i]{app_.gotoPage(nextMenuPage(app_,kMenus[i]));});
     }
     // The contextual tabs sit on the raised property-sheet body.
@@ -1785,12 +1788,12 @@ void SamplerUI::pagePanel(Rect r) {
             const float x=r.x+3+j*pitch; ++j;
             if(on!=(pass==1)) continue;
             const Rect c{x,sheetY-(on?28.f:24.f),pitch+4,on?30.f:24.f};
-            propertyTab(c,group.labels[i],on,pageColor(p),9.f);
+            propertyTab(c,app_.generativeDeck()&&selected==0?app_.contextualPageName(p):group.labels[i],on,pageColor(p),9.f);
             tap(c,[this,p]{app_.gotoPage(p);});
         }
     } else {
         const Rect c{r.x+3,sheetY-28,std::min(r.w-6,112.f),30};
-        propertyTab(c,SamplerApp::pageName(app_.page()),true,pageColor(app_.page()),9.f);
+        propertyTab(c,app_.contextualPageName(app_.page()),true,pageColor(app_.page()),9.f);
     }
     auto k=app_.knobs();
     const float tabsH=104, top=r.y+tabsH, rh=(r.h-tabsH)/4;

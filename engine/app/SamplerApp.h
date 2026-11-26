@@ -54,21 +54,28 @@ public:
     // Generative deck has no dependency on tape-page parameters.
     bool generativeDeck() const {return genDeck_;}
     void setGenerativeDeck(bool on);
-    const generative::Config& genConfig()const{return genConfig_;}
-    const generative::Phrase& genPhrase()const{return genPhrase_;}
-    uint32_t genVersion()const{return genVersion_;}
-    int genPage()const{return genPage_;}
-    int genMap()const{return genMap_;}
-    bool genRunning()const{return genRunning_;}
-    int genCursor()const{return genCursor_;}
-    uint16_t genActive()const{return genActive_;}
-    float genSeconds()const{return genSeconds_;}
-    int genSourceState()const{return s_.generatorLoadState();}
-    const std::string& genSource()const{return genSource_;}
+    bool genTrackRunning(int t)const{return t>=0&&t<kTracks&&genTracks_[t].running;}
+    std::string genTrackSource(int t)const{return t>=0&&t<kTracks?genTracks_[t].source:"";}
+    int outputRecordState()const{return s_.outputRecordState();}
+    float outputRecordSeconds()const{return s_.outputRecordSeconds();}
+    void outputRecordToggle();
+    const char* contextualPageName(Page p)const;
+    Knobs genGlobalKnobs();
+    const generative::Config& genConfig()const{return gen().config;}
+    const generative::Phrase& genPhrase()const{return gen().phrase;}
+    uint32_t genVersion()const{return gen().version;}
+    int genPage()const{return gen().page;}
+    int genMap()const{return gen().map;}
+    bool genRunning()const{return gen().running;}
+    int genCursor()const{return gen().cursor;}
+    uint16_t genActive()const{return gen().active;}
+    float genSeconds()const{return gen().seconds;}
+    int genSourceState()const{return s_.generatorLoadState(track_);}
+    const std::string& genSource()const{return gen().source;}
     Knobs genKnobs();
     void genHarmonic(int knob,int delta);
-    void genSetPage(int p){genPage_=std::clamp(p,0,3);}
-    void genSetMap(int m){genMap_=std::clamp(m,0,2);}
+    void genSetPage(int p){gen().page=std::clamp(p,0,3);}
+    void genSetMap(int m){gen().map=std::clamp(m,0,2);}
     void genApply(int a);
     void genMotif(int m);
     void genSteps(int n);
@@ -83,7 +90,7 @@ public:
     void genLoadEntry(int i);
     int genKeyState(int pitch)const; // 0 off, 1 phrase, 2 sounding/custom, 3 pinned
 
-    void setEditor(bool on) { editor_ = on; }
+    void setEditor(bool on);
     void setLight(bool on);
     void gotoPage(Page p);
     static const char* pageName(Page p);
@@ -93,7 +100,7 @@ public:
     Knobs knobs(Page p);
     static const char* algoName(int i);
     static const char* echoModeName(int i);
-    bool pageAvailable(Page p) const { return p != P_FX && p != P_SEQ && ((p != P_ECHO && p != P_GRAIN && p != P_MOTION) || algo() == 4); }
+    bool pageAvailable(Page p) const { if(genDeck_)return p!=P_FX&&p!=P_SEQ&&p!=P_LEN&&p!=P_TEMPO; return p != P_FX && p != P_SEQ && ((p != P_ECHO && p != P_GRAIN && p != P_MOTION) || algo() == 4); }
     static Page menuPage(int slot) {
         constexpr Page pages[] = {P_HOME,P_ECHO,P_GRAIN,P_MOTION,P_FX,P_EFILTER,P_EDELAY,P_EREVERB,P_ENV,P_LFO,P_ARP,P_SEQ,P_ETAPE,P_EMIX,P_MIX,P_KEY,P_SAVE,P_LEN,P_TEMPO};
         return pages[slot];
@@ -113,7 +120,7 @@ public:
     int algo() const { return ts_[track_].algo; }
     void setAlgo(int a);
     const std::vector<Entry>& library() const { return lib_; }
-    int libraryCursor() const { return genDeck_ ? std::max(0,genEntry_) : libCursor_; }
+    int libraryCursor() const { return genDeck_ ? std::max(0,gen().entry) : libCursor_; }
     void browse(int delta);                       // PRESETS: moves the cursor, audition after a short pause
     void loadEntry(int index);                    // at once, on the selected track
     void refreshLibrary();
@@ -217,16 +224,28 @@ private:
     Page page_ = P_HOME;
     bool editor_ = false, homeLong_ = false, gloLong_ = false;
     bool recLong_=false;uint32_t recAt_=0;
-    bool genDeck_=false,genRunning_=false;
-    generative::Config genConfig_;
-    generative::Phrase genPhrase_=generative::makePhrase(genConfig_,0);
-    int genPage_=0,genMap_=0,genCursor_=-1,genEntry_=-1;
-    std::string genSource_,genPath_;
-    uint32_t genPass_=0,genVersion_=1,genAudioSerial_=0,genDrawAt_=0;
-    uint16_t genActive_=0;float genSeconds_=0;
-    uint32_t genMapVersion_=0;int genDrawMap_=-1;
-    std::array<uint8_t,40*40> genCells_{};
+    bool genDeck_=false;
+    struct GenTrack {
+        generative::Config config;
+        generative::Phrase phrase=generative::makePhrase(config,0);
+        int page=0,map=0,cursor=-1,entry=-1;
+        bool running=false;
+        std::string source,path;
+        uint32_t pass=0,version=1,audioSerial=0;
+        uint16_t active=0;float seconds=0;
+    };
+    std::array<GenTrack,kTracks> genTracks_;
+    GenTrack& gen(){return genTracks_[track_];}
+    const GenTrack& gen()const{return genTracks_[track_];}
+    uint32_t genDrawAt_=0,genMapVersion_=0,genOctSentAt_=0;
+    int genDrawMap_=-1,genDrawTrack_=-1;
+    bool genOctAck_=false;
+    std::array<uint8_t,20*20> genCells_{};
     std::array<uint64_t,80> genTileSig_{};
+    std::string latestTake_,seenTake_;
+    int lastOutputState_=0;
+    void genEnsureSound();
+    void selectSavedTake();
 
     uint32_t homeAt_ = 0, gloAt_ = 0;
     int track_ = 0;
