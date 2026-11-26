@@ -303,6 +303,47 @@ int main() {
         CHECK(correct,"LFO cursor follows oscillator phase and cycle count");
         CHECK(visited[0]&&visited[1]&&visited[2]&&visited[3]&&wrapped,
               "LFO cursor traverses all four visible cycles and wraps");
+        app.knobs()[3].set(1.f); // sample and hold
+        run(.15);
+        bool aligned=true;
+        for(int j=0;j<40;j++){
+            ui.frame(now);
+            const auto st=app.status();
+            const int tr=app.track();
+            const float expectedY=130.f-st.lfoValue[tr]*124.f*.45f*.5f;
+            bool marker=false,plateau=false;
+            float markerX=0.f;
+            for(const auto& op:ui.ops()){
+                if(op.type==UiOp::CIRCLE && op.color==theme::TRACE_AMBER &&
+                   std::fabs(op.f[2]-1.8f)<.01f &&
+                   op.f[0]>=439.f && op.f[0]<=773.f &&
+                   std::fabs(op.f[1]-expectedY)<.05f){
+                    marker=true;markerX=op.f[0];break;
+                }
+            }
+            if(marker)for(const auto& op:ui.ops()){
+                if(op.type==UiOp::LINE && op.color==theme::TRACE_BLUE &&
+                   std::fabs(op.f[1]-expectedY)<.05f &&
+                   std::fabs(op.f[3]-expectedY)<.05f &&
+                   std::fabs(op.f[2]-op.f[0]-334.f/periods)<.05f &&
+                   markerX>=op.f[0]-.01f&&markerX<=op.f[2]+.01f){
+                    plateau=true;break;
+                }
+            }
+            aligned=aligned&&marker&&plateau;
+            run(.1);
+        }
+        CHECK(aligned,"sample-and-hold cursor remains on its actual plateau");
+        app.knobs()[0].set(0.f);app.knobs()[1].set(0.f);
+        const auto& symbol=ui.surfaceGraphic(now);
+        float minY=1000.f,maxY=-1000.f;
+        for(const auto& op:symbol){
+            if(op.type==UiOp::LINE&&op.color==theme::TRACE_BLUE&&
+               std::fabs(op.f[1]-op.f[3])<.01f&&op.f[2]-op.f[0]>20.f){
+                minY=std::min(minY,op.f[1]);maxY=std::max(maxY,op.f[1]);
+            }
+        }
+        CHECK(maxY-minY>5.f,"compact sample-and-hold symbol retains visible steps at minimum rate and depth");
         for(int i=0;i<4;i++)if(savedLfo[i].valid&&savedLfo[i].set)
             app.knobs()[i].set(savedLfo[i].norm);
     }

@@ -195,30 +195,60 @@ void SamplerUI::studyPhone(Rect w, SamplerApp::Page pg) {
         float at=3*a*a,de=b,re=5*d*d,total=at+de+re+.65f,scale=474/total,xa=24+at*scale,xd=xa+de*scale,xs=xd+.65f*scale,xe=xs+re*scale,sy=151-126*c;Path p={{24,151},{xa,25},{xd,sy},{xs,sy},{xe,151}};
         for(size_t j=1;j<p.size();j++)quad({p[j-1].first,151},p[j-1],p[j],{p[j].first,151},al(dim,.18f));D(p,ink,2.6f);for(size_t j=0;j<p.size();j++){L(p[j].first,p[j].second,p[j].first,151,GRID);R(p[j].first-3,p[j].second-3,6,6,WELL,encoderTrace(std::max(0,int(j)-1)),1.5f);}M(24,15,"AMPLITUDE");M(505,15,num("%.2f s incl. sustain preview",total),dim,9,2);L(24,151,498,151,dim);ticks(24,159,60);M(24,176,"A",blue);M(182,176,"D",green);M(335,176,"S",violet);M(498,176,"R",amber,9,2);break;}
     case P::P_LFO:{
-        int n=1+int(std::lround(6*a)),shape=ts.lfoShape;M(20,15,"CONTROL SIGNAL");R(20,28,334,124,0,lip,.8f);L(20,90,354,90,dim,.8f);Path p;
-        for(int j=0;j<=280;j++){float q=j/280.f*n,ph=q-std::floor(q),v=shape==1?(ph<.5f?4*ph-1:3-4*ph):shape==2?(ph<.5f?1.f:-1.f):shape==3?2*rnd(int(q)+90)-1:std::sin(tau*q);p.push_back({20+334.f*j/280,90-v*124*.45f*b});}
-        for(size_t j=1;j<p.size();j++){
-            quad({p[j-1].first,90},p[j-1],p[j],{p[j].first,90},al(dim,.15f));
-        }
-        D(p,blue,2.5f);
-        // Anchor the first visible period on page entry or a rate change.
+        const int n=1+int(std::lround(6*a)),shape=ts.lfoShape;
+        M(20,15,"CONTROL SIGNAL");R(20,28,334,124,0,lip,.8f);L(20,90,354,90,dim,.8f);
+        // Anchor the first visible period on page entry or a rate/shape change.
         // The audio thread counts wraps, so skipped UI frames cannot lose cycles.
-        if(lfoSweepTrack_!=t || lfoSweepRate_!=a){
+        if(lfoSweepTrack_!=t || lfoSweepRate_!=a || lfoSweepShape_!=shape){
             lfoSweepTrack_=t;
             lfoSweepRate_=a;
+            lfoSweepShape_=shape;
             lfoSweepOrigin_=st_.lfoCycle[t];
+            for(int i=0;i<7;i++)lfoHoldKnown_[i]=false;
         }
         const uint32_t elapsed=(st_.lfoCycle[t]+Session::kLfoCycleMod-lfoSweepOrigin_)%Session::kLfoCycleMod;
         const int activeCycle=int(elapsed%uint32_t(n));
         const float phase=clamp01(st_.lfoPhase[t]);
         const float live=std::clamp(st_.lfoValue[t],-1.f,1.f);
-        const float hx=20+334.f*(activeCycle+phase)/n,hy=90-live*124*.45f*b;
-        if(shape==3 && b>.001f){
-            const float start=20+334.f*activeCycle/n,end=20+334.f*(activeCycle+1)/n;
-            R(start,29,end-start,122,WELL);
-            L(start,90,end,90,GRID,.8f);
-            L(start,hy,end,hy,blue,2.5f);
+        const float amp=124*.45f*b,period=334.f/n;
+        const float hx=20+period*(activeCycle+phase);
+        float hy=90-live*amp;
+        Path p;
+        if(shape==3){
+            // One continuous staircase. A visited period retains its last
+            // actual held value; unvisited periods are a schematic preview.
+            // The active plateau and marker use exactly the same Y value.
+            lfoHold_[activeCycle]=live;
+            lfoHoldKnown_[activeCycle]=true;
+            for(int i=0;i<n;i++){
+                const float v=lfoHoldKnown_[i]?lfoHold_[i]:2*rnd(i+90)-1;
+                const float y=90-v*amp;
+                const float x0=20+period*i,x1=20+period*(i+1);
+                p.push_back({x0,y});p.push_back({x1,y});
+                if(i==activeCycle)hy=y;
+            }
+        }else if(shape==2){
+            // Explicit vertical transitions for the square wave.
+            for(int i=0;i<n;i++){
+                const float x0=20+period*i,xm=x0+period*.5f,x1=20+period*(i+1);
+                p.push_back({x0,90-amp});p.push_back({xm,90-amp});
+                p.push_back({xm,90+amp});p.push_back({x1,90+amp});
+            }
+            hy=90-(phase<.5f?1.f:-1.f)*amp;
+        }else{
+            for(int j=0;j<=280;j++){
+                const float q=j/280.f*n,ph=q-std::floor(q);
+                const float v=shape==1?(ph<.5f?4*ph-1:3-4*ph):std::sin(tau*q);
+                p.push_back({20+334.f*j/280,90-v*amp});
+            }
+            const float v=shape==1?(phase<.5f?4*phase-1:3-4*phase):std::sin(tau*phase);
+            hy=90-v*amp;
         }
+        for(size_t j=1;j<p.size();j++){
+            if(p[j-1].first!=p[j].first)
+                quad({p[j-1].first,90},p[j-1],p[j],{p[j].first,90},al(dim,.15f));
+        }
+        D(p,blue,2.5f);
         L(hx,29,hx,151,al(amber,.65f),1.25f);
         O(hx,hy,4.4f,WELL,amber,1.7f);
         O(hx,hy,1.8f,amber);

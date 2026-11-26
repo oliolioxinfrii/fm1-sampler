@@ -2,12 +2,12 @@ plugins { id 'com.android.application' }
 android {
     namespace 'com.ferluht.fm1sampler'
     compileSdk 34
-    defaultConfig { applicationId 'com.ferluht.fm1sampler'; minSdk 23; targetSdk 30; versionCode 71; versionName "0.37" }
+    defaultConfig { applicationId 'com.ferluht.fm1sampler'; minSdk 23; targetSdk 30; versionCode 72; versionName "0.37" }
     signingConfigs { debug { enableV1Signing = true; enableV2Signing = true } }
     buildTypes {
         debug {
             applicationIdSuffix ".experimental"
-            versionNameSuffix "-experimental.35"
+            versionNameSuffix "-experimental.36"
         }
     }
     buildFeatures { prefab true }

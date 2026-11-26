@@ -26,11 +26,31 @@ bool SamplerUI::studyGraphic(Rect w,SamplerApp::Page pg,bool) {
         for(int j=0;j<count;j++){float x=8+(80-width)*j/std::max(1,count-1);uint32_t col=j%3==0?D:j%3==2?V:B;Path q;for(int i=0;i<=24;i++){float z=i/24.f;float v=0.5f*(1-std::cos(2*kPi*z));if(ts.echo.window==2)v=std::min({1.f,z/.15f,(1-z)/.15f});if(ts.echo.window==3||ts.echo.window==4){float u=ts.echo.window==4?1-z:z;v=u<.03f?std::sin(.5f*kPi*u/.03f):std::exp(-5*(u-.03f)/.97f);if(u>.92f)v*=.5f+.5f*std::cos(kPi*(u-.92f)/.08f);}if(ts.echo.window==5){float u=(z-.5f)/.16f;v=clamp01((std::exp(-.5f*u*u)-.00752f)/(1-.00752f));}q.push_back({x+width*z,36-26*v});}path(q,col);}
         if(d>.5f)L(7,43,89,43,A,2);return true;}
     case P::P_MOTION:{
-        rect(7,7,82,34,D);L(7,24,89,24,F,1);float travel=10+24*std::abs(2*a-1),sign=a<.5f?-1.f:1.f,ex=48+sign*travel,ey=12+9*c;
-        cubic({13,24},{30,9},{47,10},{ex,ey},B,2);arrow(ex-sign*5,ey+4,ex,ey,B);
-        cubic({13,24},{32,37},{52,38},{ex,31},B,2);arrow(ex-sign*5,31,ex,31,B);
-        if(b>.01f){cubic({73,15},{57,26},{44,31},{17,33},V,1.5f+1.3f*b);arrow(23,31,17,33,V);}
-        if(d>.5f)rect(7,7,82,34,A);return true;}
+        // Reduced version of the phone's central source rail and
+        // bidirectional fan of pitch-offset trajectories.
+        rect(7,7,82,34,D);L(7,24,89,24,F,1);
+        const float ox=48.f,cy=24.f,scan=2*a-1;
+        const float travel=std::abs(scan)*36.f,sign=scan<0?-1.f:1.f;
+        for(int i=0;i<5;i++){
+            const int j=i*2; // retain five of the phone's nine trajectories
+            const bool rev=j/8.f<b;
+            const float dir=(rev?-1.f:1.f)*sign;
+            const float ex=std::clamp(ox+dir*travel+(j-4)*.85f,10.f,86.f);
+            const float dy=(j-4)*c*3.f,ey=cy+dy;
+            const float x1=ox+dir*std::max(3.f,travel*.45f);
+            const uint32_t col=rev?G:B;
+            cubic({ox,cy},{x1,cy+dy*.1f},{ex-dir*7.f,ey},{ex,ey},col,j==4?2.2f:1.2f);
+            if(std::abs(ex-ox)>5.f){
+                const float sgn=ex>=ox?1.f:-1.f;
+                path({{ex-sgn*3,ey-1.7f},{ex,ey},{ex-sgn*3,ey+1.7f}},col,1.2f);
+            }
+        }
+        // Same source rail and latch bracket as the phone, without text.
+        rect(ox-2.5f,9,5,30,D,WELL);
+        L(ox,11,ox,37,A,1.7f);
+        const float bw=d>.5f?10.f:32.f,x=ox-bw*.5f;
+        path({{x,46},{x,43},{x+bw,43},{x+bw,46}},d>.5f?A:D,1.5f);
+        return true;}
     case P::P_EFILTER:{
         grid(7,7,82,34,4,2);Path p;for(int i=0;i<=36;i++){float q=i/36.f,z=(q-b)*14,low=1/(1+std::exp(z)),band=std::exp(-z*z*.22f),v=ts.echoInsert.filter==0?low:ts.echoInsert.filter==1?band:1-low;p.push_back({8+80*q,40-32*clamp01(.08f+.73f*v+.24f*c*band)});}path(p,A,2.2f);L(8+80*b,6,8+80*b,41,D,1.3f);return true;}
     case P::P_EDELAY:{
@@ -64,7 +84,39 @@ bool SamplerUI::studyGraphic(Rect w,SamplerApp::Page pg,bool) {
     case P::P_ENV:{
         grid(8,7,80,34,4,2);float total=3*a*a+b+.65f+5*d*d,xa=8+80*3*a*a/total,xd=xa+80*b/total,xs=xd+80*.65f/total,yy=41-33*c;path({{8,41},{xa,8},{xd,yy},{xs,yy},{88,41}},B,2.4f);ring(xa,8,2.3f,W,WELL);ring(xd,yy,2.3f,W,WELL);ring(xs,yy,2.3f,W,WELL);return true;}
     case P::P_LFO:{
-        L(7,24,66,24,F);Path q;for(int i=0;i<=48;i++){float z=i/48.f*(1+int(a*4)),ph=z-std::floor(z);float v=ts.lfoShape==1?1-4*std::abs(ph-.5f):ts.lfoShape==2?(ph<.5f?1.f:-1.f):ts.lfoShape==3?std::sin(int(z)*3.1f):std::sin(2*kPi*z);q.push_back({7+59.f*i/48,24-13*b*v});}path(q,B);float y=8+9.3f*ts.lfoTarget;path({{66,24},{75,24},{75,y},{84,y}},B,1.6f);for(int i=0;i<4;i++)jack(87,8+9.3f*i,i==ts.lfoTarget?B:D);return true;}
+        L(7,24,66,24,F);
+        Path q;
+        const int shape=ts.lfoShape;
+        const int n=1+int(a*4);
+        if(shape==3){
+            // A schematic staircase, intentionally recognizable even at
+            // the minimum rate or depth. This is not a live history plot.
+            constexpr float held[]={-.65f,.8f,-.25f,.48f,-.85f};
+            const int steps=std::max(3,n);
+            const float amp=5.f+8.f*b;
+            for(int i=0;i<steps;i++){
+                const float y=24-amp*held[i%5];
+                q.push_back({7+59.f*i/steps,y});
+                q.push_back({7+59.f*(i+1)/steps,y});
+            }
+        }else if(shape==2){
+            for(int i=0;i<n;i++){
+                const float x0=7+59.f*i/n,xm=7+59.f*(i+.5f)/n,x1=7+59.f*(i+1)/n;
+                q.push_back({x0,24-13*b});q.push_back({xm,24-13*b});
+                q.push_back({xm,24+13*b});q.push_back({x1,24+13*b});
+            }
+        }else{
+            for(int i=0;i<=48;i++){
+                float z=i/48.f*n,ph=z-std::floor(z);
+                float v=shape==1?(ph<.5f?4*ph-1:3-4*ph):std::sin(2*kPi*z);
+                q.push_back({7+59.f*i/48,24-13*b*v});
+            }
+        }
+        path(q,B);
+        float y=8+9.3f*ts.lfoTarget;
+        path({{66,24},{75,24},{75,y},{84,y}},B,1.6f);
+        for(int i=0;i<4;i++)jack(87,8+9.3f*i,i==ts.lfoTarget?B:D);
+        return true;}
     case P::P_ARP:{
         grid(8,7,80,34,6,3);int count=ts.arpRate?7:0,oct=ts.arpOct+1;for(int i=0;i<count;i++){int idx=ts.arpPatt==0?i:ts.arpPatt==1?6-i:ts.arpPatt==2?std::min(i,6-i):ts.arpPatt==3?(i%2?6-i/2:i/2):(i*5)%7;float y=34-27.f*(idx%(oct+2))/std::max(1,oct+1);uint32_t col=y<13?V:y>28?B:D;rect(9+i*11,y+1,4+5*d,6,col,col,1);}if(count&&st_.loopSamples>0){float x=9+11*std::min(6,int(loopPos()*7));L(x,43,x+8,43,G,2.2f);}return true;}
     case P::P_MIX:{

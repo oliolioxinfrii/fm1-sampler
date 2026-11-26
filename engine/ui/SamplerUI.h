@@ -80,6 +80,9 @@ private:
     int lfoSweepTrack_ = -1;
     float lfoSweepRate_ = -1.f;
     uint32_t lfoSweepOrigin_ = 0;
+    int lfoSweepShape_ = -1;
+    float lfoHold_[7] = {};
+    bool lfoHoldKnown_[7] = {};
     Session::Status st_{};
     bool linkMidi_ = false, linkAudio_ = false, sheetOpen_ = false, projectOpen_ = false;
     float sheetScroll_ = 0, sheetLastY_ = 0, sheetMoved_ = 0;
