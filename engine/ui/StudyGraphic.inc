@@ -19,12 +19,55 @@ bool SamplerUI::studyGraphic(Rect w,SamplerApp::Page pg,bool) {
     auto wave=[&](float x,float y,float ww,float hh,const std::vector<float>& p){if(p.empty()){L(x,y,x+ww,y,F);return;}Path top,bot;for(size_t i=0;i<p.size();i++){float xx=x+ww*i/std::max<size_t>(1,p.size()-1),v=hh*clamp01(p[i]);top.push_back({xx,y-v});bot.push_back({xx,y+v});}path(top,B,1.3f);path(bot,B,1.3f);};
     auto mix=[](uint32_t x,uint32_t y,float v){uint32_t o=0xff000000u;v=clamp01(v);for(int sh=0;sh<=16;sh+=8)o|=uint32_t(std::lround(float(x>>sh&255)*(1-v)+float(y>>sh&255)*v))<<sh;return o;};
     switch(pg){
-    case P::P_ECHO:
-        for(int j=0;j<4;j++){float dx=(j==0?0:j==1?5:j==2?-3:8)*b*1.8f,y=7+j*10.f+(j-1.5f)*c;uint32_t col=j==0?D:j==3?V:B;float ww=62+6*d*(j-1);rect(16+dx,y,ww,6,col);int n=3+int(a*4);for(int i=1;i<n;i++)L(16+dx+ww*i/n,y,16+dx+ww*i/n,y+6,col,1.2f);}return true;
+    case P::P_ECHO:{
+        // Same visual grammar as the phone's registered sections:
+        // actual source above, displaced oblique sections below.
+        const auto source=app_.peaks(t,120);
+        auto rnd=[](int i){double x=std::sin(i*127.1+311.7)*43758.5453;return float(x-std::floor(x));};
+        wave(6,7,84,4,source);
+        L(6,13,90,13,D,1.2f);
+        for(int j=0;j<5;j++){
+            const int i=2*j; // retain five of the phone's nine sections
+            const float q=i/8.f;
+            const float xx=10+76*q+(rnd(i+20)-.5f)*b*5;
+            const float yy=28+(rnd(i+7)-.5f)*b*13+(q-.5f)*c*11;
+            const float len=8+3*rnd(i+7)+d*4*rnd(i+40);
+            const float hh=8+3*rnd(i+2);
+            const float left=std::clamp(xx-len*.5f,4.f,91.f-len);
+            const float right=left+len,top=yy-hh*.5f,bot=yy+hh*.5f;
+            const float bevelDepth=2.3f;
+            const uint32_t edge=j==2?V:D;
+            const uint32_t face=mix(WELL,D,.32f),bevelFace=mix(WELL,D,.58f);
+            L(xx,14,xx,top,F,1.f);
+            // Oblique top and right facets are kept distinct at 1x resolution.
+            tri(X(left),Y(top),X(left+bevelDepth),Y(top-bevelDepth),X(right+bevelDepth),Y(top-bevelDepth),bevelFace);
+            tri(X(left),Y(top),X(right+bevelDepth),Y(top-bevelDepth),X(right),Y(top),bevelFace);
+            tri(X(right),Y(top),X(right+bevelDepth),Y(top-bevelDepth),X(right+bevelDepth),Y(bot-bevelDepth),face);
+            tri(X(right),Y(top),X(right+bevelDepth),Y(bot-bevelDepth),X(right),Y(bot),face);
+            path({{left,top},{left+bevelDepth,top-bevelDepth},{right+bevelDepth,top-bevelDepth},{right+bevelDepth,bot-bevelDepth},{right,bot}},edge,1.1f);
+            rect(left,top,len,hh,edge,face,1.2f);
+            const int count=2+int(std::lround(a*2));
+            for(int k=0;k<count;k++){
+                const float src=source.empty()?0.f:source[std::min(source.size()-1,size_t((i*count+k)*source.size()/(9*count)))];
+                const float h=hh*(.22f+.52f*clamp01(src));
+                const float x=left+1.5f+(k+.5f)*(len-3)/count;
+                L(x,yy-h*.5f,x,yy+h*.5f,j==2?V:D,1.15f);
+            }
+            L(left+1,bot-1,right-1,bot-1,j==2?A:F,1.1f);
+        }
+        L(6,44,90,44,D,1.2f);
+        for(int i=0;i<=14;i++)L(6+i*6,44,6+i*6,44-(i%4==0?2.5f:1.2f),D,1.f);
+        const float pos=clamp01(ts.start+(ts.end-ts.start)*ts.echo.position);
+        L(6+84*pos,2,6+84*pos,12,A,2.f);
+        return true;}
     case P::P_GRAIN:{
         L(7,36,89,36,D);int count=3+int(b*4);float width=16+15*a;
         for(int j=0;j<count;j++){float x=8+(80-width)*j/std::max(1,count-1);uint32_t col=j%3==0?D:j%3==2?V:B;Path q;for(int i=0;i<=24;i++){float z=i/24.f;float v=0.5f*(1-std::cos(2*kPi*z));if(ts.echo.window==2)v=std::min({1.f,z/.15f,(1-z)/.15f});if(ts.echo.window==3||ts.echo.window==4){float u=ts.echo.window==4?1-z:z;v=u<.03f?std::sin(.5f*kPi*u/.03f):std::exp(-5*(u-.03f)/.97f);if(u>.92f)v*=.5f+.5f*std::cos(kPi*(u-.92f)/.08f);}if(ts.echo.window==5){float u=(z-.5f)/.16f;v=clamp01((std::exp(-.5f*u*u)-.00752f)/(1-.00752f));}q.push_back({x+width*z,36-26*v});}path(q,col);}
-        if(d>.5f)L(7,43,89,43,A,2);return true;}
+        // Same downward-facing bracket as the phone's POSITION HELD /
+        // WINDOW ADVANCE graphic; both width and color encode FREEZE.
+        const float bw=d>.5f?20.f:46.f,x=48.f-bw*.5f;
+        path({{x,40},{x,45},{x+bw,45},{x+bw,40}},d>.5f?A:D,1.7f);
+        return true;}
     case P::P_MOTION:{
         // Reduced version of the phone's central source rail and
         // bidirectional fan of pitch-offset trajectories.

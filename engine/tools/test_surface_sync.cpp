@@ -117,6 +117,17 @@ int main(){
                 app.knobs()[j].set(saved);run(1000);
             }
         }
+        // Freeze changes the pictograph itself, not merely its amount bar.
+        app.gotoPage(P::P_GRAIN);
+        const float savedFreeze=app.knobs()[3].norm;
+        app.knobs()[3].set(0);run(2000);
+        const auto freeGlyph=plot;
+        app.knobs()[3].set(1);run(2000);
+        bool freezeGlyphChanged=false;
+        for(int y=0;y<35;y++)for(int x=0;x<216;x++)
+            freezeGlyphChanged|=plot[y*216+x]!=freeGlyph[y*216+x];
+        require(freezeGlyphChanged,"FREEZE must alter the compact bracket as well as its meter");
+        app.knobs()[3].set(savedFreeze);run(1000);
         // Verify the actual chord notes, not just a generic mode bar.
         app.setScale(2,0,0,1);
         require(app.chordGhostMask()==((1u<<0)|(1u<<4)|(1u<<7)),"major tonic triad preview");
