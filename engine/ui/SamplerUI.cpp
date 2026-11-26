@@ -400,12 +400,20 @@ void SamplerUI::frame(uint32_t now) {
     syncColors();
     ops_.clear(); hits_.clear();
     rrect({0, 0, W_, H_}, 0, BG);
+    if(app_.generativeDeck()){
+        const float scale=std::min(W_/960.f,H_/450.f),ox=(W_-960*scale)*.5f,oy=(H_-450*scale)*.5f;
+        const size_t first=ops_.size();generativeDeck();scaleStudy(scale,ox,oy,first);
+        if(sheetOpen_)librarySheet();
+        return;
+    }
     const float tb = 44, left = 176, right = 252;
     if (!app_.editor()) {   // the cassette deck fills the screen; the old sample / page editor stays one tap away (EDIT)
         const float scale=std::min(W_/960.f,H_/450.f);
         const float ox=(W_-960*scale)*.5f,oy=(H_-450*scale)*.5f;
         const size_t first=ops_.size();
-        studyDeck(); scaleStudy(scale,ox,oy,first);
+        studyDeck();
+        button({350,299,53,25},"GEN",false,[this]{sheetOpen_=projectOpen_=false;app_.setGenerativeDeck(true);},10,true,VIOLET);
+        scaleStudy(scale,ox,oy,first);
         if (sheetOpen_) librarySheet();
         if (projectOpen_) projectSheet();
         return;
@@ -1884,3 +1892,5 @@ void SamplerUI::projectSheet() {
     row(std::string("LOOP SOURCE: ") + app_.knobs(SamplerApp::P_SAVE)[1].value, "what a take records: the track's sound or the microphone", true, false,
         [this] { auto k = app_.knobs(SamplerApp::P_SAVE); k[1].step(k[1].norm > 0.5f ? -1 : 1); });
 }
+
+#include "GenerativeDeck.inc"

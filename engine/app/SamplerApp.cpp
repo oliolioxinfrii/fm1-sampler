@@ -116,6 +116,7 @@ void SamplerApp::browse(int d) {
     auditionAt_ = nowMs_ + 250;
 }
 void SamplerApp::loadEntry(int i) {
+    if(genDeck_){genLoadEntry(i);return;}
     if (i < 0 || i >= (int)lib_.size()) return;
     libCursor_ = i; auditionAt_ = 0;
     const Entry& e = lib_[(size_t)i];
@@ -580,6 +581,7 @@ uint16_t SamplerApp::chordGhostMask() const {
 }
 void SamplerApp::keyEvent(int raw, bool down) {   // a key of the FM-1 (chromatic note 53+key): octave shift, chords in CHORD mode
     if (raw < 0 || raw > 127) return;
+    if(genDeck_){if(down)genKey(raw%12);return;}
     if (down) {
         if (keyCount_[raw]) keyEvent(raw, false);
         const bool kit = ts_[track_].algo == 3;   // KIT: every key is a pad (note 60 + key), whatever the tonality or octave
@@ -626,7 +628,8 @@ void SamplerApp::onMidi(const uint8_t* m, size_t n, uint32_t eventMs) {
 void SamplerApp::onSysex(const uint8_t* m, size_t n) {
     if (n < 8 || m[1] != 0x7d || m[2] != 'D' || m[3] != 'A' || m[4] != 'W') return;
     linkSeen_ = true;
-    if (m[6] == 0x41 && n >= 12) {   // the firmware's own SEL screen / OCT buttons: its scale index is the tonality unless it is the OFF we keep it on
+    if (m[6] == 0x41 && n >= 12) {
+        if(genDeck_){if((m[7]&7)!=7)fwDirty_=true;return;}   // the firmware's own SEL screen / OCT buttons: its scale index is the tonality unless it is the OFF we keep it on
         if ((m[7] & 7) != 7) { scale_.scale = m[7] & 7; fwDirty_ = true; }
         scale_.root = m[8] % 12; scale_.octave = (int)m[9] - 3; scale_.mode = m[10] & 1;
     }
@@ -650,6 +653,20 @@ void SamplerApp::button(int b, bool down) {
     const bool wasHeld = (held_ & (1u << b)) != 0;
     lastLed_ = ~0ull;   // the firmware's own LED handling must not win: the active page stays lit, the others go dark
     if (down) { held_ |= 1u << b; if(!wasHeld) motion_={}; } else held_ &= ~(1u << b);
+    if(b==REC){
+        if(down&&!wasHeld){recAt_=nowMs_;recLong_=false;}
+        else if(!down&&wasHeld&&!recLong_&&!genDeck_)loopRecord();
+        return;
+    }
+    if(genDeck_){
+        if(!down||wasHeld)return;
+        switch(b){
+        case HOME:genSetPage(0);break;case ENV:genSetPage(1);break;case LFO:genSetPage(2);break;case FX:genSetPage(3);break;
+        case ARP:genApply((genConfig_.apply+1)%3);break;case SEQ:genSetMap((genMap_+1)%3);break;
+        case EDIT:genMotif((genConfig_.motif+1)%4);break;case SAVE:genBrowse(1);break;
+        case GLO:genStop(true);break;case PLAY:if(genRunning_)genStop();else genPlay();break;default:break;
+        }return;
+    }
     if (b == HOME) {
         if (down && !wasHeld) { homeAt_ = nowMs_; homeLong_ = false; }
         else if (!down && wasHeld && !homeLong_) page_ = algo()!=4 ? P_HOME : page_==P_HOME ? P_ECHO : page_==P_ECHO ? P_GRAIN : page_==P_GRAIN ? P_MOTION : P_HOME;
@@ -682,6 +699,13 @@ SamplerApp::~SamplerApp() = default;
 
 void SamplerApp::encoder(int i, int delta, uint32_t eventMs) {
     if (!delta || i < 0 || i > 6) return;
+    if(genDeck_){
+        if(i==0)genHarmonic(0,delta);
+        else if(i==6)genHarmonic(1,delta);
+        else if(i==1)genHarmonic(2,delta);
+        else {auto k=genKnobs();if(k[i-2].step)k[i-2].step(delta);}
+        return;
+    }
     if (i == 0) { selectTrack(track_ + delta); return; }
     if (i == 6) { browse(delta); return; }
     if (i == 1) { setAlgo(ts_[track_].algo + delta); return; }
@@ -710,7 +734,7 @@ void SamplerApp::encoder(int i, int delta, uint32_t eventMs) {
 // ---- tick ----
 void SamplerApp::releaseSurfaceKeys() {
     for (int raw = 0; raw < 128; ++raw) if (keyCount_[raw]) keyEvent(raw, false);
-    held_ = 0; homeLong_ = gloLong_ = false;
+    held_ = 0; homeLong_ = gloLong_ = recLong_ = false;
 }
 void SamplerApp::resetSurface() {
     releaseSurfaceKeys();
@@ -727,13 +751,18 @@ void SamplerApp::resetSurface() {
 void SamplerApp::tick(uint32_t now) {
     nowMs_ = now;
     if (echoSaveAt_ && now >= echoSaveAt_) { echoSaveAt_ = 0; saveEcho(); }
-    if ((held_ & (1u << HOME)) && !homeLong_ && now - homeAt_ >= 600) {
+    if((held_&(1u<<REC))&&!recLong_&&now-recAt_>=700){
+        // Mark the hold consumed before changing decks.
+        recLong_=true;setGenerativeDeck(!genDeck_);
+    }
+    if(genDeck_)genRefresh();
+    if (!genDeck_ && (held_ & (1u << HOME)) && !homeLong_ && now - homeAt_ >= 600) {
         editor_ = !editor_; homeLong_ = true;
     }
-    if ((held_ & (1u << GLO)) && !gloLong_ && now - gloAt_ >= 600) {
+    if (!genDeck_ && (held_ & (1u << GLO)) && !gloLong_ && now - gloAt_ >= 600) {
         setLight(!theme::light); gloLong_ = true;
     }
-    if (fwDirty_) { fwDirty_ = false; sysex(6, {7, (uint8_t)scale_.root, (uint8_t)(scale_.octave + 3), (uint8_t)scale_.mode}, true); }
+    if (fwDirty_) { fwDirty_ = false; sysex(6, {7, (uint8_t)(genDeck_?0:scale_.root), (uint8_t)(genDeck_?3:scale_.octave + 3), (uint8_t)(genDeck_?0:scale_.mode)}, true); }
     if (repaintAt_ && now >= repaintAt_) { repaintAt_ = 0; needClear_ = true; }
     st_ = s_.status();
     loopAny_ = false;
@@ -767,7 +796,7 @@ void SamplerApp::tick(uint32_t now) {
     if (mic_ == 3 && st_.sampleState == 0 && !st_.samplePending && now - lastDraw_ > 3000) mic_ = 0;   // too short: nothing was kept
     if (now - lastDraw_ >= 33) {
         lastDraw_ = now;
-        if (now - healAt_ >= 150 && pending_.size() < 4) { healAt_ = now; if (!needClear_) heal(); }
+        if (now - healAt_ >= 150 && pending_.size() < 4) { healAt_ = now; if (!needClear_&&!genDeck_) heal(); }
         draw(now);
         leds();
     }
@@ -848,6 +877,19 @@ void SamplerApp::heal() {   // a lost frame leaves a hole nothing would redraw: 
 void SamplerApp::leds() {
     uint64_t m = 0;
     const bool blinkFast = (nowMs_ / 250) & 1, blinkSlow = (nowMs_ / 500) & 1;
+    if(genDeck_){
+        constexpr int btn[]={HOME,ENV,LFO,FX};
+        m|=1ull<<btn[genPage_];m|=1ull<<REC;
+        if(genRunning_)m|=1ull<<PLAY;
+        for(int k=0;k<27;k++){
+            const int state=genKeyState((53+k)%12);
+            if(state==3?blinkFast:state!=0)m|=1ull<<(14+k);
+        }
+        if(m==lastLed_&&nowMs_-ledAt_<400)return;
+        lastLed_=m;ledAt_=nowMs_;
+        std::vector<uint8_t> p(6);for(int i=0;i<6;i++)p[i]=uint8_t(m>>(7*i)&127);
+        sysex(1,p,true,900);return;
+    }
     static const int pageBtn[] = {HOME, FX, ENV, LFO, ARP, SEQ, EDIT, GLO, SAVE, SEL, SEL, HOME, FX, FX, FX, SEQ, SEQ, HOME, HOME};
     m |= 1ull << pageBtn[page_];
     if (st_.playing) m |= 1ull << PLAY;
@@ -875,6 +917,7 @@ void SamplerApp::leds() {
 // Layout (240x240): track tags, page and state, sample name, a 60 px picture that depends on the page, the loop strip, four knobs, a hint.
 void SamplerApp::draw(uint32_t now) {
     if ((int)theme::light != lastLight_) { lastLight_ = theme::light; setPalette(theme::light); needClear_ = true; }
+    if(genDeck_){drawGenerator(now);return;}
     const bool waveform=mic_==1||mic_==2||page_==P_HOME;
     const int layout=waveform?0:1;
     if (needClear_) {
@@ -1133,3 +1176,5 @@ void SamplerApp::hero(uint32_t now, const Knobs& k) {
     }
     (void)k; (void)now;
 }
+
+#include "GenerativeApp.inc"

@@ -48,7 +48,8 @@ public:
     void setEchoParams(const EchoParams& p) { echoParams_ = p; }
     void setPaul(float stretch, float width) { paulStretch_ = std::min(100.f, std::max(1.5f, stretch)); paulWidth_ = std::min(2.f, std::max(0.f, width)); }   // PAUL: slow-down factor, stereo width (1 = as is)
     std::vector<float> sliceFractions() const;   // KIT: where the slices start (0..1 of the sample) and, last, where the last one ends
-    void noteOn(int note, int vel);
+    void noteOn(int note, int vel, int eventTag = -1);
+    void noteOffEvent(int eventTag); // independent gate for overlapping generated pitches
     void noteOff(int note);
     void allOff();
     void render(float* out /*stereo, added*/, int n);
@@ -57,7 +58,7 @@ public:
 
 private:
     struct Voice {
-        bool on = false, gate = false; int note = 0, slice = 0; float vel = 1.f; uint32_t born = 0;
+        bool on = false, gate = false; int note = 0, slice = 0, eventTag = -1; float vel = 1.f; uint32_t born = 0;
         double pos = 0, rate = 1.0, ws = 0, we = 0;   // window of the played buffer, frames
         std::shared_ptr<const SampleBuf> buf;
         int mode = MELODIC;

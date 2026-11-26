@@ -5,6 +5,7 @@
 // through a command queue drained at the start of each block. status() and the peak views are lock-free.
 #pragma once
 #include "../dsp/EchoGrains.h"
+#include "../dsp/GenerativeField.h"
 #include "../dsp/EchoFX.h"
 #include <atomic>
 #include <cstdint>
@@ -59,6 +60,15 @@ public:
     void play(bool on, bool digital = false); // digital transport fades gain without changing playback rate
     void noteOn(int track, int note, int vel);
     void noteOff(int track, int note);
+
+    // Independent generative deck: existing library PCM, dry audio, its own clock.
+    void generatorEnable(bool on);
+    void generatorLoad(const std::string& path);
+    int generatorLoadState() const; // 0 empty, 1 loading, 2 ready, 3 failed
+    void generatorConfigure(const generative::Config& c);
+    void generatorPlay(const generative::Config& c,uint32_t pass=0);
+    void generatorStop();
+    generative::Snapshot generatorSnapshot() const;
 
     // ---- sampler (per track) ----
     void loadSamplePath(const std::string& path, bool kit, int track);          // worker thread builds it, then it replaces the track's sampler

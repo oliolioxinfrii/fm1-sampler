@@ -51,6 +51,9 @@ private:
     bool studyGraphic(Rect w, SamplerApp::Page pg, bool compact);
     void studyPhone(Rect w, SamplerApp::Page pg);
     void studyDeck();
+    void generativeDeck();
+    uint32_t genMapVersion_=0;int genMapKind_=-1;
+    std::array<float,73*33> genMapValues_{};
     void studyTimeline(Rect r);
     void studyScopeEnergy(int track,float& mid,float& side);
     void scaleStudy(float scale,float ox,float oy,size_t first);

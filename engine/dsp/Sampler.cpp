@@ -93,7 +93,7 @@ void Sampler::resolveWindow(Voice& v) const {
     if (ws < 0) ws = 0;
 }
 
-void Sampler::noteOn(int note, int vel) {
+void Sampler::noteOn(int note, int vel, int eventTag) {
     if (!orig_) return;
     int vi = -1; uint32_t oldest = 0xffffffffu;
     if (mode_ == PAUL) {   // each voice costs FFTs: at most four at once
@@ -109,7 +109,7 @@ void Sampler::noteOn(int note, int vel) {
         stealLeft_ = std::max(1, sr_ / 200);
     }
     v = Voice();
-    v.on = true; v.gate = true; v.note = note; v.vel = clampf(vel / 127.f, 0.f, 1.f); v.born = ++bornCounter_;
+    v.on = true; v.gate = true; v.note = note; v.eventTag = eventTag; v.vel = clampf(vel / 127.f, 0.f, 1.f); v.born = ++bornCounter_;
     v.slice = ((note - 60) % 16 + 16) % 16;
     v.mode = mode_;
     v.baseSemis = v.mode == KIT ? kitSemis_ : note - root_;
@@ -123,6 +123,9 @@ void Sampler::noteOn(int note, int vel) {
 }
 void Sampler::noteOff(int note) {
     for (auto& v : voices_) if (v.on && v.gate && v.note == note && v.mode != ONESHOT) { v.gate = false; v.env.gateOff(); }
+}
+void Sampler::noteOffEvent(int tag) {
+    for(auto& v:voices_)if(v.on&&v.gate&&v.eventTag==tag){v.gate=false;v.env.gateOff();}
 }
 void Sampler::allOff() { for (auto& v : voices_) v = Voice(); stealL_ = stealR_ = 0.f; stealLeft_ = 0; }
 bool Sampler::hasVoices() const { for (auto& v : voices_) if (v.on) return true; return false; }

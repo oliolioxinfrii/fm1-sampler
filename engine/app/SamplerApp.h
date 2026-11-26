@@ -8,6 +8,7 @@
 #pragma once
 #include "../session/Session.h"
 #include <array>
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <deque>
@@ -50,6 +51,38 @@ public:
     // ---- state for the phone UI (all of it can also be edited from there) ----
     Page page() const { return page_; }
     bool editor() const { return editor_; }
+    // Generative deck has no dependency on tape-page parameters.
+    bool generativeDeck() const {return genDeck_;}
+    void setGenerativeDeck(bool on);
+    const generative::Config& genConfig()const{return genConfig_;}
+    const generative::Phrase& genPhrase()const{return genPhrase_;}
+    uint32_t genVersion()const{return genVersion_;}
+    int genPage()const{return genPage_;}
+    int genMap()const{return genMap_;}
+    bool genRunning()const{return genRunning_;}
+    int genCursor()const{return genCursor_;}
+    uint16_t genActive()const{return genActive_;}
+    float genSeconds()const{return genSeconds_;}
+    int genSourceState()const{return s_.generatorLoadState();}
+    const std::string& genSource()const{return genSource_;}
+    Knobs genKnobs();
+    void genHarmonic(int knob,int delta);
+    void genSetPage(int p){genPage_=std::clamp(p,0,3);}
+    void genSetMap(int m){genMap_=std::clamp(m,0,2);}
+    void genApply(int a);
+    void genMotif(int m);
+    void genSteps(int n);
+    void genRelocate(float x,float y);
+    void genTogglePin(int event);
+    void genPinEnds();
+    void genClearPins();
+    void genKey(int pitch);
+    void genPlay();
+    void genStop(bool reset=false);
+    void genBrowse(int delta);
+    void genLoadEntry(int i);
+    int genKeyState(int pitch)const; // 0 off, 1 phrase, 2 sounding/custom, 3 pinned
+
     void setEditor(bool on) { editor_ = on; }
     void setLight(bool on);
     void gotoPage(Page p);
@@ -80,7 +113,7 @@ public:
     int algo() const { return ts_[track_].algo; }
     void setAlgo(int a);
     const std::vector<Entry>& library() const { return lib_; }
-    int libraryCursor() const { return libCursor_; }
+    int libraryCursor() const { return genDeck_ ? std::max(0,genEntry_) : libCursor_; }
     void browse(int delta);                       // PRESETS: moves the cursor, audition after a short pause
     void loadEntry(int index);                    // at once, on the selected track
     void refreshLibrary();
@@ -153,6 +186,9 @@ private:
     void drawText(int id, int x, int y, int scale, uint16_t fg, uint16_t bg, const std::string& s, int width_chars);
     void draw(uint32_t now);
     void leds();
+    void drawGenerator(uint32_t now);
+    void genChanged();
+    void genRefresh();
     void flush(uint32_t now);
     void heal();
     void discardPending(int firstKey, int lastKey);
@@ -180,6 +216,18 @@ private:
     Send send_;
     Page page_ = P_HOME;
     bool editor_ = false, homeLong_ = false, gloLong_ = false;
+    bool recLong_=false;uint32_t recAt_=0;
+    bool genDeck_=false,genRunning_=false;
+    generative::Config genConfig_;
+    generative::Phrase genPhrase_=generative::makePhrase(genConfig_,0);
+    int genPage_=0,genMap_=0,genCursor_=-1,genEntry_=-1;
+    std::string genSource_,genPath_;
+    uint32_t genPass_=0,genVersion_=1,genAudioSerial_=0,genDrawAt_=0;
+    uint16_t genActive_=0;float genSeconds_=0;
+    uint32_t genMapVersion_=0;int genDrawMap_=-1;
+    std::array<uint8_t,40*40> genCells_{};
+    std::array<uint64_t,80> genTileSig_{};
+
     uint32_t homeAt_ = 0, gloAt_ = 0;
     int track_ = 0;
     std::array<TrackState, kTracks> ts_;
