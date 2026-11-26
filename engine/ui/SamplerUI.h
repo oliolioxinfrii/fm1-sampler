@@ -52,6 +52,7 @@ private:
     void studyPhone(Rect w, SamplerApp::Page pg);
     void studyDeck();
     void studyTimeline(Rect r);
+    void studyScopeEnergy(int track,float& mid,float& side);
     void scaleStudy(float scale,float ox,float oy,size_t first);
     void pageView(Rect r);   // the schematic of the active page in the place of the sample
     void knob(float cx, float cy, SamplerApp::Page page, int idx, bool unused = false);
@@ -73,6 +74,9 @@ private:
     Hit active_{};
     bool haveActive_ = false;
     uint32_t now_ = 0;
+    int scopeEnergyTrack_ = -1;
+    uint32_t scopeEnergyAt_ = 0;
+    float scopeEnergyMid_ = 0.f, scopeEnergySide_ = 0.f;
     Session::Status st_{};
     bool linkMidi_ = false, linkAudio_ = false, sheetOpen_ = false, projectOpen_ = false;
     float sheetScroll_ = 0, sheetLastY_ = 0, sheetMoved_ = 0;

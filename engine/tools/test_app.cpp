@@ -182,10 +182,10 @@ int main() {
         auto deckTap=[&](float x,float y){constexpr float s=400.f/450.f;tap((860-960*s)*.5f+x*s,y*s);};
         deckTap(495,244);CHECK(app.page()==SamplerApp::P_EFILTER,"deck opens FX group");
         deckTap(495,244);CHECK(app.page()==SamplerApp::P_EDELAY,"deck primary cycles submenu");
-        deckTap(665,271);CHECK(app.page()==SamplerApp::P_EREVERB,"deck selects reverb directly");
+        deckTap(722,271);CHECK(app.page()==SamplerApp::P_EREVERB,"deck selects reverb directly");
         deckTap(495,244);CHECK(app.page()==SamplerApp::P_EFILTER,"deck wraps FX group");
-        deckTap(596,271);CHECK(app.page()==SamplerApp::P_EDELAY,"deck selects delay directly");
-        deckTap(527,271);CHECK(app.page()==SamplerApp::P_EFILTER,"deck selects filter directly");
+        deckTap(653,271);CHECK(app.page()==SamplerApp::P_EDELAY,"deck selects delay directly");
+        deckTap(584,271);CHECK(app.page()==SamplerApp::P_EFILTER,"deck selects filter directly");
         deckTap(705,244);CHECK(app.page()==SamplerApp::P_ETAPE,"deck opens tape group");
         deckTap(705,244);CHECK(app.page()==SamplerApp::P_EMIX,"deck cycles tape submenu");
         deckTap(737,271);CHECK(app.page()==SamplerApp::P_ETAPE,"deck tape child");
@@ -197,11 +197,14 @@ int main() {
         // retain a hit target from the previous group.
         app.gotoPage(SamplerApp::P_ENV);
         ui.frame(now);
-        bool duplicateEnv=false;
+        bool duplicateEnv=false,envCaption=false;
         for(const auto& op:ui.ops()){
-            if(op.type==UiOp::TEXT&&op.text=="ENV"&&op.f[1]>230&&op.f[1]<249)duplicateEnv=true;
+            if(op.type!=UiOp::TEXT||op.f[1]<=230||op.f[1]>=249)continue;
+            if(op.text=="ENV")duplicateEnv=true;
+            if(op.text.rfind("ENV / ",0)==0)envCaption=true;
         }
         CHECK(!duplicateEnv,"single-page ENV has no redundant child");
+        CHECK(envCaption,"single-page ENV retains its caption");
         deckTap(814,271);
         CHECK(app.page()==SamplerApp::P_ENV,"empty child row has no stale hit target");
         const float saved=app.knobs()[0].norm;

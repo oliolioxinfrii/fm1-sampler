@@ -48,12 +48,13 @@ bool SamplerUI::studyGraphic(Rect w,SamplerApp::Page pg,bool) {
     case P::P_EMIX:{
         jack(5,24,B);L(8,24,12,24,B);rect(12,15,12,18,V,0,1.8f);L(16,19,20,29,mix(D,V,c));L(24,24,29,24,B);rect(29,15,12,18,A,0,1.8f);path({{31,21},{35,21},{39,28}},mix(D,A,d),1.5f);L(41,24,46,24,B);
         rect(46,6,39,36,D);rect(50,10,31,28,D,0,1);L(65.5f,12,65.5f,36,F);L(52,24,79,24,F);
-        float m[Session::kScopePoints],side[Session::kScopePoints];int n=app_.session().insertScope(t,m,side,Session::kScopePoints);
-        auto last=insertViz(0.f,now_,a,b,m,side,n);
+        float midRms=0.f,sideRms=0.f;
+        studyScopeEnergy(t,midRms,sideRms);
+        auto last=insertViz(0.f,now_,a,b,midRms,sideRms);
         constexpr int points=64;
         for(int i=1;i<=points;i++){
             float q=float(i)/points;
-            auto next=insertViz(q,now_,a,b,m,side,n);
+            auto next=insertViz(q,now_,a,b,midRms,sideRms);
             float phase=.035f*float(now_%600000u)*.001f;
             float v=.5f+.5f*std::sin(2*kPi*(q*6+phase)),u=.5f+.5f*std::sin(2*kPi*(q*6+phase+.34f));
             L(65.5f+11*last.side,24-11*last.mid,65.5f+11*next.side,24-11*next.mid,mix(mix(B,V,c*std::pow(v,1.35f)),A,d*std::pow(1-u,1.35f)),1.9f);
@@ -70,7 +71,7 @@ bool SamplerUI::studyGraphic(Rect w,SamplerApp::Page pg,bool) {
         int src=ts.scSrc-1;bool on=src>=0&&src<8&&src!=t;for(int i=0;i<8;i++)jack(8,7+i*4.8f,on&&i==src?G:D);
         if(on)path({{11,7+src*4.8f},{25,7+src*4.8f},{25,24},{35,24}},G,1.8f);rect(35,17,15,14,on?G:D);path({{39,27},{43,21},{46,24}},on?G:D,1.5f);L(50,24,56,24,on?G:D);rect(56,7,28,34,D);float q=(20+40*c)/60,kx=60+20*q,ky=36-20*q;path({{60,36},{kx,ky},{80,ky-20*(1-q)/(on?1+19*d*d:1.f)}},V,2);L(84,17,91,17,B);L(84,31,91,31,B);jack(92,17,B);jack(92,31,B);return true;}
     case P::P_KEY:{
-        auto scale=app_.scale();auto mask=app_.chordGhostMask();std::vector<float> xs;for(int i=0;i<12;i++){float x=7+7*i;bool valid=P::inScale(scale.scale,(i-scale.root+12)%12);rect(x,13,5,23,valid?B:D,i==scale.root?B:0,1.4f);if(mask&(1u<<i))xs.push_back(x+2);}
+        auto scale=app_.scale();auto mask=app_.chordGhostMask();std::vector<float> xs;for(int i=0;i<12;i++){float x=7+7*i;bool valid=P::inScale(scale.scale,(i-scale.root+12)%12);rect(x,13,5,23,i==scale.root?A:valid?B:D,i==scale.root?A:0,1.4f);if(mask&(1u<<i))xs.push_back(x+2);}
         if(!xs.empty()){L(xs.front(),6,xs.back(),6,V);for(float x:xs)L(x,6,x,10,V);}return true;}
     case P::P_SAVE:{
         float level=clamp01(st_.inputPeak*2),th=clamp01(app_.micThreshold()*2);L(7,24,73,24,B);if(level>0)rect(7,24-15*level,66,30*level,B,0,1.2f);L(7,24-15*th,73,24-15*th,A);L(7,24+15*th,73,24+15*th,A);path({{76,13},{76,35},{88,35},{88,13},{76,13}},D);rect(79,32-16*level,6,16*level,G,G,1);ring(13,7,3,a>.5f?TRACE_RED:V,a>.5f?TRACE_RED:0);return true;}

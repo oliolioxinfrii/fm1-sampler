@@ -138,9 +138,10 @@ void SamplerUI::studyPhone(Rect w, SamplerApp::Page pg) {
         L(323,99,395,99,al(dim,.7f),.8f);L(359,63,359,135,al(dim,.7f),.8f);
         L(334,74,384,124,GRID,.6f);L(334,124,384,74,GRID,.6f);
         M(363,70,"M",dim,8);M(390,95,"S",dim,8,2);
-        float mid[Session::kScopePoints],side[Session::kScopePoints];int count=app_.session().insertScope(t,mid,side,Session::kScopePoints);
-        // A single continuous animated figure, including when no audio is
-        // present. Actual post-insert M/S samples deform the same path.
+        float midRms=0.f,sideRms=0.f;
+        studyScopeEnergy(t,midRms,sideRms);
+        // One continuously animated path; windowed post-insert RMS controls
+        // a small smooth ripple concentrated at its leading end.
         auto tintAt=[&](float u){
             const float phase=.035f*float(now_%600000u)*.001f;
             float w1=.5f+.5f*std::sin(tau*(u*6+phase));
@@ -148,10 +149,10 @@ void SamplerUI::studyPhone(Rect w, SamplerApp::Page pg) {
             return mix(mix(blue,violet,c*std::pow(w1,1.35f)),amber,d*std::pow(1-w2,1.35f));
         };
         constexpr int points=180;
-        auto last=insertViz(0.f,now_,a,b,mid,side,count);
+        auto last=insertViz(0.f,now_,a,b,midRms,sideRms);
         for(int j=1;j<=points;j++){
             const float q=float(j)/points;
-            auto next=insertViz(q,now_,a,b,mid,side,count);
+            auto next=insertViz(q,now_,a,b,midRms,sideRms);
             const uint32_t col=mix(tintAt(q),ink,.12f);
             L(359+33*last.side,99-33*last.mid,359+33*next.side,99-33*next.mid,col,2.05f);
             last=next;
@@ -200,16 +201,16 @@ void SamplerUI::studyPhone(Rect w, SamplerApp::Page pg) {
             quad({p[j-1].first,90},p[j-1],p[j],{p[j].first,90},al(dim,.15f));
         }
         D(p,blue,2.5f);
-        // The last cycle represents the actual current oscillator phase.
+        // The leftmost cycle represents the actual current oscillator phase.
         // S&H uses the current held value rather than the preview's arbitrary sequence.
         const float phase=clamp01(st_.lfoPhase[t]);
         const float live=std::clamp(st_.lfoValue[t],-1.f,1.f);
-        const float hx=20+334.f*(n-1+phase)/n,hy=90-live*124*.45f*b;
+        const float hx=20+334.f*phase/n,hy=90-live*124*.45f*b;
         if(shape==3 && b>.001f){
-            const float start=20+334.f*(n-1)/n;
-            R(start,29,354-start,122,WELL);
-            L(start,90,354,90,GRID,.8f);
-            L(start,hy,354,hy,blue,2.5f);
+            const float start=20.f,end=20+334.f/n;
+            R(start,29,end-start,122,WELL);
+            L(start,90,end,90,GRID,.8f);
+            L(start,hy,end,hy,blue,2.5f);
         }
         L(hx,29,hx,151,al(amber,.65f),1.25f);
         O(hx,hy,4.4f,WELL,amber,1.7f);
@@ -218,7 +219,7 @@ void SamplerUI::studyPhone(Rect w, SamplerApp::Page pg) {
         const char* names[]={"PITCH","FILTER","VOLUME","PAN"};for(int j=0;j<4;j++){float yy=34+j*39;bool sel=j==ts.lfoTarget;uint32_t col=sel?violet:dim;D({{388,94},{403.f+j*4,94},{403.f+j*4,yy},{440,yy}},al(col,sel?1.f:.25f),sel?2.7f:1.f);R(440,yy-11,64,22,metal,col);M(472,yy+3,names[j],col,9,1);}M(20,176,"LEVEL "+num("%+.0f%%",st_.lfoValue[t]*100),amber);M(354,176,"SHAPE: "+k[3].value,dim,9,2);break;}
     case P::P_KEY:{
         auto sca=app_.scale();M(15,15,"PITCH CLASS");M(505,15,"OCTAVE "+std::to_string(sca.octave),violet,9,2);uint16_t ghost=app_.chordGhostMask();std::vector<float> xs;
-        for(int i=0;i<12;i++){float x=14+i*41;bool valid=SamplerApp::inScale(sca.scale,(i-sca.root+12)%12);uint32_t col=i==sca.root?green:valid?blue:GRID;R(x,50,37,72,metal,lip,.9f);R(x+3,53,31,66,WELL);R(x+6,56,25,43,valid?al(dim,.35f):GRID);R(x+7,57,23,4,valid?al(ink,.45f):metal);R(x+6,105,25,10,valid||i==sca.root?blue:GRID);M(x+18.5f,136,SamplerApp::noteName(i),col,9,1);if(ghost&(1u<<i)){port(x+18.5f,42,amber);L(x+18.5f,42,x+18.5f,50,amber,1.8f);xs.push_back(x+18.5f);}}
+        for(int i=0;i<12;i++){float x=14+i*41;bool valid=SamplerApp::inScale(sca.scale,(i-sca.root+12)%12);uint32_t col=i==sca.root?amber:valid?blue:GRID;R(x,50,37,72,metal,lip,.9f);R(x+3,53,31,66,WELL);R(x+6,56,25,43,valid?al(dim,.35f):GRID);R(x+7,57,23,4,valid?al(ink,.45f):metal);R(x+6,105,25,10,i==sca.root?amber:valid?blue:GRID);M(x+18.5f,136,SamplerApp::noteName(i),col,9,1);if(ghost&(1u<<i)){port(x+18.5f,42,amber);L(x+18.5f,42,x+18.5f,50,amber,1.8f);xs.push_back(x+18.5f);}}
         if(xs.size()>1){L(xs.front(),29,xs.back(),29,amber,1.8f);for(float x:xs)L(x,29,x,42,amber,1.8f);}
         L(20,159,500,159,dim);for(int j=0;j<7;j++){float x=20+j*80;L(x,155,x,163,dim);M(x,177,std::to_string(j-3),dim,8,1);}R(20+(sca.octave+3)*80-3,153,6,12,violet);break;}
     case P::P_SAVE:{
@@ -290,11 +291,16 @@ void SamplerUI::studyDeck(){
         tap(z,[this,i]{app_.gotoPage(nextMenuPage(app_,kMenus[i]));});
     }
     line(418,283,940,283,OUTLINE);
+    const std::string caption=std::string(group.editorLabel)+" / "+P::pageName(pg);
+    text(418,272,10,family,fit(caption,126,10));
     const int count=childCount(app_,group);
     if(count>1){
         const bool leftward=group.pages[0]==P::P_LEN;
         const float parentX=418+selected*52.5f+24.75f;
-        const float room=leftward?parentX-418:940-parentX;
+        // The caption occupies x=418..544. SAMPLE and FX children
+        // start just beyond it; all other groups retain their existing anchor.
+        const float childAnchor=(!leftward&&selected<2)?std::max(552.f,parentX):parentX;
+        const float room=leftward?childAnchor-418:940-childAnchor;
         const float gap=5.f,railY=259.f;
         const float childW=std::min(64.f,(room-gap*(count-1))/count);
         struct StudyChild{P::Page page;Rect rect;std::string label;};
@@ -303,7 +309,7 @@ void SamplerUI::studyDeck(){
             auto p=group.pages[j];
             if(!app_.pageAvailable(p))continue;
             const float offset=float(children.size())*(childW+gap);
-            const float x=leftward?parentX-offset-childW:parentX+offset;
+            const float x=leftward?childAnchor-offset-childW:childAnchor+offset;
             children.push_back({p,{x,262,childW,19},group.labels[j]});
         }
         // The stem and rail are always in the parent family color.
@@ -324,7 +330,7 @@ void SamplerUI::studyDeck(){
             tap(z,[this,p]{app_.gotoPage(p);});
         }
     }
-    // Single-page groups (and SAMPLE in non-granular modes) have no child row.
+    // Single-page groups (and SAMPLE in non-granular modes) have only the caption.
     for(int i=0;i<4;i++){float x=418+i*132.25f;const auto& p=k[i];Rect bar{x,305,125.25f,22};uint32_t col=encoderColor(i);if(!p.valid){bevel(bar,TRACK,true);continue;}
         float valueWidth=std::min(65.f,float(p.value.size())*6.1f+4);text(x,295,10,TEXT,fit(p.name,bar.w-valueWidth-3,10),0,true);text(x+bar.w,295,10,DIM,fit(p.value,valueWidth,10),2);
         bevel(bar,TRACK,true);const bool action=pg==P::P_LEN&&(i==1||i==2);if(action){bevel(bar,SURFACE);text(x+bar.w/2,316,10,TEXT,i==1?"X2":"/2",1,true);tap(bar,[this,pg,i]{auto q=app_.knobs(pg)[i];if(q.step)q.step(1);});continue;}

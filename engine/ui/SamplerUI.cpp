@@ -147,35 +147,55 @@ void SamplerUI::button(Rect r, const std::string& label, bool on, std::function<
 }
 
 // ---- frame ----
-// Animated insert visualization derived from R10's scopePath oscillator.
-// This is a signal-reactive schematic, not a calibrated M/S measurement.
-// One path in silence and during playback; samples perturb its coordinates.
+// The insert symbol is an animated, signal-reactive schematic rather than
+// a calibrated M/S measurement. Its basic path is unchanged by playback.
+// Windowed audio energy controls only a small aesthetic ripple.
+void SamplerUI::studyScopeEnergy(int track,float& mid,float& side) {
+    float m[Session::kScopePoints],s[Session::kScopePoints];
+    const int count=app_.session().insertScope(track,m,s,Session::kScopePoints);
+    float mr=0.f,sr=0.f,weight=0.f;
+    for(int i=0;i<count;i++){
+        const float w=.5f-.5f*std::cos(2*kPi*(i+.5f)/count);
+        mr+=w*m[i]*m[i];sr+=w*s[i]*s[i];weight+=w;
+    }
+    if(weight>0.f){mr=std::sqrt(mr/weight);sr=std::sqrt(sr/weight);}
+    if(scopeEnergyTrack_!=track){
+        scopeEnergyTrack_=track;scopeEnergyAt_=now_;
+        scopeEnergyMid_=mr;scopeEnergySide_=sr;
+    }else if(scopeEnergyAt_!=now_){
+        const float dt=std::min(1.f,float(now_-scopeEnergyAt_)*.001f);
+        scopeEnergyAt_=now_;
+        auto smooth=[dt](float old,float target){
+            const float tc=target>old?.095f:.23f;
+            return old+(1.f-std::exp(-dt/tc))*(target-old);
+        };
+        scopeEnergyMid_=smooth(scopeEnergyMid_,mr);
+        scopeEnergySide_=smooth(scopeEnergySide_,sr);
+    }
+    mid=scopeEnergyMid_;side=scopeEnergySide_;
+}
 namespace {
 struct InsertVizPoint { float side, mid; };
-InsertVizPoint insertViz(float q, uint32_t now, float width, float level,
-                         const float* mid, const float* side, int count) {
+InsertVizPoint insertViz(float q,uint32_t now,float width,float level,float midRms,float sideRms) {
     constexpr float tau=2*kPi;
-    // Slow continuously evolving shape. The display has a minimum size even
-    // when the output gain setting is zero. No audio or DSP is generated here.
     const float t=float(now%600000u)*.001f;
     const float u=q*tau*5+2.1f*t;
-    const float baseM=.72f*std::sin(u)+.20f*std::sin(2.02f*u+.6f*t);
-    const float baseS=.60f*std::sin(1.37f*u+.73f*t)+.15f*std::sin(2.63f*u-.5f*t);
-    float dm=0.f,ds=0.f;
-    if(count>0){
-        const float at=clamp01(q)*float(count-1);
-        const int i=int(at),j=std::min(i+1,count-1);
-        const float f=at-i;
-        dm=mid[i]+(mid[j]-mid[i])*f;
-        ds=side[i]+(side[j]-side[i])*f;
-    }
-    // Bounded soft-knee visual response; do not amplify silence into motion
-    // or renormalize away the relative stereo geometry.
     const float gain=.76f+.24f*clamp01(1.6f*level*level);
-    return {
-        std::clamp(gain*(.4f+.8f*width)*baseS+.27f*std::tanh(5.f*ds),-.99f,.99f),
-        std::clamp(gain*baseM+.27f*std::tanh(5.f*dm),-.99f,.99f)
-    };
+    const float horizontal=gain*(.4f+.8f*width);
+    const float baseM=gain*(.72f*std::sin(u)+.20f*std::sin(2.02f*u+.6f*t));
+    const float baseS=horizontal*(.60f*std::sin(1.37f*u+.73f*t)+.15f*std::sin(2.63f*u-.5f*t));
+    // Derivative of the unperturbed path; displace along its normal,
+    // producing a wiggle rather than translating the entire figure.
+    const float dx=horizontal*(.60f*1.37f*std::cos(1.37f*u+.73f*t)+.15f*2.63f*std::cos(2.63f*u-.5f*t));
+    const float dy=gain*(.72f*std::cos(u)+.20f*2.02f*std::cos(2.02f*u+.6f*t));
+    const float norm=std::max(.08f,std::hypot(dx,dy));
+    const float energy=std::hypot(midRms,sideRms);
+    const float amplitude=.105f*std::tanh(3.f*energy);
+    // Smooth onset along the path, with the most visible ripple at the head.
+    const float taper=q*q*(3.f-2.f*q);
+    const float ripple=amplitude*taper*(.74f*std::sin(tau*13*q+5.2f*t)+.26f*std::sin(tau*19*q-3.1f*t));
+    return {std::clamp(baseS-ripple*dy/norm,-.99f,.99f),
+            std::clamp(baseM+ripple*dx/norm,-.99f,.99f)};
 }
 }
 #include "StudyGraphic.inc"
