@@ -1646,7 +1646,6 @@ void SamplerUI::sampleArea(Rect r) {
     // waveform with the playback window
     Rect w{r.x, r.y + 66, r.w, 118};
     scope(w);
-    const int bins = std::max(20, (int)(w.w / 3));
     if (app_.micState() == 1 || app_.micState() == 2) {   // microphone: input level + trigger threshold while waiting, the growing take while recording
         const float cy0 = w.y + w.h / 2, half = w.h / 2 - 8;
         if (app_.micState() == 1) {

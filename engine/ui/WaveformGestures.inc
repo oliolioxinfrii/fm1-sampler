@@ -71,10 +71,7 @@ void SamplerUI::waveform(Rect r,bool editable){
     }
     // A normalized source position remains absolute even when zoomed.
     for(int j=0;j<st_.voiceN[t];j++){float p=clamp01(st_.voicePos[t][j]);if(in(p))line(X(p),r.y+19,X(p),r.y+r.h-14,encoderTrace(j),1.3f);}
-    if(editable&&ts.algo==4){
-        const float p=ts.start+ts.echo.position*(ts.end-ts.start);
-        if(in(p)){line(X(p),r.y+17,X(p),r.y+r.h-16,TRACE_AMBER,1.5f);circle(X(p),r.y+r.h-16,3,TRACE_AMBER);}
-    }
+
     const float seconds=float(source->frames)/source->sr;
     for(int i=0;i<5;i++){
         float x=left+w*i/4;line(x,r.y+r.h-13,x,r.y+r.h-10,GRID);
@@ -92,12 +89,36 @@ void SamplerUI::waveform(Rect r,bool editable){
             const float x=X(p);
             line(x,r.y+18,x,r.y+r.h-12,encoderTrace(edge),2);
             // Put the two handles on opposing sides when the selection is narrow.
-            const float hX=edge?x-11:x;
-            rrect({std::clamp(hX,r.x,r.x+r.w-11),r.y+18,11,12},0,encoderTrace(edge));
-            text(std::clamp(hX,r.x,r.x+r.w-11)+5.5f,r.y+24,8,contrastInk(encoderTrace(edge)),edge?"E":"S",1,true);
-            const float hx=std::max(r.x,x-12),hr=std::min(r.x+r.w,x+12);
-            hit({hx,r.y+16,std::max(1.f,hr-hx),r.h-28},[](float,float){},
-                [this,t,edge,left,w](float x,float){if(app_.track()!=t||app_.generativeDeck())return;auto& v=waveView();auto k=app_.knobs(SamplerApp::P_HOME);k[edge].set(clamp01(v.lo+(x-left)*v.span/w));});
+            // Use different handle rows if two boundaries overlap visually.
+            const bool close=std::abs(X(ts.end)-X(ts.start))<26;
+            const float yy=r.y+18+(close&&edge?14:0);
+            const float hx=std::clamp(edge?x-11:x,r.x,r.x+r.w-11);
+            rrect({hx,yy,11,12},0,encoderTrace(edge));
+            text(hx+5.5f,yy+6,8,contrastInk(encoderTrace(edge)),edge?"E":"S",1,true);
+            const float hl=std::max(r.x,x-12),hr=std::min(r.x+r.w,x+12);
+            // Remember finger offset: touching the handle does not jump the trim.
+            auto offset=std::make_shared<float>(0);
+            hit({std::min(hx,hl),close?yy:r.y+16,std::max(1.f,std::max(hx+11,hr)-std::min(hx,hl)),close?12.f:r.h-30},
+                [offset,x](float px,float){*offset=px-x;},
+                [this,t,edge,left,w,offset](float px,float){if(app_.track()!=t||app_.generativeDeck())return;auto& v=waveView();auto k=app_.knobs(SamplerApp::P_HOME);k[edge].set(clamp01(v.lo+(px-*offset-left)*v.span/w));});
+        }
+        if(ts.algo==4){
+            const float p=ts.start+ts.echo.position*(ts.end-ts.start);
+            if(in(p)){
+                const float x=X(p),bottom=r.y+r.h-15;
+                line(x,r.y+17,x,bottom-7,TRACE_AMBER,1.8f);
+                tri(std::max(r.x+1,x-5),bottom,std::min(r.x+r.w-1,x+5),bottom,x,bottom-8,TRACE_AMBER);
+                const std::string label="POS "+num("%.1f%%",ts.echo.position*100);
+                const float lw=label.size()*T_CAPTION*.61f+6;
+                float lx=std::clamp(x+5,r.x+2,std::max(r.x+2,r.x+r.w-lw-2));
+                rrect({lx,r.y+31,lw,14},0,WELL);text(lx+3,r.y+38,T_CAPTION,TRACE_AMBER,label,0,true);
+                hit({std::max(r.x,x-14),bottom-14,std::min(r.x+r.w,x+14)-std::max(r.x,x-14),17},
+                    [](float,float){},[this,t,left,w](float px,float){
+                        if(app_.track()!=t||app_.algo()!=4||app_.generativeDeck())return;
+                        const auto& s=app_.state(t);auto& v=waveView();float pp=v.lo+(px-left)*v.span/w;
+                        app_.knobs(SamplerApp::P_HOME)[3].set(clamp01((pp-s.start)/std::max(1e-7f,s.end-s.start)));
+                    });
+            }
         }
     }
 }

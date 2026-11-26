@@ -134,7 +134,26 @@ int main() {
             break;
         }
         CHECK(app.state(0).echo.position > 0.44f && app.state(0).echo.position < 0.46f, "editor position handle edits the granular parameter");
-        ui.setEditor(false);
+        // The central panel is x=184..600, waveform y=118..236 at 860x400.
+        auto zoomText=[&](const char* value){
+            for(const auto& op:ui.ops())if(op.type==UiOp::TEXT&&op.text==value)return true;return false;
+        };
+        auto tapText=[&](const char* label){
+            for(const auto& op:ui.ops())if(op.type==UiOp::TEXT&&op.text==label){
+                float x=op.f[0],y=op.f[1];ui.touch(0,x,y,now);ui.touch(2,x,y,now);return true;
+            }return false;
+        };
+        CHECK(zoomText("1.0X"),"hub starts at full waveform");
+        const auto prev=app.state(0);
+        ui.gesture(0,320,170,420,170,now);ui.gesture(1,270,170,470,170,now);ui.gesture(2,0,0,0,0,now);ui.frame(now);
+        CHECK(zoomText("2.0X")&&app.state(0).start==prev.start&&app.state(0).end==prev.end,"pinch magnifies actual sample without altering boundaries");
+        CHECK(tapText("FULL"),"full waveform control exists");ui.frame(now);
+        CHECK(zoomText("1.0X"),"full resets zoom");
+        app.knobs(SamplerApp::P_HOME)[0].set(.25f);app.knobs(SamplerApp::P_HOME)[1].set(.5f);ui.frame(now);
+        CHECK(tapText("FIT"),"fit selection control exists");ui.frame(now);
+        CHECK(zoomText("3.4X"),"fit shows selected region with margin");
+        app.knobs(SamplerApp::P_HOME)[0].set(prev.start);app.knobs(SamplerApp::P_HOME)[1].set(prev.end);app.knobs(SamplerApp::P_HOME)[3].set(prev.echo.position);
+        tapText("FULL");ui.setEditor(false);
     }
     app.gotoPage(SamplerApp::P_HOME);
     btn(SamplerApp::HOME); btn(SamplerApp::HOME);
