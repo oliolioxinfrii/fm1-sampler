@@ -256,7 +256,7 @@ private:
     int surfaceDataContext_=-1,surfaceCacheCursor_=0;
     std::vector<uint8_t> surfaceLast_,surfaceData_;
     struct SurfaceCacheBlob {int key=-1;uint16_t gen=0;std::vector<uint8_t> bytes;};
-    std::array<SurfaceCacheBlob,36> surfaceBlobs_{};
+    std::array<SurfaceCacheBlob,60> surfaceBlobs_{};
     uint16_t surfaceNextGen_=0;
     std::array<uint64_t,3*8*SV_PAGES> surfaceCacheSig_{};
     int surfaceContext() const;
