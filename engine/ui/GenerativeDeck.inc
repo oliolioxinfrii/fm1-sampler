@@ -40,7 +40,28 @@ void SamplerUI::generativeDeck(){
         e?num("%+.3f",e->pitch):"--",e?num("%+.2f",e->startField)+" / "+num("%+.2f",e->endField):"--"};
     for(int i=0;i<4;i++){
         Rect z{22.f+(i%2)*120,164.f+(i/2)*45,116,41};rrect(z,0,WELL);stroke(z,0,GRID);
-        text(z.x+6,z.y+9,9,WELL_DIM,readLabels[i]);text(z.x+6,z.y+26,13,WELL_TEXT,fit(read[i],z.w-8,13),0,true);
+        // The FIELD / PITCH readout can meet the landscape camera hole.
+        // Convert the measured cutout to this deck's design coordinates.
+        float lx=z.x+6,ly=z.y+9,vx=z.x+6,vy=z.y+26;
+        const std::string value=fit(read[i],z.w-8,13);
+        if(i==2&&leftCutout_.w>0&&leftCutout_.h>0){
+            const float scale=std::min(W_/960.f,H_/450.f),oy=(H_-450*scale)*.5f;
+            const float cl=leftCutout_.x/scale,cr=(leftCutout_.x+leftCutout_.w)/scale,
+                ct=(leftCutout_.y-oy)/scale,cb=(leftCutout_.y+leftCutout_.h-oy)/scale;
+            auto avoid=[&](float& x,float& y,float size,const std::string& label,float lo,float hi){
+                const float width=size*.62f*label.size(),half=size*.55f;
+                if(x+width<=cl-2||x>=cr+2||y+half<=ct-2||y-half>=cb+2)return;
+                const float moved=std::max(x,cr+3);
+                if(moved+width<=z.x+z.w-5){x=moved;return;}
+                // If a longer label cannot move sideways, try its own half
+                // of the existing readout; never invade the adjacent line.
+                if(ct-2-half>=lo)y=std::min(hi,ct-2-half);
+                else if(cb+2+half<=hi)y=std::max(lo,cb+2+half);
+            };
+            avoid(lx,ly,9,readLabels[i],z.y+5,z.y+14);
+            avoid(vx,vy,13,value,z.y+22,z.y+33);
+        }
+        text(lx,ly,9,WELL_DIM,readLabels[i]);text(vx,vy,13,WELL_TEXT,value,0,true);
     }
     std::string source=app_.genSource().empty()?"SELECT SAMPLE":app_.genSource();
     if(app_.genSourceState()==1)source="LOADING "+source;else if(app_.genSourceState()==3)source="LOAD FAILED";

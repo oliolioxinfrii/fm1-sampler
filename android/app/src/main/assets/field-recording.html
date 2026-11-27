@@ -96,7 +96,7 @@ function specBackground(cv,ch,l,r,boost=0){let w=cv.width,h=cv.height,previous=s
 function paintSpectrum(cv,ch,key,l,r){let g=cv.getContext('2d'),w=cv.width,h=cv.height;if(!ch){g.fillStyle='#17202a';g.fillRect(0,0,w,h);g.font='10px monospace';g.fillStyle='#a2b3c7';g.fillText('BYPASSED / NO RESIDUE',8,h/2-6)}else g.drawImage(specBackground(cv,ch,l,r,key.startsWith('residue')&&resZoom?20*Math.log10(4):0),0,0);markOverlay(g,key,l,r,w,h)}
 function paintLane(cv,ch,key,l,r){if(spectralMode)paintSpectrum(cv,ch,key,l,r);else paint(cv,ch,key,l,r)}
 function paint(cv,ch,key,l,r,over=false){let g=cv.getContext('2d'),w=cv.width,h=cv.height;g.fillStyle='#17202a';g.fillRect(0,0,w,h);g.strokeStyle='#364455';g.lineWidth=.7;for(let i=0;i<=8;i++){g.beginPath();g.moveTo(i*w/8,0);g.lineTo(i*w/8,h);g.stroke()}g.beginPath();g.moveTo(0,h/2);g.lineTo(w,h/2);g.stroke();if(!ch){g.fillStyle='#a2b3c7';g.font='10px monospace';g.fillText('BYPASSED / NO RESIDUE',8,h/2-6);return}let n=ch[0].length,cc=cache[key];if(!cc||cc.data!==ch){cc={data:ch,peaks:peakCache(ch)};cache[key]=cc}let X=t=>(t-l)/(r-l)*w,mult=key.startsWith('residue')&&resZoom&&!over?4:1;g.strokeStyle=waveColors[key.split(':')[0]]||'#67b7ed';g.lineWidth=1;g.beginPath();for(let i=0;i<w;i++){let [mn,mx]=extrema(cc.peaks,(l+(r-l)*i/w)*n,(l+(r-l)*(i+1)/w)*n);let y0=cl(h/2-mx*mult*(h/2-2),1,h-1),y1=cl(h/2-mn*mult*(h/2-2),1,h-1);g.moveTo(i+.5,y0);g.lineTo(i+.5,Math.max(y0+.8,y1))}g.stroke();markOverlay(g,key,l,r,w,h,over)}
-function draw(){if(!src)return;paintLane($('sourceWave'),src,'source',v0,v1);paintLane($('residueWave'),getResidue(),'residue:'+(stageResidue?focus:'chain'),v0,v1);paintLane($('retainedWave'),processed?.retained,'retained',v0,v1);paint($('overview'),src,'source',0,1,true);$('axis').innerHTML=Array.from({length:5},(_,i)=>`<span>${((v0+(v1-v0)*i/4)*duration()).toFixed(3)}${i===4?' s':''}</span>`).join('');$('cursorRead').textContent='CURSOR '+time(cursor*duration());$('zoomRead').textContent=(1/(v1-v0)).toFixed(2)+'×';$('resLabel').textContent=(stageResidue&&focus?names[focus]+' Δ':'CHAIN Δ')+(resZoom?' ×4':'');if(finalMode&&!renderBusy&&processed){let f=finalCached();paintLane($('finalWave'),f,'final',0,1);$('finalLabel').textContent='FINAL / '+time(f[0].length/sr)+' · TRANSFORMED SELECTION';$('axis').innerHTML=`<span>0.000</span><span>${time(f[0].length/sr)}</span>`}}
+function draw(){if(!src)return;paintLane($('sourceWave'),src,'source',v0,v1);paintLane($('residueWave'),getResidue(),'residue:'+(stageResidue?focus:'chain'),v0,v1);paintLane($('retainedWave'),processed?.retained,'retained',v0,v1);paint($('overview'),src,'source',0,1,true);$('axis').innerHTML=Array.from({length:5},(_,i)=>`<span>${((v0+(v1-v0)*i/4)*duration()).toFixed(3)}${i===4?' s':''}</span>`).join('');$('cursorRead').textContent='CURSOR '+time(cursor*duration());$('zoomRead').textContent=(1/(v1-v0)).toFixed(2)+'×';$('resLabel').textContent=(stageResidue&&focus?names[focus]+' Δ':'CHAIN Δ')+(resZoom?' ×4':'');if(window.fm1Host&&fm1Host.repositionResidue)fm1Host.repositionResidue();if(finalMode&&!renderBusy&&processed){let f=finalCached();paintLane($('finalWave'),f,'final',0,1);$('finalLabel').textContent='FINAL / '+time(f[0].length/sr)+' · TRANSFORMED SELECTION';$('axis').innerHTML=`<span>0.000</span><span>${time(f[0].length/sr)}</span>`}}
 function refresh(){if(!src)return;$('inRead').textContent=time(a*duration());$('outRead').textContent=time(b*duration());$('posRead').textContent=time(pos*duration());$('pitchRead').textContent=(p.pitch>0?'+':'')+p.pitch.toFixed(1)+' st';draw()}
 function view(l,r){let w=cl(r-l,gap(),1);v0=cl(l,0,1-w);v1=v0+w;draw()}function zoom(f,anchor=(v0+v1)/2){let w=cl((v1-v0)*f,gap(),1),rel=(anchor-v0)/(v1-v0);view(anchor-w*rel,anchor+w*(1-rel))}
 let ptr=new Map(),gesture=null,lastScrub=0;for(let cv of document.querySelectorAll('.lane canvas')){cv.onpointerdown=e=>{let x=(e.clientX-cv.getBoundingClientRect().left)/cv.getBoundingClientRect().width;cv.setPointerCapture(e.pointerId);ptr.set(e.pointerId,x);if(ptr.size===1)gesture={x,initial:x,moved:false,cv};else if(ptr.size===2){let [u,v]=ptr.values();gesture={pinch:true,d:Math.max(.005,Math.abs(u-v)),mid:(u+v)/2}}};cv.onpointermove=e=>{if(!ptr.has(e.pointerId))return;let x=cl((e.clientX-cv.getBoundingClientRect().left)/cv.getBoundingClientRect().width,0,1);ptr.set(e.pointerId,x);if(ptr.size===2){let [u,v]=ptr.values(),d=Math.max(.005,Math.abs(u-v)),mid=(u+v)/2,old=gesture;if(old?.pinch){let anchor=v0+old.mid*(v1-v0),w=cl((v1-v0)*old.d/d,gap(),1);view(anchor-mid*w,anchor+(1-mid)*w)}gesture={pinch:true,d,mid};return}if(!gesture||gesture.pinch)return;if(Math.abs(x-gesture.initial)>.005)gesture.moved=true;if(scrub){cursor=cl(v0+x*(v1-v0),0,1);draw();if(performance.now()-lastScrub>85){lastScrub=performance.now();scrubAt()}}else if(gesture.moved){let dt=(gesture.x-x)*(v1-v0);view(v0+dt,v1+dt)}gesture.x=x};cv.onpointerup=cv.onpointercancel=e=>{if(ptr.size===1&&gesture&&!gesture.pinch&&!gesture.moved&&e.type==='pointerup'){cursor=cl(v0+ptr.get(e.pointerId)*(v1-v0),0,1);draw();if(scrub)scrubAt()}ptr.delete(e.pointerId);if(!ptr.size)gesture=null};cv.onwheel=e=>{e.preventDefault();let x=cl((e.clientX-cv.getBoundingClientRect().left)/cv.getBoundingClientRect().width,0,1);zoom(Math.exp(e.deltaY*.0015),v0+x*(v1-v0))}}
@@ -259,8 +259,50 @@ body.native-host .tag{cursor:pointer;touch-action:none}
    if(sig!==lastFeedback){lastFeedback=sig;FM1Native.feedback(summary,leds,pixels);}
  }
  function suspend(){recordEpoch++;stop();if(recording&&recording.state==='recording')recording.stop();if(ac)ac.suspend().catch(()=>{});}
+ // Only the residue label moves; the lane, button, graph and axis stay put.
+ let leftCamera=[0,0,0,0];
+ function avoidResidueCamera(){
+   const button=document.querySelector('.lane-label[data-monitor="residue"]');
+   if(!button)return;
+   const labels=[...button.querySelectorAll('span,small')];
+   for(const el of labels){el.style.alignSelf='flex-start';el.style.transform='';}
+   const [l,t,r,b]=leftCamera;
+   if(r<=l||b<=t)return;
+   const cam={left:l*innerWidth,top:t*innerHeight,right:r*innerWidth,bottom:b*innerHeight};
+   const box=button.getBoundingClientRect(),scale=$('stage').getBoundingClientRect().height/450;
+   if(!(scale>0)||cam.right<=box.left||cam.left>=box.right||cam.bottom<=box.top||cam.top>=box.bottom)return;
+   const bounds=labels.map(el=>el.getBoundingClientRect());
+   const overlaps=q=>q.right>cam.left-2*scale&&q.left<cam.right+2*scale&&q.bottom>cam.top-2*scale&&q.top<cam.bottom+2*scale;
+   if(!bounds.some(overlaps))return;
+   // Keep the two lines together and move horizontally if they fit.
+   const left=Math.min(...bounds.map(q=>q.left)),right=Math.max(...bounds.map(q=>q.right)),
+     top=Math.min(...bounds.map(q=>q.top)),bottom=Math.max(...bounds.map(q=>q.bottom));
+   const dx=Math.max(0,cam.right+3*scale-left);
+   let x=0,y=0;
+   if(right+dx<=box.right-3*scale)x=dx;
+   else{
+     const up=cam.top-3*scale-bottom,down=cam.bottom+3*scale-top;
+     const canUp=top+up>=box.top+2*scale,canDown=bottom+down<=box.bottom-2*scale;
+     if(canUp&&(!canDown||Math.abs(up)<=Math.abs(down)))y=up;
+     else if(canDown)y=down;
+     else{
+       // Long residue descriptions may not fit beside the camera. Move
+       // each line only if it intersects, using the free area in its half.
+       for(let i=0;i<labels.length;i++){
+         const q=bounds[i];if(!overlaps(q))continue;
+         const shift=Math.max(0,cam.right+3*scale-q.left);
+         if(q.right+shift<=box.right-2*scale)labels[i].style.transform='translateX('+(shift/scale)+'px)';
+       }
+       return;
+     }
+   }
+   for(const el of labels)el.style.transform='translate('+(x/scale)+'px,'+(y/scale)+'px)';
+ }
+ window.addEventListener('resize',()=>requestAnimationFrame(avoidResidueCamera));
  window.fm1Host={
-   active(on,light){hostActive=on;setSpectralTheme(!light);if(!on){suspend();closeWindow();}else{lastFeedback='';resize();feedback();}},
+   cutout(l,t,r,b){leftCamera=[l,t,r,b];requestAnimationFrame(avoidResidueCamera);},
+   repositionResidue(){requestAnimationFrame(avoidResidueCamera);},
+   active(on,light){hostActive=on;setSpectralTheme(!light);if(!on){suspend();closeWindow();}else{lastFeedback='';resize();requestAnimationFrame(avoidResidueCamera);feedback();}},
    suspend,
    events(values){if(!hostActive)return;for(let i=0;i+1<values.length;i+=2){let code=values[i],v=values[i+1];if(code>=0&&code<=6)encoder(code,v);else if(code>=302&&code<=305){const delta=Math.floor(v/16);encoder(code-300,delta,v-delta*16);}else if(code===200)setSpectralTheme(!v);else if(code>=100&&buttonMap[code-100]){let id=buttonMap[code-100];if(id==='record')$('record').click();else hardwareTap(id);}}feedback();}
  };

@@ -7,6 +7,8 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.util.Base64;
 import android.view.View;
+import android.view.WindowInsets;
+import android.graphics.Rect;
 import android.webkit.*;
 import java.io.*;
 import java.util.ArrayList;
@@ -19,6 +21,7 @@ final class FieldRecordingView extends WebView {
     private final SamplerActivity activity;
     private final Backend backend;
     private boolean ready=false;
+    private String lastCutout="";
     private volatile boolean active=false;
     private final ArrayList<Integer> pending=new ArrayList<>();
     private ValueCallback<Uri[]> picker;
@@ -43,7 +46,7 @@ final class FieldRecordingView extends WebView {
                 return new WebResourceResponse("text/plain","UTF-8",new ByteArrayInputStream(new byte[0]));
             }
             @Override public boolean shouldOverrideUrlLoading(WebView v,WebResourceRequest r){return !PAGE.equals(r.getUrl().toString());}
-            @Override public void onPageFinished(WebView v,String url){if(PAGE.equals(url)){ready=true;syncActive();flush();}}
+            @Override public void onPageFinished(WebView v,String url){if(PAGE.equals(url)){ready=true;lastCutout="";syncActive();flush();}}
         });
         setWebChromeClient(new WebChromeClient(){
             @Override public boolean onShowFileChooser(WebView v,ValueCallback<Uri[]> cb,FileChooserParams p){
@@ -100,7 +103,24 @@ final class FieldRecordingView extends WebView {
     }
     void suspendCapture(){if(ready)evaluateJavascript("window.fm1Host&&fm1Host.suspend()",null);}
     void dispose(){leave(()->{});if(picker!=null){picker.onReceiveValue(null);picker=null;}if(micRequest!=null){micRequest.deny();micRequest=null;}removeJavascriptInterface("FM1Native");}
+    @Override protected void onSizeChanged(int w,int h,int oldw,int oldh){
+        super.onSizeChanged(w,h,oldw,oldh);post(this::syncCutout);
+    }
+    @Override public WindowInsets onApplyWindowInsets(WindowInsets insets){
+        WindowInsets result=super.onApplyWindowInsets(insets);post(this::syncCutout);return result;
+    }
+    private void syncCutout(){
+        if(!ready||getWidth()<=0||getHeight()<=0)return;
+        Rect c=CutoutGeometry.left(this);
+        // Fractions avoid mixing physical pixels with the WebView's CSS pixels.
+        String args=(c.left/(float)getWidth())+","+(c.top/(float)getHeight())+","+
+                (c.right/(float)getWidth())+","+(c.bottom/(float)getHeight());
+        if(args.equals(lastCutout))return;
+        lastCutout=args;
+        evaluateJavascript("window.fm1Host&&fm1Host.cutout("+args+")",null);
+    }
     private void syncActive(){
+        syncCutout();
         if(ready)evaluateJavascript("window.fm1Host&&fm1Host.active("+active+","+Native.lightTheme(backend.engine)+")",null);
     }
     void events(int[] data){

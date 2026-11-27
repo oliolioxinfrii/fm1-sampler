@@ -26,7 +26,7 @@ public final class Native {
     public static native void importFile(long h, String path);
     public static native void say(long h, String message);
     public static native void uiLink(long h, boolean midi, boolean usbAudio);
-    public static native Object[] uiFrame(long h, float w, float hh, float top, float bottom, long nowMs);
+    public static native Object[] uiFrame(long h, float w, float hh, float top, float bottom, float cutLeft, float cutTop, float cutRight, float cutBottom, long nowMs);
     public static native void uiTouch(long h, int action, float x, float y, long nowMs);
     public static native void uiGesture(long h, int action, float x1, float y1, float x2, float y2, long nowMs);
     private Native() { }

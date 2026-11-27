@@ -14,6 +14,8 @@ public:
     // Reduced FM-1 emblem, at twice the hardware plot resolution.
     const std::vector<UiOp>& surfaceGraphic(uint32_t nowMs);
     void setSize(float w, float h, float topInset, float bottomInset) { W_ = w; H_ = h; top_ = topInset; bottom_ = bottomInset; }
+    // Coordinates use the same units as the native UI, not design pixels.
+    void setLeftCutout(float l,float t,float r,float b) { leftCutout_={l,t,r-l,b-t}; }
     void setLink(bool midi, bool usbAudio) { linkMidi_ = midi; linkAudio_ = usbAudio; }
     void frame(uint32_t nowMs);
     void openProject(bool on) { projectOpen_ = on; }
@@ -73,7 +75,7 @@ private:
     struct WaveView {std::weak_ptr<const SampleBuf> source;float lo=0,span=1;};
     std::array<WaveView,2*SamplerApp::kTracks> waveViews_{};
     WaveView& waveView();
-    Rect waveRect_{},fieldRect_{};
+    Rect waveRect_{},fieldRect_{},leftCutout_{};
     int waveTrack_=-1,gestureKind_=0,gestureTrack_=-1;
     bool gestureGen_=false;
     float gestureDist_=1,gestureAngle_=0,gestureMid_=0,gestureAnchor_=0,gestureSpan_=1,gestureRouteAngle_=0;

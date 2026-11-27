@@ -227,10 +227,11 @@ FN(void, say)(JNIEnv* env, jclass, jlong h, jstring msg) {
 }
 FN(void, uiLink)(JNIEnv*, jclass, jlong h, jboolean midi, jboolean usb) { auto& e = *E(h); std::lock_guard<std::mutex> l(e.surfaceMtx); e.ui->setLink(midi, usb); }
 // one UI frame: Object[]{ int[] ops (9 ints each: type, 6 float bit patterns, colour, text index), String texts joined by \u0001 }
-FN(jobjectArray, uiFrame)(JNIEnv* env, jclass, jlong h, jfloat w, jfloat hh, jfloat top, jfloat bottom, jlong now) {
+FN(jobjectArray, uiFrame)(JNIEnv* env, jclass, jlong h, jfloat w, jfloat hh, jfloat top, jfloat bottom, jfloat cutLeft, jfloat cutTop, jfloat cutRight, jfloat cutBottom, jlong now) {
     auto& e = *E(h);
     std::lock_guard<std::mutex> l(e.surfaceMtx);
     e.ui->setSize(w, hh, top, bottom);
+    e.ui->setLeftCutout(cutLeft,cutTop,cutRight,cutBottom);
     e.ui->frame((uint32_t)now);
     const auto& ops = e.ui->ops();
     std::vector<jint> v; v.reserve(ops.size() * 9);

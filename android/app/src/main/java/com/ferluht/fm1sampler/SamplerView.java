@@ -32,7 +32,9 @@ public class SamplerView extends View {
     @Override protected void onDraw(Canvas c) {
         long now = SystemClock.uptimeMillis();
         d = getHeight() / 400f;
-        Object[] fr = Native.uiFrame(h, getWidth() / d, getHeight() / d, topDp, bottomDp, now);
+        android.graphics.Rect camera=CutoutGeometry.left(this);
+        Object[] fr = Native.uiFrame(h, getWidth() / d, getHeight() / d, topDp, bottomDp,
+                camera.left/d,camera.top/d,camera.right/d,camera.bottom/d,now);
         int[] a = (int[]) fr[0];
         String[] texts = ((String) fr[1]).split("\u0001", -1);
         int saves = 0;

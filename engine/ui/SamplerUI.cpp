@@ -1617,20 +1617,29 @@ void SamplerUI::trackList(Rect r) {
     const float rh = (r.h - 7 * 4) / 8;
     for (int i = 0; i < SamplerApp::kTracks; i++) {
         Rect row{r.x, r.y + i * (rh + 4), r.w, rh};
+        // Only track 4 gets a shortened left edge when the camera overlaps it.
+        // Preserve the original right edge and vertical placement.
+        if(i==3 && leftCutout_.w>0 && leftCutout_.h>0 &&
+           leftCutout_.x<row.x+row.w && leftCutout_.x+leftCutout_.w>row.x &&
+           leftCutout_.y<row.y+row.h && leftCutout_.y+leftCutout_.h>row.y){
+            const float right=row.x+row.w;
+            row.x=std::min(right-48.f,std::max(row.x,leftCutout_.x+leftCutout_.w+3.f));
+            row.w=right-row.x;
+        }
         const bool sel = i == app_.track();
         const uint32_t col = trackColor(i);
         bevel(row, sel ? RAISED : SURFACE, sel);
         rrect({row.x + 3, row.y + 3, 22, rh - 6}, 0, sel ? col : TRACK);
         text(row.x + 14, row.y + rh / 2, T_TITLE, sel ? contrastInk(col) : TEXT, std::to_string(i + 1), 1, true);
         const std::string lab = app_.generativeDeck()?app_.genTrackSource(i):app_.sampleLabel(i);
-        text(row.x + 30, row.y + rh / 2 - 6, 11, lab.empty() ? DIM : TEXT, fit(lab.empty() ? "EMPTY" : lab, r.w - 40, 11), 0, true);
+        text(row.x + 30, row.y + rh / 2 - 6, 11, lab.empty() ? DIM : TEXT, fit(lab.empty() ? "EMPTY" : lab, row.w - 40, 11), 0, true);
         // level and loop mark
         const float lv = std::min(1.f, st_.track_peak[i] * 1.5f);
-        rrect({row.x + 30, row.y + rh - 12, r.w - 44, 3}, 0, OUTLINE);
-        rrect({row.x + 30, row.y + rh - 12, (r.w - 44) * lv, 3}, 0, col);
-        if(app_.generativeDeck()){if(app_.genTrackRunning(i))circle(row.x+r.w-10,row.y+10,3.5f,GREEN);}
-        else if (st_.track_clip_rec[i]) circle(row.x + r.w - 10, row.y + 10, 4, RED);
-        else if (st_.track_has_clip[i]) circle(row.x + r.w - 10, row.y + 10, 3.5f, GREEN);
+        rrect({row.x + 30, row.y + rh - 12, row.w - 44, 3}, 0, OUTLINE);
+        rrect({row.x + 30, row.y + rh - 12, (row.w - 44) * lv, 3}, 0, col);
+        if(app_.generativeDeck()){if(app_.genTrackRunning(i))circle(row.x+row.w-10,row.y+10,3.5f,GREEN);}
+        else if (st_.track_clip_rec[i]) circle(row.x + row.w - 10, row.y + 10, 4, RED);
+        else if (st_.track_has_clip[i]) circle(row.x + row.w - 10, row.y + 10, 3.5f, GREEN);
         tap(row, [this, i] { app_.selectTrack(i); });
     }
 }

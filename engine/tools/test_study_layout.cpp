@@ -34,5 +34,36 @@ int main(){
         assert(std::fabs(app.knobs()[0].norm-.75f)<.015f);
     };
     check(960);check(1120);
-    puts("wide study layout OK");
+    // Synthetic camera rectangle: only row 4 is shortened, with the
+    // original right edge, and its touch target follows the new box.
+    ui.setSize(960,400,0,0);
+    app.setEditor(true);
+    const float rowH=(400-44-16-28)/8.f,rowY=52+3*(rowH+4);
+    ui.setLeftCutout(0,rowY+5,38,rowY+20);
+    ui.frame(200);
+    for(int i=0;i<8;i++){
+        const float y=52+i*(rowH+4),x=i==3?41.f:8.f;
+        bool found=false;
+        for(const auto& op:ui.ops())if(op.type==UiOp::RRECT){
+            const auto* v=op.f;
+            if(close(v[0],x)&&close(v[1],y)&&close(v[0]+v[2],176)&&close(v[3],rowH))found=true;
+        }
+        assert(found);
+    }
+    // Actual touch rectangle must also have moved.
+    app.selectTrack(0);ui.touch(0,12,rowY+10,200);ui.touch(2,12,rowY+10,200);
+    assert(app.track()==0);
+    ui.touch(0,45,rowY+10,201);ui.touch(2,45,rowY+10,201);
+    assert(app.track()==3);
+    app.setGenerativeDeck(true);app.setEditor(false);
+    ui.setSize(1120,450,0,0);ui.setLeftCutout(0,209,37,227);
+    ui.frame(300);
+    bool pitch=false;
+    for(const auto& op:ui.ops())if(op.type==UiOp::TEXT&&op.text=="FIELD / PITCH"){
+        pitch=true;assert(op.f[0]>=40&&close(op.f[2],9));
+    }
+    assert(pitch);
+    ui.setLeftCutout(0,0,0,0);ui.frame(301);
+    for(const auto& op:ui.ops())if(op.type==UiOp::TEXT&&op.text=="FIELD / PITCH")assert(close(op.f[0],28));
+    puts("wide study layout and localized cutout avoidance OK");
 }

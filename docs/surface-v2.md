@@ -57,3 +57,7 @@ The native compact glyphs now follow StudyGraphic.inc's 0.40 geometry, including
 ## 0.41-experimental.4: Android display cutout
 
 The previous width adjustment could only use the area allocated to the activity. Explicitly enable layout into the camera cutout (ALWAYS on API 30+, SHORT_EDGES on API 28–29), disable decor fitting on API 30+, and hide bars via WindowInsetsController with transient swipe behavior. The native layout retains the previous horizontal stretch and font scale. The physical camera hole may obscure a small part of the interface; inspect its actual bounds on the Pixel and refine control placement if necessary. `adb logcat -s fm1sampler` reports the root dimensions, origin and camera bounding rectangle. APK only; no firmware changes.
+
+## 0.41-experimental.5: localized camera clearance
+
+Use the left display-cutout bounding rectangle from Android, converted to native UI units and WebView viewport fractions. Only the generator's FIELD / PITCH text, field recorder's RESIDUE label and sublabel, and the editor's fourth track row adjust when their bounds overlap the camera. The fourth row retains its original right edge and touch target follows the shortened row. No global side inset, font resize, graph relocation, or firmware change. The layout regression uses a synthetic cutout; verify the actual Pixel position on-device.
