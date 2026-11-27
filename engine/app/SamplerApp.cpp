@@ -634,7 +634,7 @@ void SamplerApp::onMidi(const uint8_t* m, size_t n, uint32_t eventMs) {
     if (n < 3) return;
     linkSeen_ = true;
     const int type = m[0] & 0xf0, ch = m[0] & 15, a = m[1], b = m[2];
-    if (ch == 0 && (type == 0x90 || type == 0x80)) keyEvent(a, type == 0x90 && b > 0);
+    if (ch == 0 && (type == 0x90 || type == 0x80)) { if(!fieldMode_) keyEvent(a, type == 0x90 && b > 0); }
     else if (ch == 1 && (type == 0x90 || type == 0x80)) button(a, type == 0x90 && b > 0);
     else if (ch == 0 && type == 0xb0) {
         if (a >= 16 && a < 23) encoder(a - 16, b - 64, eventMs);
@@ -671,11 +671,47 @@ void SamplerApp::setLight(bool on) {
     FILE* f = fopen((s_.dataDir() + "/theme").c_str(), "w");
     if (f) { fputc(on ? 'l' : 'd', f); fclose(f); }
 }
+bool SamplerApp::lightTheme() const { return theme::light; }
+void SamplerApp::fieldEvent(int code,int value) {
+    if(fieldEvents_.size()>=512) fieldEvents_.erase(fieldEvents_.begin(),fieldEvents_.begin()+2);
+    fieldEvents_.push_back(code);fieldEvents_.push_back(value);
+}
+void SamplerApp::fieldFeedback(const std::string& summary,uint32_t leds) {
+    if(!fieldMode_)return;
+    size_t start=0;
+    for(auto& row:fieldLines_) {
+        auto end=summary.find('|',start);
+        row=summary.substr(start,end==std::string::npos?std::string::npos:end-start);
+        if(row.size()>36)row.resize(36);
+        for(char& ch:row)if(static_cast<unsigned char>(ch)<32||static_cast<unsigned char>(ch)>126)ch=' ';
+        if(end==std::string::npos)start=summary.size();else start=end+1;
+    }
+    fieldLeds_=leds&0x3fff;
+}
+void SamplerApp::setFieldMode(bool on) {
+    if(on==fieldMode_)return;
+    if(on&&(recordingNow()||mic_!=0||outputRecordState()==1||outputRecordState()==2)){
+        say("STOP RECORDING FIRST");return;
+    }
+    releaseSurfaceKeys();
+    if(on&&previewNote_>=0){s_.noteOff(previewTrack_,previewNote_);previewNote_=-1;}
+    auditionAt_=0;motion_={};fieldMode_=on;fieldEvents_.clear();fieldLines_={};fieldLeds_=0;
+    pending_.clear();pendingBytes_=0;needClear_=true;lastHeroLayout_=-1;
+    lastLed_=~0ull;repaintAt_=0;
+    if(!on)refreshLibrary();
+}
 void SamplerApp::button(int b, bool down) {
     if (b < 0 || b > REC) return;
     const bool wasHeld = (held_ & (1u << b)) != 0;
     lastLed_ = ~0ull;   // the firmware's own LED handling must not win: the active page stays lit, the others go dark
     if (down) { held_ |= 1u << b; if(!wasHeld) motion_={}; } else held_ &= ~(1u << b);
+    if(fieldMode_){
+        if(b==HOME||b==GLO){
+            if(down&&!wasHeld){if(b==HOME){homeAt_=nowMs_;homeLong_=false;}else{gloAt_=nowMs_;gloLong_=false;}}
+            else if(!down&&wasHeld&&!(b==HOME?homeLong_:gloLong_))fieldEvent(100+b,1);
+        }else if(down&&!wasHeld&&b>=FX)fieldEvent(100+b,1);
+        return;
+    }
     if(b==REC){
         if(down&&!wasHeld){recAt_=nowMs_;recLong_=false;}
         else if(!down&&wasHeld&&!recLong_)loopRecord();
@@ -734,6 +770,7 @@ SamplerApp::~SamplerApp() = default;
 
 void SamplerApp::encoder(int i, int delta, uint32_t eventMs) {
     if (!delta || i < 0 || i > 6) return;
+    if(fieldMode_){fieldEvent(i,delta);return;}
     if(genDeck_){
         if(i==0)selectTrack(track_+delta);
         else if(i==6)genHarmonic(1,delta);
@@ -786,7 +823,7 @@ void SamplerApp::resetSurface() {
 void SamplerApp::tick(uint32_t now) {
     nowMs_ = now;
     if (echoSaveAt_ && now >= echoSaveAt_) { echoSaveAt_ = 0; saveEcho(); }
-    if((held_&(1u<<REC))&&!recLong_&&now-recAt_>=700){
+    if(!fieldMode_&&(held_&(1u<<REC))&&!recLong_&&now-recAt_>=700){
         // Mark the hold consumed before changing decks.
         recLong_=true;setGenerativeDeck(!genDeck_);
     }
@@ -794,10 +831,10 @@ void SamplerApp::tick(uint32_t now) {
     const int os=outputRecordState();
     if(os!=lastOutputState_){lastOutputState_=os;if(os==3){latestTake_=s_.outputRecordPath();refreshLibrary();say("RESAMPLE SAVED");if(!genDeck_)selectSavedTake();}else if(os==4)say("RESAMPLE SAVE FAILED");}
     if ((held_ & (1u << HOME)) && !homeLong_ && now - homeAt_ >= 600) {
-        homeLong_ = true;setEditor(!editor_);
+        homeLong_ = true;setFieldMode(!fieldMode_);
     }
     if ((held_ & (1u << GLO)) && !gloLong_ && now - gloAt_ >= 600) {
-        setLight(!theme::light); gloLong_ = true;
+        setLight(!theme::light); gloLong_ = true; if(fieldMode_)fieldEvent(200,theme::light?1:0);
     }
     if (fwDirty_) { fwDirty_ = false; if(genDeck_){genOctAck_=false;genOctSentAt_=now;} sysex(6, {7, (uint8_t)(genDeck_?0:scale_.root), (uint8_t)(genDeck_?gen().config.octave-1:scale_.octave + 3), (uint8_t)(genDeck_?0:scale_.mode)}, true); }
     if (repaintAt_ && now >= repaintAt_) { repaintAt_ = 0; needClear_ = true; }
@@ -914,6 +951,13 @@ void SamplerApp::heal() {   // a lost frame leaves a hole nothing would redraw: 
 void SamplerApp::leds() {
     uint64_t m = 0;
     const bool blinkFast = (nowMs_ / 250) & 1, blinkSlow = (nowMs_ / 500) & 1;
+    if(fieldMode_){
+        m=fieldLeds_;
+        if(m==lastLed_&&nowMs_-ledAt_<400)return;
+        lastLed_=m;ledAt_=nowMs_;
+        std::vector<uint8_t> p(6);for(int i=0;i<6;i++)p[i]=uint8_t(m>>(7*i)&127);
+        sysex(1,p,true,900);return;
+    }
     if(genDeck_){
         constexpr int btn[]={HOME,SAVE,ARP,SEQ};
         m|=1ull<<(editor_?(page_==P_ENV?ENV:page_==P_LFO?LFO:fxPage(page_)?FX:page_==P_ARP?ARP:page_==P_MIX?EDIT:page_==P_SAVE?SAVE:page_==P_KEY?GLO:page_==P_ETAPE||page_==P_EMIX?SEQ:HOME):btn[gen().page]);
@@ -955,6 +999,13 @@ void SamplerApp::leds() {
 // Layout (240x240): track tags, page and state, sample name, a 60 px picture that depends on the page, the loop strip, four knobs, a hint.
 void SamplerApp::draw(uint32_t now) {
     if ((int)theme::light != lastLight_) { lastLight_ = theme::light; setPalette(theme::light); needClear_ = true; }
+    if(fieldMode_){
+        if(needClear_){clear(BLACK);std::fill(cells_.begin(),cells_.end(),SurfaceCell());}
+        drawText(0,8,9,2,rgb565(theme::TEXT),BLACK,"FIELD RECORDING",18);
+        drawText(1,8,35,1,rgb565(theme::TEXT),BLACK,"HOLD HOME TO RETURN",36);
+        for(int i=0;i<7;++i)drawText(2+i,8,60+i*23,1,rgb565(theme::TEXT),BLACK,fieldLines_[i],36);
+        needClear_=false;return;
+    }
     if(genDeck_&&!editor_){drawGenerator(now);return;}
     const bool waveform=!genDeck_&&(mic_==1||mic_==2||page_==P_HOME);
     const int layout=waveform?0:1;

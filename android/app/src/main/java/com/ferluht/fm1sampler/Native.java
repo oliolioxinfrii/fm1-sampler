@@ -14,6 +14,12 @@ public final class Native {
     public static native void midiIn(long h, byte[] data, int off, int n, long eventMs);
     public static native void surfaceConnected(long h);
     public static native byte[] tick(long h, long nowMs);
+    public static native boolean fieldMode(long h);
+    public static native void setFieldMode(long h, boolean on);
+    public static native boolean lightTheme(long h);
+    public static native int[] fieldEvents(long h);
+    public static native void fieldFeedback(long h, String summary, int leds);
+    public static native void refreshLibrary(long h);
     public static native boolean wantFile(long h);
     public static native void importFile(long h, String path);
     public static native void say(long h, String message);

@@ -51,6 +51,12 @@ public:
     // ---- state for the phone UI (all of it can also be edited from there) ----
     Page page() const { return page_; }
     bool editor() const { return editor_; }
+    // Field examination is a separate single-source workspace. Android owns its offline DSP/view.
+    bool fieldMode() const { return fieldMode_; }
+    void setFieldMode(bool on);
+    std::vector<int> takeFieldEvents() { auto result=std::move(fieldEvents_); fieldEvents_.clear(); return result; }
+    void fieldFeedback(const std::string& summary, uint32_t leds);
+    bool lightTheme() const;
     // Generative deck has no dependency on tape-page parameters.
     bool generativeDeck() const {return genDeck_;}
     void setGenerativeDeck(bool on);
@@ -226,6 +232,11 @@ private:
     bool editor_ = false, homeLong_ = false, gloLong_ = false;
     bool recLong_=false;uint32_t recAt_=0;
     bool genDeck_=false;
+    bool fieldMode_=false;
+    std::vector<int> fieldEvents_; // pairs: encoder 0..6, button 100+Button, or 200 (theme)
+    std::array<std::string,7> fieldLines_{};
+    uint32_t fieldLeds_=0;
+    void fieldEvent(int code,int value);
     struct GenTrack {
         generative::Config config;
         generative::Phrase phrase=generative::makePhrase(config,0);

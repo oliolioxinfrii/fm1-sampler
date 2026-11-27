@@ -14,6 +14,10 @@ import java.io.File;
 public class SamplerActivity extends Activity {
     static final int PICK = 7;
     Backend backend;
+    SamplerView sampler;
+    FieldRecordingView field;
+    android.widget.FrameLayout root;
+    boolean examining;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -24,11 +28,49 @@ public class SamplerActivity extends Activity {
         backend = Backend.get(this);
         backend.onFileRequest = this::pickFile;
         backend.start();
-        SamplerView v = new SamplerView(this, backend.engine, 0, 0);
-        setContentView(v);
+        sampler = new SamplerView(this, backend.engine, 0, 0);
+        root=new android.widget.FrameLayout(this);
+        root.addView(sampler,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        setContentView(root);
+        backend.onFieldFrame=this::fieldFrame;
         hideSystemBars();
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) backend.startMic();
         else requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 1);
+    }
+
+    void fieldFrame(boolean active,int[] events) {
+        if(active!=examining){
+            examining=active;
+            if(active){
+                backend.setFieldAudio(true);
+                if(field==null){
+                    field=new FieldRecordingView(this,backend);
+                    root.addView(field,new android.widget.FrameLayout.LayoutParams(-1,-1));
+                }
+                sampler.setVisibility(View.GONE);
+                field.enter();
+            }else{
+                if(field!=null)field.leave();
+                sampler.setVisibility(View.VISIBLE);
+                backend.setFieldAudio(false);
+            }
+        }
+        if(active&&field!=null)field.events(events);
+    }
+    @Override public void onBackPressed(){
+        if(examining){Native.setFieldMode(backend.engine,false);fieldFrame(false,new int[0]);}
+        else super.onBackPressed();
+    }
+    @Override protected void onPause(){
+        if(examining&&field!=null)field.suspendCapture();
+        super.onPause();
+    }
+    @Override protected void onDestroy(){
+        backend.onFieldFrame=null;
+        backend.onFileRequest=null;
+        if(field!=null){field.dispose();root.removeView(field);field.destroy();}
+        Native.setFieldMode(backend.engine,false);backend.setFieldAudio(false);
+        super.onDestroy();
     }
 
     /** Full screen: no status or navigation bar (a swipe from the edge shows them for a moment). */
@@ -59,6 +101,7 @@ public class SamplerActivity extends Activity {
 
     @Override protected void onActivityResult(int code, int result, Intent data) {
         super.onActivityResult(code, result, data);
+        if(code==FieldRecordingView.PICK_FIELD&&field!=null){field.fileResult(result,data);return;}
         if (code != PICK || result != RESULT_OK || data == null || data.getData() == null) return;
         final Uri uri = data.getData();
         Native.say(backend.engine, "READING THE FILE...");
@@ -74,6 +117,8 @@ public class SamplerActivity extends Activity {
     }
 
     @Override public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
+        super.onRequestPermissionsResult(code,perms,res);
+        if(code==74&&field!=null){field.permissionResult(res.length>0&&res[0]==PackageManager.PERMISSION_GRANTED);return;}
         if (res.length > 0 && res[0] == PackageManager.PERMISSION_GRANTED) backend.startMic();
     }
 }

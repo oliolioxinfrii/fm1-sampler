@@ -114,7 +114,7 @@ struct Engine : public oboe::AudioStreamDataCallback, public oboe::AudioStreamEr
     void stop() {
         std::lock_guard<std::mutex> lk(streamMtx);
         streamRaw = nullptr;
-        if (stream) { stream->stop(); stream->close(); }
+        if (stream) { stream->stop(); stream->close(); stream.reset(); }
         if (inStream) { inStream->stop(); inStream->close(); inStream.reset(); }
     }
 };
@@ -185,6 +185,19 @@ FN(jbyteArray, tick)(JNIEnv* env, jclass, jlong h, jlong nowMs) {
     return r;
 }
 // the phone UI asked for the disk picker (LOAD FILE FROM DISK)
+FN(jboolean, fieldMode)(JNIEnv*, jclass, jlong h) { auto& e=*E(h);std::lock_guard<std::mutex> l(e.surfaceMtx);return e.app->fieldMode(); }
+FN(void, setFieldMode)(JNIEnv*, jclass, jlong h,jboolean on) {auto& e=*E(h);std::lock_guard<std::mutex> l(e.surfaceMtx);e.app->setFieldMode(on);}
+FN(jboolean, lightTheme)(JNIEnv*,jclass,jlong h){auto& e=*E(h);std::lock_guard<std::mutex> l(e.surfaceMtx);return e.app->lightTheme();}
+FN(jintArray, fieldEvents)(JNIEnv* env,jclass,jlong h){
+    auto& e=*E(h);std::lock_guard<std::mutex> l(e.surfaceMtx);auto v=e.app->takeFieldEvents();
+    jintArray out=env->NewIntArray((jsize)v.size());
+    if(out&&!v.empty())env->SetIntArrayRegion(out,0,(jsize)v.size(),v.data());return out;
+}
+FN(void, fieldFeedback)(JNIEnv* env,jclass,jlong h,jstring str,jint leds){
+    if(!str)return;auto& e=*E(h);const char* c=env->GetStringUTFChars(str,nullptr);if(!c)return;
+    {std::lock_guard<std::mutex> l(e.surfaceMtx);e.app->fieldFeedback(c,(uint32_t)leds);}env->ReleaseStringUTFChars(str,c);
+}
+FN(void, refreshLibrary)(JNIEnv*,jclass,jlong h){auto& e=*E(h);std::lock_guard<std::mutex> l(e.surfaceMtx);e.app->refreshLibrary();}
 FN(jboolean, wantFile)(JNIEnv*, jclass, jlong h) { auto& e = *E(h); std::lock_guard<std::mutex> l(e.surfaceMtx); return e.app->wantFile(); }
 // a picked file, already converted to a 16-bit WAV in the data dir: load it on the selected track
 FN(void, importFile)(JNIEnv* env, jclass, jlong h, jstring path) {

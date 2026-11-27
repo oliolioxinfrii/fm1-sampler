@@ -1859,7 +1859,7 @@ void SamplerUI::librarySheet() {
 void SamplerUI::projectSheet() {
     rrect({0, 0, W_, H_}, 0, theme::withAlpha(kBg, 235));
     tap({0, 0, W_, H_}, [this] { projectOpen_ = false; });
-    const float bw = std::min(460.f, W_ - 40), bh = 34, gap = 4;
+    const float bw = std::min(460.f, W_ - 40), bh = 30, gap = 3;
     const int t = app_.track();
     const bool hasClip = st_.track_has_clip[t], any = app_.loopExists();
     const Rect box{(W_ - bw) / 2, 22, bw, H_ - 44};
@@ -1889,6 +1889,7 @@ void SamplerUI::projectSheet() {
         if (armed) { app_.loopClear(); clearArmed_ = 0; } else clearArmed_ = now_ + 3000;
     });
     row("OPEN THE EDITOR", "the older sample / page editor", true, false, [this] { app_.setEditor(true); projectOpen_ = false; });
+    row("FIELD RECORDING", "examine, restore and extract one recording", true, false, [this] { app_.setFieldMode(true); projectOpen_ = false; });
     row("LOOP LENGTH x2", "the loop doubled, its content repeated", any, false, [this] { app_.lenAction(true); });
     row("LOOP LENGTH /2", "half as long, the second half is dropped", any, false, [this] { app_.lenAction(false); });
     row(std::string("LOOP SOURCE: ") + app_.knobs(SamplerApp::P_SAVE)[1].value, "what a take records: the track's sound or the microphone", true, false,

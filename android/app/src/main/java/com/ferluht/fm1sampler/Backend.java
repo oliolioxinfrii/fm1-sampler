@@ -39,6 +39,17 @@ public class Backend {
     };
     /** Set by the activity: opens the system file picker (the phone UI asked for LOAD FILE FROM DISK). */
     public volatile Runnable onFileRequest;
+    interface FieldListener { void frame(boolean active,int[] events); }
+    public volatile FieldListener onFieldFrame;
+    volatile boolean fieldAudio=false;
+    // Web Audio must have exclusive microphone/output access during examination.
+    synchronized void setFieldAudio(boolean active) {
+        if(fieldAudio==active)return;
+        fieldAudio=active;
+        main.removeCallbacks(audioRestart);forceAudioRestart=false;
+        if(active){Native.stopAudio(engine);audioStarted=micStarted=false;}
+        else if(running){startAudio();if(micWanted)startMic();}
+    }
 
     public static synchronized Backend get(Context c) {
         if (instance == null) instance = new Backend(c.getApplicationContext());
@@ -74,6 +85,7 @@ public class Backend {
         ticker = new Thread(() -> {
             long t0 = SystemClock.uptimeMillis(), lastStats = 0;
             int lastXruns = -2, lastOverruns = -1;
+            boolean lastField=false; FieldListener lastListener=null;
             while (running) {
                 try {
                     MidiInputPort port = toFm1;
@@ -81,7 +93,14 @@ public class Backend {
                     send(port, out);
                     Native.uiLink(engine, toFm1 != null, usbAudioId != 0);
                     if (Native.wantFile(engine)) { Runnable r = onFileRequest; if (r != null) main.post(r); }
-                    if (Native.audioDead(engine)) main.post(() -> scheduleAudioRestart(true));
+                    boolean field=Native.fieldMode(engine);
+                    int[] events=Native.fieldEvents(engine);
+                    FieldListener listener=onFieldFrame;
+                    if(listener!=null&&(field!=lastField||listener!=lastListener||events.length>0)){
+                        main.post(()->{if(onFieldFrame==listener)listener.frame(field,events);});
+                    }
+                    lastField=field;lastListener=listener;
+                    if (Native.audioDead(engine)&&!fieldAudio) main.post(() -> scheduleAudioRestart(true));
                     long now = SystemClock.uptimeMillis();
                     if (now - lastStats >= 2000) {
                         lastStats = now;
@@ -115,13 +134,14 @@ public class Backend {
         return id;
     }
     void startAudio() {
+        if(fieldAudio)return;
         usbAudioId = findUsbAudio();
         int r = Native.startAudio(engine, usbAudioId);
         audioStarted = r == 0;
         Log.i(TAG, "audio start " + r + " usb device " + usbAudioId);
     }
     void restartAudioIfUsbChanged() {
-        if (!running) return;
+        if (!running || fieldAudio) return;
         int id = findUsbAudio();
         if (id != usbAudioId) {
             Log.i(TAG, "usb audio device changed " + usbAudioId + " -> " + id);
@@ -130,14 +150,15 @@ public class Backend {
     }
     // Device notifications and stream errors can describe the same routing change.
     void scheduleAudioRestart(boolean force) {
-        if (!running) return;
+        if (!running || fieldAudio) return;
         forceAudioRestart |= force;
         main.removeCallbacks(audioRestart);
         main.postDelayed(audioRestart, 300);
     }
     /** Call after RECORD_AUDIO was granted. The phone's own microphone, never the USB device. */
     public synchronized void startMic() {
-        if (micStarted) return;
+        micWanted=true;
+        if (micStarted||fieldAudio) return;
         int mic = 0;
         for (AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_INPUTS)) if (d.getType() == AudioDeviceInfo.TYPE_BUILTIN_MIC) mic = d.getId();
         micWanted = true;
