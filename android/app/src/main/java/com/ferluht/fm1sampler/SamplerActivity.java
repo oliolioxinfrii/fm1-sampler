@@ -24,6 +24,17 @@ public class SamplerActivity extends Activity {
         super.onCreate(b);
         installCrashLog();
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON | WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        // Immersive mode alone does not extend the window into a display
+        // cutout. In landscape Android otherwise reserves an entire strip.
+        WindowManager.LayoutParams attrs=getWindow().getAttributes();
+        if(android.os.Build.VERSION.SDK_INT>=30){
+            attrs.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+            getWindow().setAttributes(attrs);
+            getWindow().setDecorFitsSystemWindows(false);
+        }else if(android.os.Build.VERSION.SDK_INT>=28){
+            attrs.layoutInDisplayCutoutMode=WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            getWindow().setAttributes(attrs);
+        }
         getWindow().setStatusBarColor(0xff1a1a1f);
         getWindow().setNavigationBarColor(0xff1a1a1f);
         backend = Backend.get(this);
@@ -32,7 +43,19 @@ public class SamplerActivity extends Activity {
         sampler = new SamplerView(this, backend.engine, 0, 0);
         root=new android.widget.FrameLayout(this);
         root.addView(sampler,new android.widget.FrameLayout.LayoutParams(-1,-1));
+        root.setFitsSystemWindows(false);
         setContentView(root);
+        // Log actual window dimensions and the camera bounds for diagnosing
+        // OEM letterboxing. Do not pad the entire side of the sampler.
+        root.addOnLayoutChangeListener((view,l,t,r,bottom,oldL,oldT,oldR,oldB)->{
+            if(r-l==oldR-oldL&&bottom-t==oldB-oldT)return;
+            android.view.WindowInsets insets=view.getRootWindowInsets();
+            String cutout="none";
+            if(android.os.Build.VERSION.SDK_INT>=28&&insets!=null&&insets.getDisplayCutout()!=null)
+                cutout=insets.getDisplayCutout().getBoundingRects().toString();
+            int[] xy=new int[2];view.getLocationOnScreen(xy);
+            android.util.Log.i("fm1sampler","Fullscreen root="+(r-l)+"x"+(bottom-t)+" origin="+xy[0]+","+xy[1]+" cutout="+cutout);
+        });
         backend.onFieldFrame=this::fieldFrame;
         files=new FileManager(this,backend);
         backend.onFileAction=action->{if(!examining){if(action==1)files.show();else if(action==2)files.saveProject();}};
@@ -80,6 +103,14 @@ public class SamplerActivity extends Activity {
 
     /** Full screen: no status or navigation bar (a swipe from the edge shows them for a moment). */
     void hideSystemBars() {
+        if(android.os.Build.VERSION.SDK_INT>=30){
+            android.view.WindowInsetsController controller=getWindow().getInsetsController();
+            if(controller!=null){
+                controller.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                controller.hide(android.view.WindowInsets.Type.systemBars());
+                return;
+            }
+        }
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
             | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
     }
