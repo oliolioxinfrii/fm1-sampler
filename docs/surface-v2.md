@@ -13,7 +13,8 @@ cd engine
 make -j"$(nproc)" "$PWD/build/test_surface_v2"
 ./build/test_surface_v2
 cd ..
-(cd .fm1-base && bash tools/setup_toolchain.sh)
+(cd .fm1-base && bash tools/setup_toolchain.sh --only uv,python)
+(cd .fm1-base && bash tools/setup_toolchain.sh --only jieli,ac79-sdk)
 bash tools/build_surface.sh
 ```
 
@@ -42,3 +43,5 @@ Slipway Web requires Chrome Web MIDI with SysEx permission, matching input/outpu
 After both native tests and the device build succeed, use desktop Slipway or the pinned platform's `tools/fm1_install.py --info` on a computer with direct USB MIDI access. If the legacy firmware does not respond, restore the verified stock V15 package with `firmware/FM1-Sampler-Workbench.html` using desktop Chrome, verify the stock identity, and then install `surface-firmware/build/sampler.fwsc`. Do not start installation from a device in an unidentified state. Android Slipway is a separate follow-up test.
 
 The experimental build includes `words.tsv` for fm1-base's mandatory vocabulary generator. Its generated JSON is stored under `surface-firmware/web/words/`. The development warning about missing install/screenshot metadata is expected; no public release is being built yet.
+
+The target is freestanding: do not include hosted C library headers in the device application. The BSP unity unit supplies memcpy, memset and memcmp; host-only comparisons use the simulator's libc. To resolve the toolchain setup's missing uv prerequisite, run `bash tools/setup_toolchain.sh --only uv,python` from `.fm1-base`.

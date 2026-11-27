@@ -186,7 +186,7 @@ static void sv_draw(void){
         uint16_t accent=sv_ac[0];if(ss.mode==SV_FIELD){static const uint8_t color[]={0,0,3,2,2,3,1,0,1,3,1};accent=sv_ac[color[ss.page]];}
         else {static const uint8_t color[]={0,2,1,2,1,3,1,1,3,3,3,2,2,2,2,3,3,2,2};accent=ss.page==8?sv_red:ss.page==6?sv_rgb(ss.light?0xb51b79:0xffff64df):sv_ac[color[ss.page<19?ss.page:0]];}
         cv_rect(6,5,228,30,sv_panel);static const uint8_t tc[]={0,1,2,0,3,0,1,2};cv_rect(8,7,22,26,ss.mode!=SV_FIELD&&ss.track==3?sv_rgb(ss.light?0xb51b79:0xffff64df):sv_ac[tc[ss.track]]);
-        char num[4];if(ss.mode==SV_FIELD)strcpy(num,"F");else sv_uint(num,ss.track+1);
+        char num[4];if(ss.mode==SV_FIELD){num[0]='F';num[1]=0;}else sv_uint(num,ss.track+1);
         sv_text(12,8,20,&FONT_B,num,ss.light?C_WHITE:sv_well);
         cv_rect(33,7,174,26,ss.mode==SV_FIELD?sv_ac[0]:sv_raised);
         sv_text(38,10,165,&FONT_B,ss.title,ss.mode==SV_FIELD?(ss.light?C_WHITE:sv_well):sv_ink);

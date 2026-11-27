@@ -4,7 +4,11 @@
  * and graphs while ordered edits are outstanding.
  */
 #include "../shared/surface_v2.h"
+// fm1-base's device unity unit already includes the freestanding BSP
+// implementations of memcpy, memset and memcmp. Hosted simulator has libc.
+#ifdef PLAT_HOST
 #include <string.h>
+#endif
 #include "fastmath.h"
 
 typedef struct {
