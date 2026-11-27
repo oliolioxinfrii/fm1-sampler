@@ -13,7 +13,7 @@ int main(){
             if(p[0]==9&&checkField&&len>=9){
                 assert(palette);auto num=[](const uint8_t* q){return q[0]*128+q[1];};
                 int x=num(p+1),y=num(p+3),w=num(p+5),h=num(p+7),count=0;
-                assert(x>=12&&x+w<=228&&y>=44&&y+h<=128&&w*h<=768);
+                assert(x>=12&&x+w<=228&&y>=54&&y+h<=89&&w*h<=768);
                 for(size_t i=9;i<len;++i){int run=(p[i]&7)+1;assert((p[i]>>3)<16);if(run==8){assert(i+1<len);run+=p[++i];}count+=run;}
                 assert(count==w*h);++tiles;
             }
@@ -41,7 +41,7 @@ int main(){
     button(A::REC,true);run(100);button(A::REC,false);
     assert((app.takeFieldEvents()==std::vector<int>{113,1}));
     checkField=true;std::string pixels;for(int i=0;i<36*21;++i)pixels+="0123456789abcdef"[i%16];
-    app.fieldFeedback("OUTPUT|FFT 2048|SAMPLE|K1 START|K2 END|K3 POSITION|K4 PITCH",0,pixels);
+    app.fieldFeedback("OUTPUT|FFT 2048 / HANN|SAMPLE|START|END|POSITION|PITCH|0.000 s|5.000 s|1.000 s|0.0 st|COURTYARD| -1|0|1000|200|500|200|SEL SIGNAL PRE FFT ALG WINDOW",0,pixels);
     run(5000);assert(tiles>=28&&palettes>0);
     hold(A::GLO);run(4000);assert(app.takeFieldEvents().size()==2&&tiles>=56);
     checkField=false;hold(A::REC);assert(!app.fieldMode()&&!app.editor()&&!app.generativeDeck());

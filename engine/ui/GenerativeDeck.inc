@@ -107,7 +107,7 @@ void SamplerUI::generativeDeck(){
     text(292,70,8,WELL_DIM,"1.0");text(292,153,9,WELL_DIM,"Y");text(292,237,8,WELL_DIM,"0.0");
     text(316,254,8,WELL_DIM,"0.0");text(603,254,9,WELL_DIM,"X / DRAG TO RELOCATE",1);text(890,254,8,WELL_DIM,"1.0",2);
     text(938,254,8,WELL_DIM,std::string(mapNames[kind])+" OFFSET",2);
-    for(int i=0;i<4;i++)button({282.f+i*166,271,163,23},pageNames[i],app_.genPage()==i,[this,i]{app_.genSetPage(i);},11,false,VIOLET);
+    for(int i=0;i<4;i++)button({282.f+i*166,271,163,23},pageNames[i],app_.genPage()==i,[this,i]{app_.genSetPage(i);},11,false,encoderColor(i));
     const auto k=app_.genKnobs();
     for(int i=0;i<4;i++){
         float x=282+i*166;Rect bar{x,311,160,18};uint32_t col=encoderColor(i);

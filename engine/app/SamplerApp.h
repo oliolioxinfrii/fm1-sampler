@@ -238,7 +238,7 @@ private:
     int fieldTileCursor_=0;
     void drawField();
     std::vector<int> fieldEvents_; // pairs: encoder 0..6, button 100+Button, or 200 (theme)
-    std::array<std::string,7> fieldLines_{};
+    std::array<std::string,19> fieldLines_{};
     uint32_t fieldLeds_=0;
     void fieldEvent(int code,int value);
     struct GenTrack {

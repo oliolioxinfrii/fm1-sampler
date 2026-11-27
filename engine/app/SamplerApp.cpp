@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 
 namespace {
 constexpr uint16_t rgb(int r, int g, int b) { return (uint16_t)((r >> 3) << 11 | (g >> 2) << 5 | (b >> 3)); }
@@ -1032,9 +1033,18 @@ void SamplerApp::leds() {
 }
 
 // The phone supplies a reduced real spectrum or process diagram. Each
-// 54x12 tile fits the 768-pixel firmware buffer and 300-byte frame limit.
+// 54x5 tile fits the 768-pixel firmware buffer and 300-byte frame limit.
 void SamplerApp::drawField(){
-    if(needClear_){
+    const bool full=needClear_;
+    const uint32_t sourceColor=theme::ACCENT;
+    // Same physical layout as the original hub: sample/transport header,
+    // page register, 216x35 pictograph and parameter meters, position strip,
+    // 2x2 encoder readouts with recessed value wells and colored bars.
+    const uint32_t processColors[]={theme::ACCENT,theme::AMBER,theme::VIOLET,theme::VIOLET,theme::AMBER,theme::GREEN,theme::ACCENT,theme::GREEN,theme::AMBER,theme::GREEN};
+    const int slot=fieldLines_[12].empty()?-1:std::clamp(std::atoi(fieldLines_[12].c_str()),-1,9);
+    const uint32_t pc=slot>=0?processColors[slot]:sourceColor;
+    auto numeric=[&](int i){return std::clamp(std::atoi(fieldLines_[i].c_str()),0,1000);};
+    if(full){
         clear(BLACK);std::fill(cells_.begin(),cells_.end(),SurfaceCell());
         std::fill(rects_.begin(),rects_.end(),~0ull);
         constexpr uint32_t light[]={0x17202a,0x233247,0x2d4863,0x365e79,0x477d92,0x5b9ba2,0x77b2a8,0x9cc4b1,0xc0cdb4,0xd7c7a0,0xe8bc83,0xf3d4a2};
@@ -1044,31 +1054,78 @@ void SamplerApp::drawField(){
         for(int i=0;i<4;++i)cat(pal,col(rgb565(theme::encoderTrace(i))));
         sysex(8,pal,false,920);
         fieldTileSig_.fill(~0ull);fieldTileCursor_=0;
-        rect(361,8,42,224,88,WELL);needClear_=false;
+        rect(360,6,5,228,30,PANEL);
+        rect(366,33,7,174,26,rgb565(sourceColor));
+        rect(361,9,52,222,49,WELL);
+        rect(24,12,103,216,4,WELL);
+        for(int i=0;i<4;++i){
+            rect(362+i,8+(i%2)*114,121+(i/2)*48,110,46,PANEL);
+            rect(350+i,12+(i%2)*114,134+(i/2)*48,104,24,WELL);
+        }
     }
-    rect(360,8,4,224,26,PANEL);
-    drawText(0,12,9,2,PAPER,PANEL,fieldLines_[2].empty()?"FIELD RECORDING":fieldLines_[2],18);
-    drawText(1,12,32,1,DIM,BLACK,fieldLines_[0]+"  "+fieldLines_[1],36);
+    drawText(0,12,8,3,rgb565(theme::contrastInk(sourceColor)),rgb565(sourceColor),"F",1);
+    drawText(1,38,12,2,rgb565(theme::contrastInk(sourceColor)),rgb565(sourceColor),fieldLines_[11].empty()?"FIELD RECORDING":fieldLines_[11],14);
+    const bool rec=(fieldLeds_&(1u<<REC))!=0,play=(fieldLeds_&(1u<<PLAY))!=0;
+    for(int i=0;i<16;++i){
+        int x=212,w=16;uint16_t color=PAPER;
+        if(rec){float d=(i-7.5f)/8;w=std::max(1,int(std::lround(16*std::sqrt(std::max(0.f,1-d*d)))));x+=(16-w)/2;color=RECORD;}
+        else if(play){w=std::max(1,int(std::lround(16*(1-std::fabs(i-7.5f)/8))));color=LIVE;}
+        // Full row clears the old symbol before a different shape is painted.
+        const uint64_t old=rects_[300+i];
+        const uint64_t sig=(uint64_t)color | (uint64_t)w<<16 | (uint64_t)1<<28 | (uint64_t)x<<40 | (uint64_t)(12+i)<<52;
+        if(full||old!=sig){
+            rects_[316+i]=~0ull;rect(316+i,212,12+i,16,1,PANEL);
+            rects_[300+i]=~0ull;rect(300+i,x,12+i,w,1,color);
+        }
+    }
+    // Clear the whole page-label field when the title color changes.
+    drawText(20,12,36,2,rgb565(theme::contrastInk(pc)),rgb565(pc),fieldLines_[2].empty()?"SAMPLE":fieldLines_[2],9);
+    for(int i=0;i<10;++i){
+        int x=kMenuX+i*kMenuStep;
+        rect(380+i,x,44,kMenuWidth,6,i==slot?rgb565(pc):BAR);
+        rect(390+i,x,36,kMenuWidth,5,(fieldLeds_&(1u<<(FX+i)))?rgb565(processColors[i]):BLACK);
+    }
+    const int progress=numeric(17)*215/1000;
+    rect(25,12,103,std::max(1,progress),4,progress?TIME:WELL);
+    rect(27,12+std::min(215,progress),103,216-std::min(215,progress),4,WELL);
+    drawText(23,12,110,1,DIM,BLACK,fieldLines_[0]+"  "+fieldLines_[1],36);
     for(int i=0;i<4;++i){
-        rect(362+i,8,138+i*23,224,20,PANEL);
-        drawText(2+i,12,144+i*23,1,rgb565(theme::encoderColor(i)),PANEL,fieldLines_[3+i],36);
+        int cx=12+(i%2)*114,cy=124+(i/2)*48;
+        uint16_t kc=rgb565(theme::encoderColor(i)),kt=rgb565(theme::encoderTrace(i));
+        bool valid=!fieldLines_[3+i].empty();
+        drawText(40+i*2,cx,cy,1,kc,PANEL,valid?"K"+std::to_string(i+1)+" "+fieldLines_[3+i]:"",17);
+        const std::string& value=fieldLines_[7+i];
+        // Keep the value and its background bounded inside the same 104px well.
+        const int scale=valid&&value.size()<=5?3:2,chars=scale==3?5:8;
+        auto& cell=cells_[41+i*2];
+        if(full||!cell.known||cell.scale!=scale){
+            rects_[350+i]=~0ull;rect(350+i,cx,cy+10,104,24,WELL);cell.known=false;
+        }
+        drawText(41+i*2,cx,cy+10+(scale==2?4:0),scale,kt,WELL,valid?value:"",chars);
+        const int n=valid?numeric(13+i):0,bw=n*102/1000,small=n*49/1000;
+        rect(60+i,cx,cy+37,std::max(1,bw),5,bw?kc:BAR);
+        rect(70+i,cx+std::min(101,bw),cy+37,std::max(1,102-bw),5,bw==102?kc:BAR);
+        const int mx=12+i*54;
+        rect(420+2*i,mx,93,std::max(1,small),5,small?kt:WELL);
+        rect(421+2*i,mx+std::max(1,small),93,50-std::max(1,small),5,valid?BAR:WELL);
     }
-    drawText(6,12,232,1,DIM,BLACK,"HOME: HUB   REC: DECK (HOLD)",36);
+    drawText(90,12,228,1,DIM,BLACK,fieldLines_[18].empty()?"SEL SIGNAL  PRE FFT  ALG WINDOW":fieldLines_[18],36);
+    needClear_=false;
     if(pending_.size()>=4)return;
     const int start=fieldTileCursor_;
     for(int step=0;step<28;++step){
-        const int idx=(start+step)%28,tx=(idx%4)*9,ty=(idx/4)*3;
+        const int idx=(start+step)%28,tx=(idx%4)*54,ty=(idx/4)*5;
         fieldTileCursor_=(idx+1)%28;
-        constexpr int w=54,h=12;
+        constexpr int w=54,h=5;
         std::array<uint8_t,w*h> pix{};int n=0;uint64_t hash=1469598103934665603ull;
         for(int y=0;y<h;++y)for(int x=0;x<w;++x){
-            uint8_t v=fieldPixels_[(ty+y/4)*36+tx+x/6];
+            uint8_t v=fieldPixels_[((ty+y)*21/35)*36+(tx+x)/6];
             pix[n++]=v;hash=(hash^v)*1099511628211ull;
         }
         if(fieldTileSig_[idx]==hash)continue;
         fieldTileSig_[idx]=hash;
         std::vector<uint8_t> packet;
-        cat(packet,n14(12+tx*6));cat(packet,n14(44+ty*4));cat(packet,n14(w));cat(packet,n14(h));
+        cat(packet,n14(12+tx));cat(packet,n14(54+ty));cat(packet,n14(w));cat(packet,n14(h));
         for(int i=0;i<n;){
             int run=1;while(i+run<n&&pix[i+run]==pix[i]&&run<135)++run;
             packet.push_back(uint8_t((pix[i]<<3)|std::min(7,run-1)));
