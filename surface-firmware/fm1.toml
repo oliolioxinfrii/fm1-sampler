@@ -1,4 +1,5 @@
 name = "SAMPLER"
+words = "words.tsv"
 # Local experimental identity. Coordinate permanent allocation before distribution.
 id_prefix = "FM-1_941"
 usb_manufacturer = "FM-1 Sampler"

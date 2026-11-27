@@ -1,0 +1,18 @@
+# FM-1 Sampler experimental native surface vocabulary.
+# url: https://raw.githubusercontent.com/oliolioxinfrii/fm1-sampler/feature/felucca-surface/surface-firmware/web/words/
+SAMPLER	sampler
+CONNECT PHONE	connect phone
+WAITING FOR SPECTRUM	waiting for spectrum
+WAITING FOR FIELD	waiting for field
+LEARN NOISE PROFILE	learn noise profile
+FFT	F F T
+K1	knob 1
+K2	knob 2
+K3	knob 3
+K4	knob 4
+DENOISE	denoise
+DEHUM	remove hum
+ECHOFIELD	echo field
+PAULSTRETCH	Paul stretch
+EVOLVE	evolve
+SPECTRUM	spectrum

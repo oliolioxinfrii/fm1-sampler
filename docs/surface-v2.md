@@ -36,3 +36,9 @@ The engine regression checks negotiation, edit acknowledgements, stale/duplicate
 ## Installer discovery
 
 Slipway Web requires Chrome Web MIDI with SysEx permission, matching input/output port names and a successful OTA identity handshake. A native USB backup utility detecting the unit does not establish OTA compatibility. Close other MIDI/USB apps, reconnect the cable and verify detection in Chrome; if legacy firmware does not answer the standard OTA handshake, use the existing workbench to restore a verified stock image before retrying. Do not flash a raw backup as a .fwsc package or assume a backup utility accepts arbitrary .fwsc files.
+
+### Initial installation from a computer
+
+After both native tests and the device build succeed, use desktop Slipway or the pinned platform's `tools/fm1_install.py --info` on a computer with direct USB MIDI access. If the legacy firmware does not respond, restore the verified stock V15 package with `firmware/FM1-Sampler-Workbench.html` using desktop Chrome, verify the stock identity, and then install `surface-firmware/build/sampler.fwsc`. Do not start installation from a device in an unidentified state. Android Slipway is a separate follow-up test.
+
+The experimental build includes `words.tsv` for fm1-base's mandatory vocabulary generator. Its generated JSON is stored under `surface-firmware/web/words/`. The development warning about missing install/screenshot metadata is expected; no public release is being built yet.
