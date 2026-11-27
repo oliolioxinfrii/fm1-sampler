@@ -29,6 +29,7 @@ int main(){
         auto wait=[&](auto ready){for(int i=0;i<3000&&!ready();++i)tick(1);assert(ready());};
         assert(app.library().size()==1);
         app.loadEntry(0);wait([&]{return app.hasSample(0)&&s.status().sampleState==0;});
+        assert(app.sampleLabel(0)=="sample_Original"&&app.library()[0].label=="Original");
         app.setVolume(0,.37f);app.setPan01(0,.23f);
         auto lfo=app.knobs(SamplerApp::P_LFO);lfo[2].set(1);lfo[3].set(1);
         app.setGenerativeDeck(true);wait([&]{return app.genSourceState()==2;});
@@ -45,6 +46,7 @@ int main(){
         assert(!project.empty()&&fs::is_regular_file(project/"loops.bin")&&fs::is_regular_file(project/"t0"/"sample_Original.wav")&&fs::is_regular_file(project/"g0"/"sample_Original.wav"));
         assert(app.manageFile(1,user,"Renamed").empty());
         auto renamed=(dir/"sample_Renamed.wav").string();assert(fs::exists(renamed)&&!fs::exists(user));
+        assert(app.sampleLabel(0)=="sample_Renamed");
         assert(!app.manageFile(2,renamed,"").empty()); // active sources are protected
         s.clipClearAll();app.setVolume(0,.9f);tick(10);
         assert(app.loadProject(project.string()));

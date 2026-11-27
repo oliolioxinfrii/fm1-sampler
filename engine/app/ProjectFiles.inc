@@ -73,7 +73,9 @@ bool directProject(const std::string& root,const std::string& path){
 }
 std::string SamplerApp::sampleLabel(int t)const{
     if(t<0||t>=kTracks||!hasSample(t))return "";
-    if(!samplePaths_[t].empty())return shortName(samplePaths_[t]);
+    // Preserve the sampler's historical filename-stem label, including sample_.
+    // Library entries and generator labels still use the shortened display name.
+    if(!samplePaths_[t].empty())return fs::path(samplePaths_[t]).stem().string();
     return s_.trackLabel(t);
 }
 void SamplerApp::beginSaveNotice(const std::string& label){
