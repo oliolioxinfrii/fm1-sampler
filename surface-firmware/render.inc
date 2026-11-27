@@ -110,7 +110,7 @@ static void sv_plot(void){
             int h=clamp((int)(level*1.1f*35/127)+1,1,35);
             int active=(ss.algo==4||ss.transport)&&i==center;
             if(active)h=35;
-            cv_rect(12+i*4,54+(35-h)/2,3,h,active?sv_trace[3]:(pos>=ss.mark[0]&&pos<=ss.mark[1])?sv_trace[1]:sv_grid);
+            cv_rect(12+i*4,54+(35-h)/2,3,h,active?sv_trace[3]:(pos>=ss.mark[0]&&pos<=ss.mark[1])?sv_trace[0]:sv_grid);
         }
     }else if(ss.mode==SV_FIELD){
         // Native versions of the original WebView's 36x21 process raster.

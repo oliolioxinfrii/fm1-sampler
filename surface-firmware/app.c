@@ -239,6 +239,21 @@ int app_expect(const char *what,int *got){
     else if(!strcmp(what,"surface_track"))*got=ss.track;
     else if(!strcmp(what,"surface_data_len"))*got=sv_data_len;
     else if(!strcmp(what,"surface_pending"))*got=sv_count;
+    else if(!strcmp(what,"surface_plot_color")){
+        // Exercise the exact production pixel writer in the host canvas.
+        const unsigned at=54*240+12;uint16_t old=cv_px[at],color=sv_rgb(0x51b8ff);
+        sg_put(12,54,color);*got=cv_px[at]==swap16(color);cv_px[at]=old;
+    }
+    else if(!strcmp(what,"surface_plot_wide")){
+        int lo=228,hi=11;uint16_t bg=swap16(sv_well);
+        for(int y=54;y<89;y++)for(int x=12;x<228;x++)if(cv_px[y*240+x]!=bg){if(x<lo)lo=x;if(x>hi)hi=x;}
+        *got=lo>=16&&lo<=28&&hi>=211&&hi<=223;
+    }
+    else if(!strcmp(what,"surface_plot_span")||!strcmp(what,"surface_plot_left")||!strcmp(what,"surface_plot_right")){
+        int lo=228,hi=11;uint16_t bg=swap16(sv_well);
+        for(int y=54;y<89;y++)for(int x=12;x<228;x++)if(cv_px[y*240+x]!=bg){if(x<lo)lo=x;if(x>hi)hi=x;}
+        *got=!strcmp(what,"surface_plot_span")?hi-lo+1:!strcmp(what,"surface_plot_left")?lo:hi;
+    }
     else if(!strncmp(what,"surface_knob",12)&&what[12]>='0'&&what[12]<='3')*got=sv_local_norm(what[12]-'0');
     else return 0;
     return 1;
