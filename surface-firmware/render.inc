@@ -83,9 +83,12 @@ static void sv_phrase_plot(void){
         }
     }
 }
+/* Original compact pictograph grammar, rendered entirely on the controller. */
+#include "legacy_graphics.inc"
 static void sv_plot(void){
-    sv_grid_plot();
+    cv_rect(9,52,222,49,sv_well);
     if(ss.mode==SV_GEN_HUB&&ss.kind==SV_FIELD_MAP){sv_phrase_plot();}
+    else if(sg_legacy()){} // same geometry and colors as the 0.40 graph library
     else if(ss.mode==SV_FIELD&&ss.page==0){
         if(sv_has_data(SV_SPECTRUM)&&sv_data_len==760){
             for(int y=0;y<35;y++)for(int x=0;x<36;x++)cv_rect(12+6*x,54+y,6,1,sv_heat(sv_data[(y*21/35)*36+x]));
@@ -127,6 +130,7 @@ static void sv_plot(void){
         int pattern=(int)(sv_n(1)*4+.5f),oct=1+(int)(sv_n(2)*3+.5f);
         for(int i=0;i<8;i++){int x=12+i*27,j=pattern==1?7-i:pattern==2?(i<4?i:7-i):pattern==3?(i%2?7-i/2:i/2):i;int y=84-(j*28/7)*oct/4;cv_rect(x,y,4+(int)(sv_n(3)*20),3,sv_trace[2]);}
     }else{
+        sv_grid_plot();
         if(ss.mode==SV_FIELD&&(ss.page==6||ss.page==7))sv_plot_line(0,0,215,1,sv_grid);
         if(ss.mode==SV_FIELD&&(ss.page==2||ss.page==8||ss.page==10)){
             float old=.72f;for(int x=1;x<216;x++){float t=x/215.f,v=.72f+.055f*fm_sinf(t*31)*fm_sinf(t*3.141593f);sv_plot_line(x-1,old,x,v,sv_trace[1]);old=v;}
@@ -165,7 +169,10 @@ static void sv_controls(int y0,int height){
         char lab[24],*l=sv_append(lab,"K");l=sv_uint(l,i+1);l=sv_append(l," ");sv_append(l,k->name);sv_text(x+4,y,103,&FONT_XS,lab,sv_ac[i]);
         // Provisional normalized value, explicitly marked until the phone
         // returns the exact formatted value (units and enum labels).
-        char value[24];if(sv_pending(i)&&k->step)sv_append(sv_uint(value,(sv_local_norm(i)*100+SV_NORM/2)/SV_NORM),"% *");else sv_append(sv_append(value,k->value),sv_pending(i)?" *":"");
+        char value[24];
+        const int changed=sv_pending(i)&&sv_local_norm(i)!=k->norm;
+        if(changed&&k->step&&!(k->flags&SV_CHOICE))sv_append(sv_uint(value,(sv_local_norm(i)*100+SV_NORM/2)/SV_NORM),"% *");
+        else sv_append(value,k->value);
         const felucca_font_t *font=height>=45&&text_w(&FONT_B,value)<=100?&FONT_B:&FONT_XS;
         sv_text(x+6,y+14,100,font,value,sv_trace[i]);
         cv_rect(x+4,y+height-8,102,4,sv_track);cv_rect(x+4,y+height-8,(int)(sv_n(i)*102),4,sv_ac[i]);

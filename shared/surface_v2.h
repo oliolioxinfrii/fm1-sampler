@@ -28,4 +28,27 @@ static inline int sv_after(unsigned a,unsigned b){unsigned d=(a-b)&16383u;return
 static inline unsigned sv_predict(unsigned norm,unsigned stride,int delta){
     int v=(int)norm+(int)stride*delta;return (unsigned)(v<0?0:v>SV_NORM?SV_NORM:v);
 }
+// The normalized stride of a choice is rounded on the wire. Recover its
+// integer index to avoid accumulating a rounding error near an endpoint.
+static inline unsigned sv_parameter_predict(unsigned norm,unsigned stride,int delta,unsigned flags){
+    if(!stride||!delta)return norm;
+    if((flags&SV_CHOICE)&&stride>=16){
+        unsigned count=(SV_NORM+stride/2)/stride;if(!count)return norm;
+        int index=(int)((norm*count+SV_NORM/2)/SV_NORM)+delta;
+        if(index<0)index=0;if(index>(int)count)index=(int)count;
+        return ((unsigned)index*SV_NORM+count/2)/count;
+    }
+    return sv_predict(norm,stride,delta);
+}
+static inline int sv_limit_delta(unsigned norm,unsigned stride,int delta,unsigned flags){
+    if(!stride||(flags&SV_ACTION)||!delta)return delta;
+    if((flags&SV_CHOICE)&&stride>=16){
+        unsigned count=(SV_NORM+stride/2)/stride;
+        int index=(int)((norm*count+SV_NORM/2)/SV_NORM);
+        int lo=-index,hi=(int)count-index;
+        return delta<lo?lo:delta>hi?hi:delta;
+    }
+    int lo=-(int)((norm+stride-1)/stride),hi=(int)((SV_NORM-norm+stride-1)/stride);
+    return delta<lo?lo:delta>hi?hi:delta;
+}
 #endif

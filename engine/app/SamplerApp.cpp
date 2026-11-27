@@ -464,7 +464,7 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
             Knob b; b.name = name; b.valid = true; b.isChoice = true;
             const int n = (int)opts.size(); cur = std::min(n - 1, std::max(0, cur));
             b.value = opts[(size_t)cur]; b.norm = cur / (float)(n - 1);b.surfaceStep=1.f/(n-1);
-            b.step = [=](int d) { setter(std::min(n - 1, std::max(0, cur + (d > 0 ? 1 : -1)))); };
+            b.step = [=](int d) { setter(std::min(n - 1, std::max(0, cur + d))); };
             b.set = [=](float v) { setter(std::min(n - 1, std::max(0, (int)std::lround(v * (n - 1))))); };
             return b;
         };

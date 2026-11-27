@@ -19,13 +19,13 @@ def context(mode, page):
 def message(cmd, payload=()):
     return " ".join(f"{x:02X}" for x in [240, 125, 68, 65, 87, 1, cmd, *payload, 247])
 
-def state(mode=0, page=2, ack=0, value=8192, gen=0, kind=0, light=1):
+def state(mode=0, page=2, ack=0, value=8192, gen=0, kind=0, light=1, flags=5, step=164, label="ATTACK", formatted="0.5 s"):
     payload = [1, *u14(context(mode, page)), *u14(ack), light,
                mode, 0, page, 0, 0, *u14(1), *u14(0), *u14(gen), kind,
                0, 127, 25]
     payload += fixed("COURTYARD", 20) + fixed("ATTACK", 20) + fixed("TEST", 36)
     for _ in range(4):
-        payload += [5, *u14(value), *u14(164)] + fixed("ATTACK", 14) + fixed("0.5 s", 14)
+        payload += [flags, *u14(value), *u14(step)] + fixed(label, 14) + fixed(formatted, 14)
     assert len(payload) == 229
     return "sysex " + message(32, payload)
 
@@ -43,10 +43,17 @@ lines = [
     "turn K1 1", "wait 30", "expect surface_knob0 8356", "expect surface_pending 1",
     "expect_sysex " + message(69, [*u14(context(0, 2)), 0, 1, 0, 64, 0]),
     state(ack=1, value=8356), "wait 30", "expect surface_pending 0",
-    state(mode=3, page=0, ack=1, gen=1, kind=2),
+    state(page=17, ack=1, value=16383, flags=3, step=3277, label="WINDOW", formatted="GAUSS"),
+    "wait 130", "turn K1 1", "wait 30", "expect surface_knob0 16383", "expect surface_pending 0",
+    "turn K1 -1", "wait 30", "expect surface_knob0 13106", "expect surface_pending 1",
+    state(page=17, ack=2, value=13106, flags=3, step=3277, label="WINDOW", formatted="SWELL"),
+    "wait 30", "expect surface_pending 0",
+    state(page=17, ack=2, value=0, flags=3, step=3277, label="WINDOW", formatted="AUTO"),
+    "turn K1 -1", "wait 30", "expect surface_knob0 0", "expect surface_pending 0",
+    state(mode=3, page=0, ack=2, gen=1, kind=2),
     chunk(720), chunk(360), chunk(0), chunk(180),
     "expect surface_data_len 0", chunk(540), "wait 30", "expect surface_data_len 760",
-    state(mode=3, page=0, ack=1, gen=1, kind=2, light=0),
+    state(mode=3, page=0, ack=2, gen=1, kind=2, light=0),
     "wait 30", "expect surface_data_len 760",
     "usb unplug", "wait 100", "expect surface_ready 0",
     "usb plug", "wait 100", "sysex " + message(5, [0, 2]),

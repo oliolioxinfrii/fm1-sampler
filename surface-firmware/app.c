@@ -141,10 +141,13 @@ int app_sysex(const uint8_t *p,uint32_t n){
     }else if(cmd==6&&n==4){sv_oct=p[2]>6?6:p[2];sv_root=p[1];sv_keymode=p[3];uint8_t v[]={7,sv_root,sv_oct,sv_keymode};(void)sv_send(0x41,v,4);}
     return 1; // legacy graphics ignored; non-DAW updater frames left to platform
 }
-static unsigned sv_local_norm(unsigned i){
+static unsigned sv_sent_norm(unsigned i){
     unsigned v=ss.k[i].norm;
-    for(unsigned j=0;j<sv_count;j++)if(sv_edits[j].context==ss.context&&sv_edits[j].slot==i)v=sv_predict(v,ss.k[i].step,sv_edits[j].delta);
-    return sv_predict(v,ss.k[i].step,sv_pending_delta[i]);
+    for(unsigned j=0;j<sv_count;j++)if(sv_edits[j].context==ss.context&&sv_edits[j].slot==i)v=sv_parameter_predict(v,ss.k[i].step,sv_edits[j].delta,ss.k[i].flags);
+    return v;
+}
+static unsigned sv_local_norm(unsigned i){
+    return sv_parameter_predict(sv_sent_norm(i),ss.k[i].step,sv_pending_delta[i],ss.k[i].flags);
 }
 static int sv_pending(unsigned i){
     if(sv_pending_delta[i])return 1;
@@ -155,6 +158,8 @@ static void sv_send_edits(void){
     if(!sv_ready)return;
     for(unsigned i=0;i<4&&sv_count<32;i++){
         int d=sv_pending_delta[i];if(!d)continue;
+        d=sv_limit_delta(sv_sent_norm(i),ss.k[i].step,d,ss.k[i].flags);
+        if(!d){sv_pending_delta[i]=0;continue;}
         d=clamp(d,-63,63);
         uint16_t seq=(sv_seq+1)&16383;uint8_t p[7];
         sv_write14(p,ss.context);sv_write14(p+2,seq);p[4]=i;p[5]=d+63;p[6]=0;
@@ -191,11 +196,18 @@ static void sv_input(void){
         }
         unsigned slot=role-2;
         if((int32_t)(now-sv_nav_until)<0||!(ss.k[slot].flags&SV_VALID))continue;
+        SParam *p=&ss.k[slot];
+        // No edits, acceleration buildup or provisional text at a hard stop.
+        if(p->step&&!sv_limit_delta(sv_local_norm(slot),p->step,d,p->flags)){
+            sv_motion_dir[slot]=sv_motion_streak[slot]=0;continue;
+        }
         int dir=d>0?1:-1,det=d<0?-d:d;uint32_t dt=now-sv_motion_at[slot];
         int fast=dir==sv_motion_dir[slot]&&dt<=150&&dt/(unsigned)det<=65;
         sv_motion_streak[slot]=fast?clamp(sv_motion_streak[slot]+det,0,12):0;sv_motion_dir[slot]=dir;sv_motion_at[slot]=now;
         int mult=fast&&(ss.k[slot].flags&SV_ACCEL)?sv_motion_streak[slot]>=6?5:sv_motion_streak[slot]>=3?3:2:1;
-        sv_pending_delta[slot]=clamp(sv_pending_delta[slot]+d*mult,-504,504);sv_dirty=1;
+        int delta=clamp(sv_pending_delta[slot]+d*mult,-504,504);
+        delta=sv_limit_delta(sv_sent_norm(slot),p->step,delta,p->flags);
+        if(delta!=sv_pending_delta[slot]){sv_pending_delta[slot]=delta;sv_dirty=1;}
     }
     sv_send_edits();
     if(ss.kind&&(!sv_data_len||sv_data_gen!=ss.generation||sv_data_kind!=ss.kind)&&now-sv_requested_at>=400){
@@ -215,6 +227,7 @@ void app_input_only(void){sv_input();}
 void app_say(const char *a,const char *b){(void)a;(void)b;sv_dirty=1;}
 void app_frame(void){
     sv_input();uint32_t now=plat_ms();
+    if(sv_ready&&ss.mode!=SV_FIELD&&ss.mode!=SV_GENERATOR&&ss.page==16&&now-sv_draw_at>=200)sv_dirty=1;
     if(sv_dirty&&now-sv_draw_at>=16){sv_dirty=0;sv_draw_at=now;sv_draw();}
 }
 #ifdef PLAT_HOST
