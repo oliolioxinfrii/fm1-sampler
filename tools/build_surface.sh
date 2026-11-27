@@ -12,4 +12,6 @@ if [[ "$(git -C "$base" rev-parse HEAD)" != "$pin" ]]; then
   git -C "$base" checkout --detach "$pin"
 fi
 git -C "$base" submodule update --init --recursive
-python3 "$base/tools/build.py" "$root/surface-firmware" "$@"
+python=python3
+if [[ -x "$base/.venv/bin/python" ]]; then python="$base/.venv/bin/python"; fi
+"$python" "$base/tools/build.py" "$root/surface-firmware" "$@"
