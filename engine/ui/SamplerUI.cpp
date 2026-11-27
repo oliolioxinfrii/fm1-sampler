@@ -420,9 +420,11 @@ void SamplerUI::frame(uint32_t now) {
     waveRect_={};fieldRect_={};waveTrack_=-1;
     rrect({0, 0, W_, H_}, 0, BG);
     if(app_.generativeDeck()&&!app_.editor()){
-        const float scale=std::min(W_/960.f,H_/450.f),ox=(W_-960*scale)*.5f,oy=(H_-450*scale)*.5f;
-        const size_t first=ops_.size();generativeDeck();scaleStudy(scale,ox,oy,first);
-        fieldRect_={ox+fieldRect_.x*scale,oy+fieldRect_.y*scale,fieldRect_.w*scale,fieldRect_.h*scale};
+        const float scale=std::min(W_/960.f,H_/450.f),ox=0,oy=(H_-450*scale)*.5f;
+        constexpr float anchor=282.f;
+        const float stretch=std::max(1.f,(W_/scale-anchor)/(960.f-anchor));
+        const size_t first=ops_.size();generativeDeck();scaleStudy(scale,ox,oy,first,anchor,stretch);
+        fieldRect_={scale*(anchor+(fieldRect_.x-anchor)*stretch),oy+fieldRect_.y*scale,fieldRect_.w*scale*stretch,fieldRect_.h*scale};
         if(sheetOpen_||genSelector_>=0)fieldRect_={};
         if(sheetOpen_)librarySheet();
         if(genSelector_>=0)generativeSelector();
@@ -432,11 +434,13 @@ void SamplerUI::frame(uint32_t now) {
     const float tb = 44, left = 176, right = 252;
     if (!app_.editor()) {   // the cassette deck fills the screen; the old sample / page editor stays one tap away (EDIT)
         const float scale=std::min(W_/960.f,H_/450.f);
-        const float ox=(W_-960*scale)*.5f,oy=(H_-450*scale)*.5f;
+        const float ox=0,oy=(H_-450*scale)*.5f;
+        constexpr float anchor=418.f;
+        const float stretch=std::max(1.f,(W_/scale-anchor)/(960.f-anchor));
         const size_t first=ops_.size();
         studyDeck();
         button({350,299,53,25},"GEN",false,[this]{sheetOpen_=projectOpen_=false;app_.setGenerativeDeck(true);},10,true,VIOLET);
-        scaleStudy(scale,ox,oy,first);
+        scaleStudy(scale,ox,oy,first,anchor,stretch);
         if (sheetOpen_) librarySheet();
         if (projectOpen_) projectSheet();
         saveNotice();return;

@@ -275,21 +275,30 @@ void SamplerUI::studyPhone(Rect w, SamplerApp::Page pg) {
 
 // The approved deck's exact design coordinates. Scale the draw ops and
 // inverse-transform the touch callbacks together; do not stretch the artwork.
-void SamplerUI::scaleStudy(float s,float ox,float oy,size_t first){
-    auto x=[&](float v){return ox+s*v;};auto y=[&](float v){return oy+s*v;};
+// Scale vertically as before; put surplus width into the main graph column.
+// Map drawing and hit coordinates with the same piecewise affine transform.
+// Text sizes, line weights, circle radii and all vertical metrics are unchanged.
+void SamplerUI::scaleStudy(float s,float ox,float oy,size_t first,float anchor,float stretch){
+    auto x=[=](float v){return ox+s*(v<=anchor?v:anchor+(v-anchor)*stretch);};
+    auto y=[=](float v){return oy+s*v;};
     for(size_t i=first;i<ops_.size();i++){auto& o=ops_[i];auto* f=o.f;
         switch(o.type){
-        case UiOp::RRECT:case UiOp::STROKE:f[0]=x(f[0]);f[1]=y(f[1]);for(int j=2;j<6;j++)f[j]*=s;break;
+        case UiOp::RRECT:case UiOp::STROKE:case UiOp::CLIP:{
+            const float right=x(f[0]+f[2]);
+            f[0]=x(f[0]);f[1]=y(f[1]);f[2]=right-f[0];
+            for(int j=3;j<6;j++)f[j]*=s;break;}
         case UiOp::TEXT:f[0]=x(f[0]);f[1]=y(f[1]);f[2]*=s;break;
         case UiOp::LINE:f[0]=x(f[0]);f[1]=y(f[1]);f[2]=x(f[2]);f[3]=y(f[3]);f[4]*=s;break;
         case UiOp::CIRCLE:f[0]=x(f[0]);f[1]=y(f[1]);f[2]*=s;break;
         case UiOp::TRI:for(int j=0;j<6;j+=2){f[j]=x(f[j]);f[j+1]=y(f[j+1]);}break;
-        case UiOp::CLIP:f[0]=x(f[0]);f[1]=y(f[1]);f[2]*=s;f[3]*=s;break;
         case UiOp::ENDCLIP:break;
         }}
-    for(auto& h:hits_){h.r={x(h.r.x),y(h.r.y),s*h.r.w,s*h.r.h};
-        auto wrap=[=](std::function<void(float,float)> f)->std::function<void(float,float)>{if(!f)return {};return [=](float x,float y){f((x-ox)/s,(y-oy)/s);};};
-        h.down=wrap(h.down);h.move=wrap(h.move);}
+    for(auto& hit:hits_){
+        const auto r=hit.r;hit.r={x(r.x),y(r.y),x(r.x+r.w)-x(r.x),s*r.h};
+        auto wrap=[=](std::function<void(float,float)> f)->std::function<void(float,float)>{
+            if(!f)return {};return [=](float px,float py){float v=(px-ox)/s;f(v<=anchor?v:anchor+(v-anchor)/stretch,(py-oy)/s);};};
+        hit.down=wrap(hit.down);hit.move=wrap(hit.move);
+    }
 }
 void SamplerUI::studyDeck(){
     using P=SamplerApp;

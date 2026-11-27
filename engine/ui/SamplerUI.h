@@ -61,7 +61,7 @@ private:
     std::array<float,73*33> genMapValues_{};
     void studyTimeline(Rect r);
     void studyScopeEnergy(int track,float& mid,float& side);
-    void scaleStudy(float scale,float ox,float oy,size_t first);
+    void scaleStudy(float scale,float ox,float oy,size_t first,float anchor,float stretch);
     void pageView(Rect r);   // the schematic of the active page in the place of the sample
     void knob(float cx, float cy, SamplerApp::Page page, int idx, bool unused = false);
     void timeline(Rect r);
