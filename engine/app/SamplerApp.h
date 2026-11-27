@@ -55,7 +55,7 @@ public:
     bool fieldMode() const { return fieldMode_; }
     void setFieldMode(bool on);
     std::vector<int> takeFieldEvents() { auto result=std::move(fieldEvents_); fieldEvents_.clear(); return result; }
-    void fieldFeedback(const std::string& summary, uint32_t leds);
+    void fieldFeedback(const std::string& summary, uint32_t leds,const std::string& pixels);
     bool lightTheme() const;
     // Generative deck has no dependency on tape-page parameters.
     bool generativeDeck() const {return genDeck_;}
@@ -232,7 +232,11 @@ private:
     bool editor_ = false, homeLong_ = false, gloLong_ = false;
     bool recLong_=false;uint32_t recAt_=0;
     bool genDeck_=false;
-    bool fieldMode_=false;
+    bool fieldMode_=false,fieldHubSelected_=false;
+    std::array<uint8_t,36*21> fieldPixels_{};
+    std::array<uint64_t,28> fieldTileSig_{};
+    int fieldTileCursor_=0;
+    void drawField();
     std::vector<int> fieldEvents_; // pairs: encoder 0..6, button 100+Button, or 200 (theme)
     std::array<std::string,7> fieldLines_{};
     uint32_t fieldLeds_=0;

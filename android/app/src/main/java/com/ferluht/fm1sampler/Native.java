@@ -18,7 +18,7 @@ public final class Native {
     public static native void setFieldMode(long h, boolean on);
     public static native boolean lightTheme(long h);
     public static native int[] fieldEvents(long h);
-    public static native void fieldFeedback(long h, String summary, int leds);
+    public static native void fieldFeedback(long h, String summary, int leds, String pixels);
     public static native void refreshLibrary(long h);
     public static native boolean wantFile(long h);
     public static native void importFile(long h, String path);

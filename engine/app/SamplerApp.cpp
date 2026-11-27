@@ -677,7 +677,7 @@ void SamplerApp::fieldEvent(int code,int value) {
     if(fieldEvents_.size()>=512) fieldEvents_.erase(fieldEvents_.begin(),fieldEvents_.begin()+2);
     fieldEvents_.push_back(code);fieldEvents_.push_back(value);
 }
-void SamplerApp::fieldFeedback(const std::string& summary,uint32_t leds) {
+void SamplerApp::fieldFeedback(const std::string& summary,uint32_t leds,const std::string& pixels) {
     if(!fieldMode_)return;
     size_t start=0;
     for(auto& row:fieldLines_) {
@@ -688,17 +688,31 @@ void SamplerApp::fieldFeedback(const std::string& summary,uint32_t leds) {
         if(end==std::string::npos)start=summary.size();else start=end+1;
     }
     fieldLeds_=leds&0x3fff;
+    if(pixels.size()==fieldPixels_.size()){
+        std::array<uint8_t,36*21> decoded{};
+        for(size_t i=0;i<pixels.size();++i){
+            char q=pixels[i];
+            if(q>='0'&&q<='9')decoded[i]=uint8_t(q-'0');
+            else if(q>='a'&&q<='f')decoded[i]=uint8_t(q-'a'+10);
+            else return;
+        }
+        fieldPixels_=decoded;
+    }
 }
 void SamplerApp::setFieldMode(bool on) {
     if(on==fieldMode_)return;
     if(on&&(recordingNow()||mic_!=0||outputRecordState()==1||outputRecordState()==2)){
         say("STOP RECORDING FIRST");return;
     }
-    releaseSurfaceKeys();
+    // Preserve the held button and consumed-long state across view transitions.
+    for(int raw=0;raw<128;++raw)if(keyCount_[raw])keyEvent(raw,false);
     if(on&&previewNote_>=0){s_.noteOff(previewTrack_,previewNote_);previewNote_=-1;}
-    auditionAt_=0;motion_={};fieldMode_=on;fieldEvents_.clear();fieldLines_={};fieldLeds_=0;
+    auditionAt_=0;motion_={};fieldMode_=on;fieldHubSelected_=on;
+    if(on)setEditor(true);
+    fieldEvents_.clear();fieldLines_={};fieldLeds_=0;fieldPixels_.fill(0);
+    fieldTileSig_.fill(~0ull);fieldTileCursor_=0;
     pending_.clear();pendingBytes_=0;needClear_=true;lastHeroLayout_=-1;
-    lastLed_=~0ull;repaintAt_=0;
+    lastLed_=~0ull;repaintAt_=0;fwDirty_=true;
     if(!on)refreshLibrary();
 }
 void SamplerApp::button(int b, bool down) {
@@ -707,9 +721,12 @@ void SamplerApp::button(int b, bool down) {
     lastLed_ = ~0ull;   // the firmware's own LED handling must not win: the active page stays lit, the others go dark
     if (down) { held_ |= 1u << b; if(!wasHeld) motion_={}; } else held_ &= ~(1u << b);
     if(fieldMode_){
-        if(b==HOME||b==GLO){
-            if(down&&!wasHeld){if(b==HOME){homeAt_=nowMs_;homeLong_=false;}else{gloAt_=nowMs_;gloLong_=false;}}
-            else if(!down&&wasHeld&&!(b==HOME?homeLong_:gloLong_))fieldEvent(100+b,1);
+        if(b==HOME||b==GLO||b==REC){
+            if(down&&!wasHeld){
+                if(b==HOME){homeAt_=nowMs_;homeLong_=false;}
+                else if(b==GLO){gloAt_=nowMs_;gloLong_=false;}
+                else{recAt_=nowMs_;recLong_=false;}
+            }else if(!down&&wasHeld&&!(b==HOME?homeLong_:b==GLO?gloLong_:recLong_))fieldEvent(100+b,1);
         }else if(down&&!wasHeld&&b>=FX)fieldEvent(100+b,1);
         return;
     }
@@ -771,7 +788,20 @@ SamplerApp::~SamplerApp() = default;
 
 void SamplerApp::encoder(int i, int delta, uint32_t eventMs) {
     if (!delta || i < 0 || i > 6) return;
-    if(fieldMode_){fieldEvent(i,delta);return;}
+    if(fieldMode_){
+        if(i>=2&&i<=5){
+            auto& m=motion_[i-2];const int sign=delta>0?1:-1,detents=std::abs(delta);
+            const uint32_t elapsed=eventMs-m.at;
+            const bool fast=m.sign==sign&&elapsed<=150&&elapsed/std::max(1,detents)<=65;
+            m.streak=fast?std::min(12,m.streak+detents):0;
+            m.at=eventMs;m.sign=sign;
+            const int multiplier=fast?(m.streak>=6?5:m.streak>=3?3:2):1;
+            // Raw detents and acceleration travel together; the receiver uses
+            // acceleration only when the sample controls are focused.
+            fieldEvent(300+i,delta*16+multiplier);
+        }else{if(i==1)motion_={};fieldEvent(i,delta);}
+        return;
+    }
     if(genDeck_){
         if(i==0)selectTrack(track_+delta);
         else if(i==6)genHarmonic(1,delta);
@@ -824,15 +854,20 @@ void SamplerApp::resetSurface() {
 void SamplerApp::tick(uint32_t now) {
     nowMs_ = now;
     if (echoSaveAt_ && now >= echoSaveAt_) { echoSaveAt_ = 0; saveEcho(); }
-    if(!fieldMode_&&(held_&(1u<<REC))&&!recLong_&&now-recAt_>=700){
-        // Mark the hold consumed before changing decks.
-        recLong_=true;setGenerativeDeck(!genDeck_);
+    if((held_&(1u<<REC))&&!recLong_&&now-recAt_>=700){
+        recLong_=true;
+        if(fieldMode_){setFieldMode(false);fieldHubSelected_=true;setEditor(false);}
+        else if(editor_){fieldHubSelected_=false;setEditor(false);}
+        else setGenerativeDeck(!genDeck_);
     }
     if(genDeck_)genRefresh();
     const int os=outputRecordState();
     if(os!=lastOutputState_){lastOutputState_=os;if(os==3){latestTake_=s_.outputRecordPath();refreshLibrary();say("RESAMPLE SAVED");if(!genDeck_)selectSavedTake();}else if(os==4)say("RESAMPLE SAVE FAILED");}
     if ((held_ & (1u << HOME)) && !homeLong_ && now - homeAt_ >= 600) {
-        homeLong_ = true;setFieldMode(!fieldMode_);
+        homeLong_=true;
+        if(fieldMode_)setFieldMode(false);
+        else if(editor_||fieldHubSelected_)setFieldMode(true);
+        else setEditor(true);
     }
     if ((held_ & (1u << GLO)) && !gloLong_ && now - gloAt_ >= 600) {
         setLight(!theme::light); gloLong_ = true; if(fieldMode_)fieldEvent(200,theme::light?1:0);
@@ -871,7 +906,7 @@ void SamplerApp::tick(uint32_t now) {
     if (mic_ == 3 && st_.sampleState == 0 && !st_.samplePending && now - lastDraw_ > 3000) mic_ = 0;   // too short: nothing was kept
     if (now - lastDraw_ >= 33) {
         lastDraw_ = now;
-        if (now - healAt_ >= 150 && pending_.size() < 4) { healAt_ = now; if (!needClear_&&(!genDeck_||editor_)) heal(); }
+        if (now - healAt_ >= 150 && pending_.size() < 4) { healAt_ = now; if (!needClear_&&!fieldMode_&&(!genDeck_||editor_)) heal(); }
         draw(now);
         leds();
     }
@@ -996,17 +1031,59 @@ void SamplerApp::leds() {
     sysex(1, p, true, 900);   // keyed: a newer state replaces an older one still waiting in the queue
 }
 
+// The phone supplies a reduced real spectrum or process diagram. Each
+// 54x12 tile fits the 768-pixel firmware buffer and 300-byte frame limit.
+void SamplerApp::drawField(){
+    if(needClear_){
+        clear(BLACK);std::fill(cells_.begin(),cells_.end(),SurfaceCell());
+        std::fill(rects_.begin(),rects_.end(),~0ull);
+        constexpr uint32_t light[]={0x17202a,0x233247,0x2d4863,0x365e79,0x477d92,0x5b9ba2,0x77b2a8,0x9cc4b1,0xc0cdb4,0xd7c7a0,0xe8bc83,0xf3d4a2};
+        constexpr uint32_t dark[]={0x090815,0x201735,0x33244f,0x47376b,0x4f538b,0x506f99,0x568f9f,0x64afa5,0x8bc4ad,0xbccab0,0xe0bd83,0xffd5a0};
+        std::vector<uint8_t> pal;
+        for(int i=0;i<12;++i)cat(pal,col(rgb565(theme::light?light[i]:dark[i])));
+        for(int i=0;i<4;++i)cat(pal,col(rgb565(theme::encoderTrace(i))));
+        sysex(8,pal,false,920);
+        fieldTileSig_.fill(~0ull);fieldTileCursor_=0;
+        rect(361,8,42,224,88,WELL);needClear_=false;
+    }
+    rect(360,8,4,224,26,PANEL);
+    drawText(0,12,9,2,PAPER,PANEL,fieldLines_[2].empty()?"FIELD RECORDING":fieldLines_[2],18);
+    drawText(1,12,32,1,DIM,BLACK,fieldLines_[0]+"  "+fieldLines_[1],36);
+    for(int i=0;i<4;++i){
+        rect(362+i,8,138+i*23,224,20,PANEL);
+        drawText(2+i,12,144+i*23,1,rgb565(theme::encoderColor(i)),PANEL,fieldLines_[3+i],36);
+    }
+    drawText(6,12,232,1,DIM,BLACK,"HOME: HUB   REC: DECK (HOLD)",36);
+    if(pending_.size()>=4)return;
+    const int start=fieldTileCursor_;
+    for(int step=0;step<28;++step){
+        const int idx=(start+step)%28,tx=(idx%4)*9,ty=(idx/4)*3;
+        fieldTileCursor_=(idx+1)%28;
+        constexpr int w=54,h=12;
+        std::array<uint8_t,w*h> pix{};int n=0;uint64_t hash=1469598103934665603ull;
+        for(int y=0;y<h;++y)for(int x=0;x<w;++x){
+            uint8_t v=fieldPixels_[(ty+y/4)*36+tx+x/6];
+            pix[n++]=v;hash=(hash^v)*1099511628211ull;
+        }
+        if(fieldTileSig_[idx]==hash)continue;
+        fieldTileSig_[idx]=hash;
+        std::vector<uint8_t> packet;
+        cat(packet,n14(12+tx*6));cat(packet,n14(44+ty*4));cat(packet,n14(w));cat(packet,n14(h));
+        for(int i=0;i<n;){
+            int run=1;while(i+run<n&&pix[i+run]==pix[i]&&run<135)++run;
+            packet.push_back(uint8_t((pix[i]<<3)|std::min(7,run-1)));
+            if(run>=8)packet.push_back(uint8_t(run-8));i+=run;
+        }
+        sysex(9,packet,false,3200+idx);
+        if(pending_.size()>=4)return;
+    }
+}
+
 // ---- screen ----
 // Layout (240x240): track tags, page and state, sample name, a 60 px picture that depends on the page, the loop strip, four knobs, a hint.
 void SamplerApp::draw(uint32_t now) {
     if ((int)theme::light != lastLight_) { lastLight_ = theme::light; setPalette(theme::light); needClear_ = true; }
-    if(fieldMode_){
-        if(needClear_){clear(BLACK);std::fill(cells_.begin(),cells_.end(),SurfaceCell());}
-        drawText(0,8,9,2,rgb565(theme::TEXT),BLACK,"FIELD RECORDING",18);
-        drawText(1,8,35,1,rgb565(theme::TEXT),BLACK,"HOLD HOME TO RETURN",36);
-        for(int i=0;i<7;++i)drawText(2+i,8,60+i*23,1,rgb565(theme::TEXT),BLACK,fieldLines_[i],36);
-        needClear_=false;return;
-    }
+    if(fieldMode_){drawField();return;}
     if(genDeck_&&!editor_){drawGenerator(now);return;}
     const bool waveform=!genDeck_&&(mic_==1||mic_==2||page_==P_HOME);
     const int layout=waveform?0:1;

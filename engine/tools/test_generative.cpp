@@ -122,8 +122,9 @@ int main(){
  view.gesture(2,0,0,0,0,now);
  assert(a.genConfig().span>span0&&a.genConfig().angle!=angle0);
 
- button(SamplerApp::HOME,true);run(800);assert(a.fieldMode()&&a.generativeDeck());button(SamplerApp::HOME,false);
- button(SamplerApp::HOME,true);run(800);assert(!a.fieldMode()&&!a.editor()&&a.generativeDeck());button(SamplerApp::HOME,false);
+ button(SamplerApp::HOME,true);run(800);assert(a.editor()&&!a.fieldMode()&&a.generativeDeck());button(SamplerApp::HOME,false);
+ button(SamplerApp::HOME,true);run(800);assert(a.fieldMode()&&a.editor()&&a.generativeDeck());button(SamplerApp::HOME,false);
+ button(SamplerApp::REC,true);run(800);assert(!a.fieldMode()&&!a.editor()&&a.generativeDeck());button(SamplerApp::REC,false);
  button(SamplerApp::REC,true);run(800);assert(!a.generativeDeck());button(SamplerApp::REC,false);
  assert(!a.recordingNow());
  std::puts("generative field, constraints, timing, custom keys and isolated PCM passed");

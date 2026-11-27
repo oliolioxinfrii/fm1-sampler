@@ -50,10 +50,13 @@ int main() {
     CHECK(!app.hasSample(4), "track 5 is empty");
     { // HOME long press enters field examination exactly once; SEL cycles pages.
       uint8_t hd[3] = {0x91, (uint8_t)SamplerApp::HOME, 100}, hu[3] = {0x81, (uint8_t)SamplerApp::HOME, 0};
-      app.onMidi(hd, 3); run(1.0); CHECK(app.fieldMode(), "holding HOME opens field examination");
-      run(0.8); CHECK(app.fieldMode(), "holding HOME does not toggle repeatedly");
+      app.onMidi(hd, 3); run(1.0); CHECK(app.editor() && !app.fieldMode(), "holding HOME opens selected original hub");
+      run(0.8); CHECK(app.editor() && !app.fieldMode(), "holding HOME does not toggle repeatedly");
       app.onMidi(hu, 3); app.onMidi(hd, 3); run(1.0); app.onMidi(hu, 3);
-      CHECK(!app.fieldMode() && !app.editor(), "holding HOME again returns to the deck");
+      CHECK(app.fieldMode() && app.editor(), "holding HOME in hub opens field examination");
+      uint8_t rd[3]={0x91,(uint8_t)SamplerApp::REC,100},ru[3]={0x81,(uint8_t)SamplerApp::REC,0};
+      app.onMidi(rd,3);run(1.0);app.onMidi(ru,3);
+      CHECK(!app.fieldMode()&&!app.editor(), "holding REC returns to selected deck");
       btn(SamplerApp::GLO); CHECK(app.page() == SamplerApp::P_KEY, "GLO opens key page");
       btn(SamplerApp::GLO); CHECK(app.page() == SamplerApp::P_KEY, "GLO remains on key page");
       app.gotoPage(SamplerApp::P_EFILTER);

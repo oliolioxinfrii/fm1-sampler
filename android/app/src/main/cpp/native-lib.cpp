@@ -193,9 +193,11 @@ FN(jintArray, fieldEvents)(JNIEnv* env,jclass,jlong h){
     jintArray out=env->NewIntArray((jsize)v.size());
     if(out&&!v.empty())env->SetIntArrayRegion(out,0,(jsize)v.size(),v.data());return out;
 }
-FN(void, fieldFeedback)(JNIEnv* env,jclass,jlong h,jstring str,jint leds){
-    if(!str)return;auto& e=*E(h);const char* c=env->GetStringUTFChars(str,nullptr);if(!c)return;
-    {std::lock_guard<std::mutex> l(e.surfaceMtx);e.app->fieldFeedback(c,(uint32_t)leds);}env->ReleaseStringUTFChars(str,c);
+FN(void, fieldFeedback)(JNIEnv* env,jclass,jlong h,jstring str,jint leds,jstring pixels){
+    if(!str||!pixels)return;auto& e=*E(h);const char* c=env->GetStringUTFChars(str,nullptr);if(!c)return;
+    const char* p=env->GetStringUTFChars(pixels,nullptr);
+    if(p){{std::lock_guard<std::mutex> l(e.surfaceMtx);e.app->fieldFeedback(c,(uint32_t)leds,p);}env->ReleaseStringUTFChars(pixels,p);}
+    env->ReleaseStringUTFChars(str,c);
 }
 FN(void, refreshLibrary)(JNIEnv*,jclass,jlong h){auto& e=*E(h);std::lock_guard<std::mutex> l(e.surfaceMtx);e.app->refreshLibrary();}
 FN(jboolean, wantFile)(JNIEnv*, jclass, jlong h) { auto& e = *E(h); std::lock_guard<std::mutex> l(e.surfaceMtx); return e.app->wantFile(); }
