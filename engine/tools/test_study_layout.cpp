@@ -63,7 +63,12 @@ int main(){
         pitch=true;assert(op.f[0]>=40&&close(op.f[2],9));
     }
     assert(pitch);
-    ui.setLeftCutout(0,0,0,0);ui.frame(301);
+    // Heading also clears the camera when only the lower value intersects.
+    ui.setLeftCutout(0,229,37,244);ui.frame(301);
+    for(const auto& op:ui.ops())if(op.type==UiOp::TEXT&&op.text=="FIELD / PITCH"){
+        assert(op.f[0]>=42&&close(op.f[2],9));
+    }
+    ui.setLeftCutout(0,0,0,0);ui.frame(302);
     for(const auto& op:ui.ops())if(op.type==UiOp::TEXT&&op.text=="FIELD / PITCH")assert(close(op.f[0],28));
     puts("wide study layout and localized cutout avoidance OK");
 }

@@ -58,7 +58,11 @@ void SamplerUI::generativeDeck(){
                 if(ct-2-half>=lo)y=std::min(hi,ct-2-half);
                 else if(cb+2+half<=hi)y=std::max(lo,cb+2+half);
             };
-            avoid(lx,ly,9,readLabels[i],z.y+5,z.y+14);
+            // Give the heading independent horizontal clearance even when
+            // the nominal text-height intersection test misses the camera.
+            const float labelWidth=9*.62f*std::string(readLabels[i]).size();
+            lx=std::min(z.x+z.w-5-labelWidth,std::max(z.x+18,cr+5));
+
             avoid(vx,vy,13,value,z.y+22,z.y+33);
         }
         text(lx,ly,9,WELL_DIM,readLabels[i]);text(vx,vy,13,WELL_TEXT,value,0,true);
