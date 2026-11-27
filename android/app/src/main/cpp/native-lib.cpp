@@ -157,7 +157,12 @@ FN(void, midiIn)(JNIEnv* env, jclass, jlong h, jbyteArray a, jint off, jint n, j
         if (e.inSx) {                                   // SysEx from the FM-1 (scale state, redraw request), may span calls
             if (s >= 0x80 && s != 0xf7) { e.inSx = false; i--; continue; }   // anything else that starts a message ends a broken SysEx
             if (e.sx.size() < 256) e.sx.push_back(s);
-            if (s == 0xf7) { e.inSx = false; e.app->onSysex(e.sx.data(), e.sx.size()); }
+            if (s == 0xf7) {
+                e.inSx = false;
+                if(e.sx.size()>=8&&e.sx[1]==0x7d&&e.sx[2]=='D'&&e.sx[3]=='A'&&e.sx[4]=='W'&&(e.sx[6]==SV_HELLO||e.sx[6]==0x43))
+                    LOG("surface RX cmd=0x%02x bytes=%u",unsigned(e.sx[6]),unsigned(e.sx.size()));
+                e.app->onSysex(e.sx.data(), e.sx.size());
+            }
             continue;
         }
         if (s == 0xf0) { e.inSx = true; e.sx.assign(1, s); e.msgLen = 0; continue; }
@@ -179,6 +184,7 @@ FN(jbyteArray, tick)(JNIEnv* env, jclass, jlong h, jlong nowMs) {
     auto& e = *E(h);
     std::lock_guard<std::mutex> l(e.surfaceMtx);
     e.app->tick((uint32_t)nowMs);
+    if(e.out.size()==10&&e.out[6]==5)LOG("surface TX PING");
     jbyteArray r = env->NewByteArray((jsize)e.out.size());
     if (!e.out.empty()) env->SetByteArrayRegion(r, 0, (jsize)e.out.size(), (const jbyte*)e.out.data());
     e.out.clear();

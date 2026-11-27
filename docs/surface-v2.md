@@ -45,3 +45,7 @@ After both native tests and the device build succeed, use desktop Slipway or the
 The experimental build includes `words.tsv` for fm1-base's mandatory vocabulary generator. Its generated JSON is stored under `surface-firmware/web/words/`. The development warning about missing install/screenshot metadata is expected; no public release is being built yet.
 
 The target is freestanding: do not include hosted C library headers in the device application. The BSP unity unit supplies memcpy, memset and memcmp; host-only comparisons use the simulator's libc. To resolve the toolchain setup's missing uv prerequisite, run `bash tools/setup_toolchain.sh --only uv,python` from `.fm1-base`.
+
+## 0.41-experimental.2: discovery correction
+
+PING is sent as its own SysEx message independently of v1 batching and CLEAR. The original v2 firmware does not parse v1 batches, so the first APK could never reliably negotiate it. No firmware rebuild is needed for this correction. Android logs MIDI device properties, opening both ports, outgoing PING and incoming HELLO/RECONNECT (`adb logcat -s fm1sampler`).

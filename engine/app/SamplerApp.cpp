@@ -906,7 +906,6 @@ void SamplerApp::tick(uint32_t now) {
     loopAny_ = false;
     for (int t = 0; t < kTracks; t++) loopAny_ |= st_.track_has_clip[t];
     if (now - lastLoss_ > 4000 && now - lastRaise_ > 2000 && gap_ > 16) { gap_ = std::max<uint32_t>(16, gap_ * 9 / 10); lastRaise_ = now; }
-    if (now - lastPing_ >= 500) { lastPing_ = now; pingId_ = (pingId_ + 1) & 0x3fff; sysex(5, n14(pingId_), true, 901); }
     // audition: the cursor rested, load the entry on the selected track and play it
     if (auditionAt_ && now >= auditionAt_) loadEntry(libCursor_);
     if (st_.sampleVersion != lastSampleVersion_) {   // a sample landed on a track: give it this track's settings
@@ -938,7 +937,14 @@ void SamplerApp::tick(uint32_t now) {
         if(surfaceV2_)drawStateSurface(now);else draw(now);
         leds();
     }
-    flush(now);
+    // Discovery is independent of either rendering protocol. In particular
+    // v2 ignores legacy BATCH frames, so a batched PING cannot discover v2.
+    // Send after drawing (CLEAR may discard queued v1 frames), one frame only.
+    if(now-lastPing_>=500 && now-lastSend_>=(surfaceV2_?4u:gap_)){
+        lastPing_=lastSend_=now;pingId_=(pingId_+1)&0x3fff;
+        const uint8_t ping[]={0xf0,0x7d,'D','A','W',1,5,uint8_t(pingId_>>7),uint8_t(pingId_&127),0xf7};
+        send_(ping,sizeof ping);
+    }else flush(now);
 }
 
 // ---- FM-1 link ----

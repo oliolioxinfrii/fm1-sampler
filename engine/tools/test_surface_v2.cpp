@@ -33,7 +33,15 @@ int main(){
     };
     using A=SamplerApp;
     app.gotoPage(A::P_ENV);
-    send(SV_HELLO,{2});run(600);
+    // Emulate the installed v2 firmware: it replies only to a standalone
+    // PING, never to v1 BATCH or graphical commands.
+    run(1200);
+    auto pingCount=[&](){size_t count=0;for(const auto& frame:frames)
+        if(frame.size()==10&&frame[6]==5&&frame.back()==0xf7)++count;
+        return count;};
+    assert(pingCount()>=2);
+    send(0x43,{});send(SV_HELLO,{2});run(600);
+    assert(pingCount()>=3);
     auto p=state();assert(p[6]==SV_TAPE&&p[8]==A::P_ENV);
     unsigned ctx=sv_read14(p.data()+1);
     const auto before=app.knobs()[0].norm;

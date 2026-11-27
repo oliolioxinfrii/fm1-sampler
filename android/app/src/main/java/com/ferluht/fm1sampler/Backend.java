@@ -176,20 +176,30 @@ public class Backend {
     synchronized void connectMidi() {
         if (toFm1 != null || midi == null || connecting) return;
         MidiDeviceInfo pick = null;
+        int best=0;
         for (MidiDeviceInfo i : midi.getDevices()) {
-            String n = String.valueOf(i.getProperties().getString(MidiDeviceInfo.PROPERTY_NAME)).toLowerCase();
-            if (n.contains("fm") || n.contains("m-vave") || n.contains("mvave")) pick = i;
+            android.os.Bundle props=i.getProperties();
+            String name=String.valueOf(props.getString(MidiDeviceInfo.PROPERTY_NAME));
+            String manufacturer=String.valueOf(props.getString(MidiDeviceInfo.PROPERTY_MANUFACTURER));
+            String product=String.valueOf(props.getString(MidiDeviceInfo.PROPERTY_PRODUCT));
+            String names=(name+" "+manufacturer+" "+product).toLowerCase(java.util.Locale.ROOT);
+            Log.i(TAG,"MIDI device: "+name+" / "+manufacturer+" / "+product+" type="+i.getType()+" inputs="+i.getInputPortCount()+" outputs="+i.getOutputPortCount());
+            if(i.getInputPortCount()<1||i.getOutputPortCount()<1)continue;
+            int score=names.contains("fm-1")||names.contains("fm1")||names.contains("m-vave")||names.contains("mvave")||names.contains("felucca")?3:names.contains("fm")?1:0;
+            if(score>0&&i.getType()==MidiDeviceInfo.TYPE_USB)score+=4;
+            if(score>best){best=score;pick=i;}
         }
-        if (pick == null) return;
+        if (pick == null) {Log.w(TAG,"No matching bidirectional FM-1 MIDI device");return;}
+        Log.i(TAG,"Opening MIDI device id="+pick.getId());
         connecting = true;   // openDevice is asynchronous and the device callback fires once per port: open it once
         midi.openDevice(pick, d -> {
             synchronized (Backend.this) {
                 connecting = false;
-                if (d == null || toFm1 != null) { if (d != null) try { d.close(); } catch (Exception ignored) { } return; }
+                if (d == null || toFm1 != null) { if(d==null)Log.w(TAG,"MIDI openDevice returned null"); if (d != null) try { d.close(); } catch (Exception ignored) { } return; }
                 try {
                     MidiInputPort in = d.openInputPort(0);
                     MidiOutputPort outp = d.openOutputPort(0);
-                    if (in == null) { d.close(); return; }
+                    if (in == null || outp == null) { Log.w(TAG,"FM-1 requires both MIDI ports: input="+(in!=null)+" output="+(outp!=null)); if(in!=null)in.close(); if(outp!=null)outp.close(); d.close(); return; }
                     device = d; fromFm1 = outp;
                     if (outp != null) outp.connect(new MidiReceiver() {
                         @Override public void onSend(byte[] data, int off, int count, long ts) { try { Native.midiIn(engine, data, off, count, SystemClock.uptimeMillis()); } catch (Throwable t) { Log.w(TAG, "midiIn: " + t); } }
