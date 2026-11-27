@@ -239,6 +239,29 @@ int app_expect(const char *what,int *got){
     else if(!strcmp(what,"surface_track"))*got=ss.track;
     else if(!strcmp(what,"surface_data_len"))*got=sv_data_len;
     else if(!strcmp(what,"surface_pending"))*got=sv_count;
+    else if(!strcmp(what,"surface_value_confirmed")){
+        *got=!strcmp(sv_control_value(0),"0.5 s");
+    }
+    else if(!strcmp(what,"surface_arp_patterns")){
+        static const int expected[4][8]={{0,1,2,0,1,2,0,1},{2,1,0,2,1,0,2,1},{0,1,2,1,0,1,2,1},{0,2,1,0,2,1,0,2}};
+        int pitch[24],color[24],ok=1;
+        for(int p=0;p<5;p++)for(int n=3;n<=12;n+=3){
+            sg_arp_preview(p,n,24,pitch,color);
+            int blue=0,violet=0,lo=n,hi=-1;
+            for(int i=0;i<24;i++){if(pitch[i]<lo)lo=pitch[i];if(pitch[i]>hi)hi=pitch[i];}
+            for(int i=0;i<24;i++){
+                if(n==3&&p<4&&i<8&&pitch[i]!=expected[p][i])ok=0;
+                if(pitch[i]<0||pitch[i]>=n)ok=0;
+                if(p<4&&i>0&&pitch[i]==pitch[i-1])ok=0;
+                if(color[i]==1){if(pitch[i]!=lo||blue++)ok=0;}
+                if(color[i]==2){if(pitch[i]!=hi||violet++)ok=0;}
+                if(!blue&&pitch[i]==lo)ok=0;
+                if(!violet&&pitch[i]==hi&&hi!=lo)ok=0;
+            }
+            if(blue!=1||violet!=(hi!=lo))ok=0;
+        }
+        *got=ok;
+    }
     else if(!strcmp(what,"surface_plot_color")){
         // Exercise the exact production pixel writer in the host canvas.
         const unsigned at=54*240+12;uint16_t old=cv_px[at],color=sv_rgb(0x51b8ff);

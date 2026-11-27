@@ -157,18 +157,16 @@ static void sv_generator(void){
 // Compact bounded integer formatting; no hosted printf in the firmware.
 static char *sv_uint(char *p,unsigned n){char tmp[12];unsigned j=0;do{tmp[j++]='0'+n%10;n/=10;}while(n);while(j)*p++=tmp[--j];*p=0;return p;}
 static char *sv_append(char *p,const char *s){while(*s)*p++=*s++;*p=0;return p;}
+static const char *sv_control_value(unsigned i){return ss.k[i].value;}
 static void sv_controls(int y0,int height){
     for(unsigned i=0;i<4;i++){
         int x=8+(i%2)*114,y=y0+(i/2)*height;SParam *k=&ss.k[i];
         cv_rect(x,y,110,height-2,sv_panel);cv_rect(x+4,y+13,102,height-23,sv_well);
         if(!(k->flags&SV_VALID))continue;
         char lab[24],*l=sv_append(lab,"K");l=sv_uint(l,i+1);l=sv_append(l," ");sv_append(l,k->name);sv_text(x+4,y,103,&FONT_XS,lab,sv_ac[i]);
-        // Provisional normalized value, explicitly marked until the phone
-        // returns the exact formatted value (units and enum labels).
-        char value[24];
-        const int changed=sv_pending(i)&&sv_local_norm(i)!=k->norm;
-        if(changed&&k->step&&!(k->flags&SV_CHOICE))sv_append(sv_uint(value,(sv_local_norm(i)*100+SV_NORM/2)/SV_NORM),"% *");
-        else sv_append(value,k->value);
+        // Only display the phone's authoritative formatted value. Local
+        // prediction remains active for bars and graphs, never for text.
+        const char *value=sv_control_value(i);
         const felucca_font_t *font=height>=45&&text_w(&FONT_B,value)<=100?&FONT_B:&FONT_XS;
         sv_text(x+6,y+14,100,font,value,sv_trace[i]);
         cv_rect(x+4,y+height-8,102,4,sv_track);cv_rect(x+4,y+height-8,(int)(sv_n(i)*102),4,sv_ac[i]);

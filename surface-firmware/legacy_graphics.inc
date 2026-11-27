@@ -234,12 +234,45 @@ static void sg_lfo(float a,float b,float c,float d){
     float y=8+9.3f*target;SG_PATH(sg_b,1.6f,{end,24},{246,24},{246,y},{269,y});for(int i=0;i<4;i++)sg_jack(272,8+9.3f*i,i==target?sg_b:sg_d);
 }
 
-static void sg_arp(float a,float b,float c,float d){
-    sg_grid(8,7,264,34,21,3);int count=a>.00001f?21:0,oct=(int)(c*3+.5f)+1,p=(int)(b*4+.5f);
-    for(int i=0;i<count;i++){int j=i%7,idx=p==0?j:p==1?6-j:p==2?(j<6-j?j:6-j):p==3?(j%2?6-j/2:j/2):(j*5)%7;float y=34-27.f*(idx%(oct+2))/(oct+1);uint16_t col=y<13?sg_v:y>28?sg_b:sg_d;sg_rect(9+i*264.f/21,y+1,4+5*d,6,col,col,1,1);}
-    if(count&&ss.mark[0]){int i=clamp((int)(count*ss.progress/(float)SV_NORM),0,count-1);float x=9+264.f*i/count;sg_line(x,43,x+8,43,sg_g,2.2f);}
+/* Schematic pitch sequence: three reference pitches per octave, using the
+ * same index traversal as engine/dsp/Arp.h. No seven-event restart or
+ * duplicate turning points. This is a pattern preview, not held-note history. */
+static int sg_arp_note(int pattern,int n,int i){
+    int k=i%n;
+    switch(pattern){
+    case 0:return k;
+    case 1:return n-1-k;
+    case 2:{int period=n>1?2*n-2:1;k=i%period;return k<n?k:period-k;}
+    case 3:return k%2?n-1-k/2:k/2;
+    default:{unsigned rng=99;for(int j=0;j<=i;j++)rng=rng*1664525u+1013904223u;return (int)((rng>>8)%(unsigned)n);}
+    }
 }
-
+static int sg_arp_preview(int pattern,int levels,int count,int *pitch,int *color){
+    int low=levels,high=-1;
+    for(int i=0;i<count;i++){int v=sg_arp_note(pattern,levels,i);pitch[i]=v;if(v<low)low=v;if(v>high)high=v;}
+    // The two accents identify the first occurrence of the pitch extrema;
+    // subsequent occurrences remain neutral, even at the same height.
+    int seenLow=0,seenHigh=0;
+    for(int i=0;i<count;i++){
+        color[i]=0;
+        if(pitch[i]==low&&!seenLow){color[i]=1;seenLow=1;}
+        else if(pitch[i]==high&&high!=low&&!seenHigh){color[i]=2;seenHigh=1;}
+    }
+    return count;
+}
+static void sg_arp(float a,float b,float c,float d){
+    int rate=clamp((int)(a*12+.5f),0,12),oct=clamp((int)(c*3+.5f),0,3)+1,p=clamp((int)(b*4+.5f),0,4);
+    int count=rate?clamp(3+rate*2,1,24):0,levels=oct*3,pitch[24],colors[24];
+    sg_grid(8,7,264,34,count?count:12,3);
+    sg_arp_preview(p,levels,count,pitch,colors);
+    float step=264.f/(count?count:1);
+    for(int i=0;i<count;i++){
+        float y=34-23.f*pitch[i]/(levels-1);
+        uint16_t col=colors[i]==1?sg_b:colors[i]==2?sg_v:sg_d;
+        sg_rect(9+i*step,y+1,fm_maxf(3,(step-3)*(.18f+.82f*d)),6,col,col,1,1);
+    }
+    if(count&&ss.mark[0]){int i=clamp((int)(count*ss.progress/(float)SV_NORM),0,count-1);float x=9+step*i;sg_line(x,43,x+fm_minf(8,step-2),43,sg_g,2.2f);}
+}
 static void sg_mixer(float b,float c,float d){
     int src=(int)(b*8+.5f)-1,on=src>=0&&src<8&&src!=ss.track;uint16_t col=on?sg_g:sg_d;
     for(int i=0;i<8;i++){float x=10+15*i;sg_jack(x,8,on&&i==src?sg_g:sg_d);sg_line(x,11,x,19,sg_f,1);}
