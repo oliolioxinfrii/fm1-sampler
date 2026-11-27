@@ -13,6 +13,8 @@ static void sv_text(int x,int y,int width,const felucca_font_t *font,const char 
     while(n&&text_w(font,b)>width)b[--n]=0;
     cv_text(x,y,font,b,c);
 }
+static float sv_log10(float x){return fm_log2f(x)*.30102999566f;}
+static float sv_mod(float a,float b){return a-b*fm_floorf(a/b);}
 static float sv_n(unsigned i){return sv_local_norm(i)/(float)SV_NORM;}
 static float sv_cl(float x){return x<0?0:x>1?1:x;}
 static void sv_plot_line(int x0,float a,int x1,float b,uint16_t c){
@@ -28,34 +30,34 @@ static float sv_curve(float t){
     float a=sv_n(0),b=sv_n(1),c=sv_n(2),d=sv_n(3);
     if(ss.mode==SV_FIELD){
         switch(ss.page){
-        case 2:return .70f+.055f*sinf(t*25.f)+.24f*expf(-powf((t-.5f)/.018f,2.f)); // declick schematic
-        case 3:return .9f-.75f*(fmodf(t*6,1.f)<.07f); // harmonic rejection schematic
-        case 5:{float f=20.f*powf(1200.f,t),hp=20+1980*a,lp=500+23500*b;
+        case 2:return .70f+.055f*fm_sinf(t*25.f)+.24f*fm_expf(-fm_powf((t-.5f)/.018f,2.f)); // declick schematic
+        case 3:return .9f-.75f*(sv_mod(t*6,1.f)<.07f); // harmonic rejection schematic
+        case 5:{float f=20.f*fm_powf(1200.f,t),hp=20+1980*a,lp=500+23500*b;
             const float slopes[]={6,12,24,48};int hi=clamp((int)(c*3+.5f),0,3),lo=clamp((int)(d*3+.5f),0,3);
-            float db=-10*log10f(1+powf(hp/f,slopes[hi]/3))-10*log10f(1+powf(f/lp,slopes[lo]/3));return 1+db/48;}
-        case 6:{float threshold=65*a/75;return t-fminf(b*48/75,fmaxf(0,threshold-t));}
+            float db=-10*sv_log10(1+fm_powf(hp/f,slopes[hi]/3))-10*sv_log10(1+fm_powf(f/lp,slopes[lo]/3));return 1+db/48;}
+        case 6:{float threshold=65*a/75;return t-fm_minf(b*48/75,fm_maxf(0,threshold-t));}
         case 7:{float threshold=60*a-60,x=t*60-60,ratio=1+15*b,over=x-threshold;
             float y=over<=-3?x:over>=3?threshold+over/ratio:x+(1/ratio-1)*(over+3)*(over+3)/12;return (y+60)/60;}
-        case 8:return .28f+fminf(.24f,.10f*powf(10,(48*a-24)/20))*sinf(t*31)*sinf(t*3.141593f);
-        case 9:{float dur=1; if(sv_has_data(SV_NOISE)&&sv_data_len==3)dur=fmaxf(.001f,((sv_data[0]<<14)|(sv_data[1]<<7)|sv_data[2])/1000.f);
-            float fi=fminf(.5f,2*a/dur),fo=fminf(.5f,2*b/dur);return fminf(1,fminf(fi?t/fi:1,fo?(1-t)/fo:1));}
-        case 10:return .28f+.20f*sinf(t*31)*sinf(t*3.141593f);
+        case 8:return .28f+fm_minf(.24f,.10f*fm_powf(10,(48*a-24)/20))*fm_sinf(t*31)*fm_sinf(t*3.141593f);
+        case 9:{float dur=1; if(sv_has_data(SV_NOISE)&&sv_data_len==3)dur=fm_maxf(.001f,((sv_data[0]<<14)|(sv_data[1]<<7)|sv_data[2])/1000.f);
+            float fi=fm_minf(.5f,2*a/dur),fo=fm_minf(.5f,2*b/dur);return fm_minf(1,fm_minf(fi?t/fi:1,fo?(1-t)/fo:1));}
+        case 10:return .28f+.20f*fm_sinf(t*31)*fm_sinf(t*3.141593f);
         default:return .5f;
         }
     }
     switch(ss.page){
     case 2:{float at=.05f+.32f*a,dec=.06f+.22f*b,rel=.08f+.28f*d;
         return t<at?t/at:t<at+dec?1-(1-c)*(t-at)/dec:t<1-rel?c:c*(1-t)/rel;}
-    case 3:{float z=fmodf(t*(1+3*a),1.f),v;int shape=(int)(d*3+.5f);
-        v=shape==0?sinf(z*6.2831853f):shape==1?1-4*fabsf(z-.5f):shape==2?(z<.5f?1:-1):((int)(t*12)%3-1);
+    case 3:{float z=sv_mod(t*(1+3*a),1.f),v;int shape=(int)(d*3+.5f);
+        v=shape==0?fm_sinf(z*6.2831853f):shape==1?1-4*fm_fabsf(z-.5f):shape==2?(z<.5f?1:-1):((int)(t*12)%3-1);
         return .5f+.45f*b*v;}
-    case 12:{float cutoff=.08f+.84f*b,x=(t-cutoff)*12.f;int f=(int)(a*2+.5f);float low=1/(1+expf(x));
+    case 12:{float cutoff=.08f+.84f*b,x=(t-cutoff)*12.f;int f=(int)(a*2+.5f);float low=1/(1+fm_expf(x));
         return f==0?low:f==1?4*low*(1-low):1-low;}
-    case 13:return .94f*powf(.15f+.8f*b,t*7)*(.5f+.5f*cosf(t*(10+25*(1-a))));
-    case 14:return .93f*expf(-t*(1+6*(1-b)))*(.7f+.3f*cosf(t*90));
-    case 15:return .5f+.35f*sinf(t*31+2*a*sinf(t*19)+b*sinf(t*73));
-    case 16:return .5f+.4f*(.3f+b*.7f)*sinf(t*35);
-    case 11:case 17:case 18:return .5f+.38f*sinf(t*25)*(.5f+.5f*cosf(t*9+a*4));
+    case 13:return .94f*fm_powf(.15f+.8f*b,t*7)*(.5f+.5f*fm_cosf(t*(10+25*(1-a))));
+    case 14:return .93f*fm_expf(-t*(1+6*(1-b)))*(.7f+.3f*fm_cosf(t*90));
+    case 15:return .5f+.35f*fm_sinf(t*31+2*a*fm_sinf(t*19)+b*fm_sinf(t*73));
+    case 16:return .5f+.4f*(.3f+b*.7f)*fm_sinf(t*35);
+    case 11:case 17:case 18:return .5f+.38f*fm_sinf(t*25)*(.5f+.5f*fm_cosf(t*9+a*4));
     default:return t;
     }
 }
@@ -67,11 +69,15 @@ static uint16_t sv_heat(unsigned v){
 static void sv_plot(void){
     sv_grid_plot();
     if(ss.mode==SV_FIELD&&ss.page==0){
-        if(sv_has_data(SV_SPECTRUM)&&sv_data_len==756){
+        if(sv_has_data(SV_SPECTRUM)&&sv_data_len==760){
             for(int y=0;y<35;y++)for(int x=0;x<36;x++)cv_rect(12+6*x,54+y,6,1,sv_heat(sv_data[(y*21/35)*36+x]));
         }else sv_text(56,63,150,&FONT_XS,"WAITING FOR SPECTRUM",sv_trace[0]);
         for(unsigned i=0;i<3;i++){
-            int pos=ss.mark[i];if(sv_pending(i)){int d=(int)sv_local_norm(i)-ss.k[i].norm;pos=clamp(pos+d*127/SV_NORM,0,127);}
+            int pos=ss.mark[i];
+            if(sv_has_data(SV_SPECTRUM)&&sv_data_len==760){
+                int a=sv_read14(sv_data+756),b=sv_read14(sv_data+758),v=sv_local_norm(i);
+                if(v<a||v>b||b<=a)continue;pos=(v-a)*127/(b-a);
+            }
             cv_line(12+pos*215/127,54,12+pos*215/127,88,sv_trace[i]);
         }
     }else if(ss.mode==SV_FIELD&&ss.page==4){
@@ -98,11 +104,11 @@ static void sv_plot(void){
     }else if(ss.mode!=SV_FIELD&&ss.page==7){
         for(int i=0;i<14;i++){int x=12+15*i;cv_rect(x,58,13,28,sv_trace[0]);if(i%7!=2&&i%7!=6)cv_rect(x+9,58,8,17,sv_well);}
     }else if(ss.mode!=SV_FIELD&&ss.page==4){
-        for(int i=0;i<8;i++){int x=12+i*27;int y=83-(int)(18*fmodf(i*(.4f+sv_n(1)),1));cv_rect(x,y,14+(int)(sv_n(3)*9),3,sv_trace[2]);}
+        for(int i=0;i<8;i++){int x=12+i*27;int y=83-(int)(18*sv_mod(i*(.4f+sv_n(1)),1));cv_rect(x,y,14+(int)(sv_n(3)*9),3,sv_trace[2]);}
     }else{
         if(ss.mode==SV_FIELD&&(ss.page==6||ss.page==7))sv_plot_line(0,0,215,1,sv_grid);
         if(ss.mode==SV_FIELD&&(ss.page==2||ss.page==8||ss.page==10)){
-            float old=.72f;for(int x=1;x<216;x++){float t=x/215.f,v=.72f+.055f*sinf(t*31)*sinf(t*3.141593f);sv_plot_line(x-1,old,x,v,sv_trace[1]);old=v;}
+            float old=.72f;for(int x=1;x<216;x++){float t=x/215.f,v=.72f+.055f*fm_sinf(t*31)*fm_sinf(t*3.141593f);sv_plot_line(x-1,old,x,v,sv_trace[1]);old=v;}
         }
         float old=sv_curve(0);for(int x=1;x<216;x++){float v=sv_curve(x/215.f);sv_plot_line(x-1,old,x,v,sv_trace[0]);old=v;}
         if(ss.mode!=SV_FIELD&&ss.page==3)cv_line(12+ss.mark[2]*215/127,54,12+ss.mark[2]*215/127,88,sv_trace[3]);
@@ -127,15 +133,18 @@ static void sv_generator(void){
         }
     }else {cv_rect(0,0,240,240,sv_well);sv_text(60,110,150,&FONT_XS,"WAITING FOR FIELD",sv_trace[0]);}
 }
+// Compact bounded integer formatting; no hosted printf in the firmware.
+static char *sv_uint(char *p,unsigned n){char tmp[12];unsigned j=0;do{tmp[j++]='0'+n%10;n/=10;}while(n);while(j)*p++=tmp[--j];*p=0;return p;}
+static char *sv_append(char *p,const char *s){while(*s)*p++=*s++;*p=0;return p;}
 static void sv_controls(int y0,int height){
     for(unsigned i=0;i<4;i++){
         int x=8+(i%2)*114,y=y0+(i/2)*height;SParam *k=&ss.k[i];
         cv_rect(x,y,110,height-2,sv_panel);cv_rect(x+4,y+13,102,height-23,sv_well);
         if(!(k->flags&SV_VALID))continue;
-        char lab[24];snprintf(lab,sizeof lab,"K%u %s",i+1,k->name);sv_text(x+4,y,103,&FONT_XS,lab,sv_ac[i]);
+        char lab[24],*l=sv_append(lab,"K");l=sv_uint(l,i+1);l=sv_append(l," ");sv_append(l,k->name);sv_text(x+4,y,103,&FONT_XS,lab,sv_ac[i]);
         // Provisional normalized value, explicitly marked until the phone
         // returns the exact formatted value (units and enum labels).
-        char value[24];if(sv_pending(i)&&k->step)snprintf(value,sizeof value,"%u%% *",(sv_local_norm(i)*100+SV_NORM/2)/SV_NORM);else snprintf(value,sizeof value,"%s%s",k->value,sv_pending(i)?" *":"");
+        char value[24];if(sv_pending(i)&&k->step)sv_append(sv_uint(value,(sv_local_norm(i)*100+SV_NORM/2)/SV_NORM),"% *");else sv_append(sv_append(value,k->value),sv_pending(i)?" *":"");
         const felucca_font_t *font=height>=45&&text_w(&FONT_B,value)<=100?&FONT_B:&FONT_XS;
         sv_text(x+6,y+14,100,font,value,sv_trace[i]);
         cv_rect(x+4,y+height-8,102,4,sv_track);cv_rect(x+4,y+height-8,(int)(sv_n(i)*102),4,sv_ac[i]);
@@ -156,13 +165,13 @@ static void sv_draw(void){
         uint16_t accent=sv_ac[0];if(ss.mode==SV_FIELD){static const uint8_t color[]={0,0,3,2,2,3,1,0,1,3,1};accent=sv_ac[color[ss.page]];}
         else {static const uint8_t color[]={0,2,1,2,3,3,1,0,3,3,3,2,2,2,2,3,3,2,2};accent=sv_ac[color[ss.page<19?ss.page:0]];}
         cv_rect(6,5,228,30,sv_panel);cv_rect(8,7,22,26,sv_ac[ss.track%4]);
-        char num[4];if(ss.mode==SV_FIELD)strcpy(num,"F");else snprintf(num,sizeof num,"%u",ss.track+1);
+        char num[4];if(ss.mode==SV_FIELD)strcpy(num,"F");else sv_uint(num,ss.track+1);
         sv_text(12,8,20,&FONT_B,num,ss.light?C_WHITE:sv_well);
         cv_rect(33,7,174,26,ss.mode==SV_FIELD?sv_ac[0]:sv_raised);
         sv_text(38,10,165,&FONT_B,ss.title,ss.mode==SV_FIELD?(ss.light?C_WHITE:sv_well):sv_ink);
         if(ss.transport==0)cv_rect(214,13,13,13,sv_ink);
         else if(ss.transport==1)for(int i=0;i<15;i++)cv_line(213,11+i,213+(i<8?i:14-i)*2,11+i,sv_ac[1]);
-        else for(int y=-7;y<=7;y++){int w=(int)sqrtf(49-y*y);cv_line(220-w,19+y,220+w,19+y,sv_red);}
+        else for(int y=-7;y<=7;y++){int w=(int)fm_sqrtf(49-y*y);cv_line(220-w,19+y,220+w,19+y,sv_red);}
         cv_rect(12,36,101,15,accent);sv_text(14,36,97,&FONT_XS,ss.pageTitle,ss.light?C_WHITE:sv_well);
         for(unsigned i=0;i<10;i++)cv_rect(116+i*12,43,8,6,(ss.mask>>i)&1u?accent:sv_track);
         sv_plot();

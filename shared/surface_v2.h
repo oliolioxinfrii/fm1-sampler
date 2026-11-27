@@ -13,7 +13,7 @@ enum { SV_VALID=1, SV_CHOICE=2, SV_ACCEL=4, SV_ACTION=8 };
 enum { SV_NORM=16383, SV_NAME=14, SV_VALUE=14, SV_TITLE=20, SV_STATUS=36,
        SV_KNOB_BYTES=5+SV_NAME+SV_VALUE, SV_HEADER_BYTES=21,
        SV_STATE_BYTES=SV_HEADER_BYTES+SV_TITLE+SV_TITLE+SV_STATUS+4*SV_KNOB_BYTES,
-       SV_CHUNK=180, SV_DATA_MAX=756, SV_PAGES=20 };
+       SV_CHUNK=180, SV_DATA_MAX=768, SV_PAGES=20 };
 /* header: active, context(2), ack(2), theme, mode, track, page, algo,
  * transport, menu mask(2), progress(2), data generation(2), kind,
  * marker A/B/position (each 0..127; 127 is right edge).

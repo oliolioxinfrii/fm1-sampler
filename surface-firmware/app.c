@@ -5,9 +5,7 @@
  */
 #include "../shared/surface_v2.h"
 #include <string.h>
-#include <stdio.h>
-#include <math.h>
-#include <stdlib.h>
+#include "fastmath.h"
 
 typedef struct {
     uint16_t norm,step;
@@ -30,6 +28,9 @@ static SState ss;
 static PLAT_POOL SPage sv_cache[3][8][SV_PAGES];
 static SPage sv_field_cache[11];
 static uint8_t sv_data[SV_DATA_MAX],sv_stage[SV_DATA_MAX];
+typedef struct{uint16_t gen,len;uint8_t kind;uint32_t used;uint8_t bytes[SV_DATA_MAX];} SBlob;
+static PLAT_POOL SBlob sv_blobs[36];
+static uint32_t sv_blob_clock,sv_requested_at;
 static uint16_t sv_data_len,sv_data_ctx,sv_data_gen,sv_stage_len,sv_stage_ctx,sv_stage_gen;
 static uint8_t sv_stage_kind,sv_stage_mask,sv_data_kind;
 static uint8_t sv_ready,sv_dirty=1,sv_seen_ping,sv_oct=3,sv_root,sv_keymode;
@@ -60,6 +61,7 @@ static void sv_reset_link(void){
     memset(sv_pending_delta,0,sizeof sv_pending_delta);
     memset(sv_motion_streak,0,sizeof sv_motion_streak);memset(sv_motion_dir,0,sizeof sv_motion_dir);
     memset(sv_cache,0,sizeof sv_cache);memset(sv_field_cache,0,sizeof sv_field_cache);
+    memset(sv_blobs,0,sizeof sv_blobs);sv_blob_clock=sv_requested_at=0;
     sv_keys=plat_keys();sv_btn=plat_buttons();
     for(int i=0;i<NE;i++)(void)plat_enc(i);
     plat_lights(0,0,0,0,0);sv_dirty=1;
@@ -95,6 +97,12 @@ static void sv_state(const uint8_t *p,unsigned n){
     }
     if(!sv_ready||oldcount!=sv_count||memcmp(&ss,&next,sizeof ss))sv_dirty=1;
     ss=next;sv_ready=1;
+    if(next.kind&&(!sv_data_len||sv_data_gen!=next.generation||sv_data_kind!=next.kind)){
+        for(unsigned i=0;i<36;i++)if(sv_blobs[i].len&&sv_blobs[i].gen==next.generation&&sv_blobs[i].kind==next.kind){
+            memcpy(sv_data,sv_blobs[i].bytes,sv_blobs[i].len);sv_data_len=sv_blobs[i].len;sv_data_gen=next.generation;sv_data_kind=next.kind;sv_blobs[i].used=++sv_blob_clock;sv_dirty=1;break;
+        }
+    }
+    if(sv_data_gen==next.generation&&sv_data_kind==next.kind)sv_data_ctx=next.context;
 }
 static void sv_chunk(const uint8_t *p,unsigned n){
     if(n<9)return;
@@ -108,6 +116,8 @@ static void sv_chunk(const uint8_t *p,unsigned n){
     if(sv_stage_mask==((1u<<((total+SV_CHUNK-1)/SV_CHUNK))-1u)){
         if(total!=sv_data_len||ctx!=sv_data_ctx||gen!=sv_data_gen||kind!=sv_data_kind||memcmp(sv_data,sv_stage,total))sv_dirty=1;
         memcpy(sv_data,sv_stage,total);sv_data_len=total;sv_data_ctx=ctx;sv_data_gen=gen;sv_data_kind=kind;
+        unsigned at=0;for(unsigned i=0;i<36;i++){if(sv_blobs[i].len&&sv_blobs[i].gen==gen&&sv_blobs[i].kind==kind){at=i;break;}if(sv_blobs[i].used<sv_blobs[at].used)at=i;}
+        SBlob *b=&sv_blobs[at];b->gen=gen;b->len=total;b->kind=kind;b->used=++sv_blob_clock;memcpy(b->bytes,sv_stage,total);
     }
 }
 int app_sysex(const uint8_t *p,uint32_t n){
@@ -177,13 +187,16 @@ static void sv_input(void){
         }
         unsigned slot=role-2;
         if((int32_t)(now-sv_nav_until)<0||!(ss.k[slot].flags&SV_VALID))continue;
-        int dir=d>0?1:-1,det=abs(d);uint32_t dt=now-sv_motion_at[slot];
+        int dir=d>0?1:-1,det=d<0?-d:d;uint32_t dt=now-sv_motion_at[slot];
         int fast=dir==sv_motion_dir[slot]&&dt<=150&&dt/(unsigned)det<=65;
         sv_motion_streak[slot]=fast?clamp(sv_motion_streak[slot]+det,0,12):0;sv_motion_dir[slot]=dir;sv_motion_at[slot]=now;
         int mult=fast&&(ss.k[slot].flags&SV_ACCEL)?sv_motion_streak[slot]>=6?5:sv_motion_streak[slot]>=3?3:2:1;
         sv_pending_delta[slot]=clamp(sv_pending_delta[slot]+d*mult,-504,504);sv_dirty=1;
     }
     sv_send_edits();
+    if(ss.kind&&(!sv_data_len||sv_data_gen!=ss.generation||sv_data_kind!=ss.kind)&&now-sv_requested_at>=400){
+        if(sv_send(SV_REQUEST,0,0))sv_requested_at=now;
+    }
 }
 
 #include "render.inc"

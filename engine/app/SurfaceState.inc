@@ -14,7 +14,7 @@ uint64_t svHash(const std::vector<uint8_t>& p){uint64_t h=1469598103934665603ull
 }
 void SamplerApp::resetStateSurface(){
     surfaceV2_=false;surfaceAck_=0;surfaceAt_=surfaceDataAt_=surfaceCacheAt_=0;surfaceDataGen_=0;
-    surfaceLast_.clear();surfaceData_.clear();surfaceDataContext_=-1;surfaceCacheCursor_=0;surfaceCacheSig_.fill(0);
+    surfaceLast_.clear();surfaceData_.clear();surfaceDataContext_=-1;surfaceCacheCursor_=0;surfaceCacheSig_.fill(0);surfaceBlobs_={};surfaceNextGen_=0;
 }
 int SamplerApp::surfaceContext()const{
     unsigned mode=fieldMode_?SV_FIELD:genDeck_?(editor_?SV_GEN_HUB:SV_GENERATOR):SV_TAPE;
@@ -54,7 +54,7 @@ void SamplerApp::drawStateSurface(uint32_t now){
         for(int i=0;i<4;++i){k[i].name=fieldLines_[3+i];k[i].value=fieldLines_[7+i];k[i].valid=!k[i].name.empty();k[i].norm=num(13+i,1000)/1000.f;k[i].surfaceStep=num(19+i,SV_NORM)/float(SV_NORM);k[i].isChoice=(page==3||page==5&&i>=2);}
         mask=(fieldLeds_>>FX)&1023;progress=unsigned(num(17,1000))*SV_NORM/1000;
         ma=num(23,127);mb=num(24,127);mp=num(25,127);
-        if(page==0){kind=SV_SPECTRUM;data.assign(fieldSpectrum_.begin(),fieldSpectrum_.end());}
+        if(page==0){kind=SV_SPECTRUM;data.assign(fieldSpectrum_.begin(),fieldSpectrum_.end());cat(data,n14(num(27,SV_NORM)));cat(data,n14(num(28,SV_NORM)));}
         else if(page==4){kind=SV_NOISE;data.assign(fieldPixels_.begin(),fieldPixels_.end());}
         // Fade graph needs the selected duration, sent as a compact auxiliary value.
         if(page==9){kind=SV_NOISE;auto ms=std::clamp(std::atoi(fieldLines_[26].c_str()),1,2097151);data={uint8_t(ms>>14&127),uint8_t(ms>>7&127),uint8_t(ms&127)};}
@@ -82,8 +82,14 @@ void SamplerApp::drawStateSurface(uint32_t now){
         }
     }
     if(data.size()>SV_DATA_MAX)data.resize(SV_DATA_MAX);
-    const bool dataChanged=surfaceDataContext_!=ctx||data!=surfaceData_;
-    if(dataChanged){surfaceDataContext_=ctx;surfaceData_=data;surfaceDataGen_=(surfaceDataGen_+1)&16383;surfaceDataAt_=0;discardPending(5000,5010);}
+    // Each track waveform and each field-map selection retains a stable data
+    // generation when revisiting pages. Parameter/marker/theme changes do not
+    // invalidate an unchanged signal. IDs are scoped to the USB session.
+    const int key=kind==SV_WAVE?track:kind==SV_SPECTRUM?8:kind==SV_NOISE?(page==9?10:9):kind==SV_FIELD_MAP?11+3*track+gen().map:35;
+    auto& blob=surfaceBlobs_[key];
+    if(blob.key!=key||blob.bytes!=data){blob.key=key;blob.bytes=data;blob.gen=(++surfaceNextGen_)&16383;if(!blob.gen)blob.gen=(++surfaceNextGen_)&16383;}
+    const bool dataChanged=surfaceDataContext_!=ctx||blob.gen!=surfaceDataGen_;
+    if(dataChanged){surfaceDataContext_=ctx;surfaceData_=data;surfaceDataGen_=blob.gen;surfaceDataAt_=0;discardPending(5000,5010);}
     std::vector<uint8_t> p={1};cat(p,n14(ctx));cat(p,n14(surfaceAck_));
     p.insert(p.end(),{uint8_t(theme::light),uint8_t(mode),uint8_t(track),uint8_t(page),uint8_t(mode==SV_TAPE?algo():0),uint8_t(rec?2:play?1:0)});
     cat(p,n14(mask));cat(p,n14(progress));cat(p,n14(surfaceDataGen_));
