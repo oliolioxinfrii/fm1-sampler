@@ -35,7 +35,7 @@ template<class A,class G> void generatorFields(A& a,G& g){
 template<class A,class E> void returnFields(A& a,E& p){a(p.time,p.feedback,p.size,p.damp,p.shimmer,p.ping);}
 bool between(double x,double a,double b){return std::isfinite(x)&&x>=a&&x<=b;}
 bool validTrack(const SamplerApp::TrackState& t){
-    if(!between(t.algo,0,5)||!between(t.lfoTarget,0,3)||!between(t.lfoShape,0,4)||!between(t.arpRate,0,11)||
+    if(!between(t.algo,0,5)||!between(t.lfoTarget,0,3)||!between(t.lfoShape,0,3)||!between(t.arpRate,0,12)||
        !between(t.arpPatt,0,4)||!between(t.arpOct,0,3)||!between(t.scSrc,0,8)||!between(t.root,0,127)||!between(t.echoLatch,0,1)||t.start>t.end)return false;
     const float vals[]={t.a,t.d,t.s,t.r,t.lfoRate,t.lfoDepth,t.start,t.end,t.speed,t.pitch,t.kitThr,t.paulStretch,t.paulWidth,
         t.echoDelay,t.echoRoom,t.arpLen,t.vol,t.pan,t.sendR,t.sendD,t.scThr,t.scRatio};

@@ -1900,9 +1900,11 @@ void SamplerUI::projectSheet() {
         rrect({r.x + 2, r.y + 3, 3, r.h - 6}, 0, enabled ? col : TRACK);
         text(r.x + 10, r.y + bh / 2 - 6, 11.5f, hot ? contrastInk(RED) : enabled ? col : DIM, fit(label, r.w - 20, 11.5f), 0, true);
         text(r.x + 10, r.y + bh / 2 + 9, 8.5f, hot ? contrastInk(RED) : DIM, fit(hint, r.w - 20, 8.5f), 0, false);
-        tap(r, std::move(f));
+        if(enabled)tap(r, std::move(f));
         y += bh + gap;
     };
+    row("SAVE PROJECT", "all tracks, loops and deck settings", true, false, [this] { projectOpen_=false;app_.requestProjectSave(); });
+    row("FILES / PROJECTS", "open, rename or delete saved items", true, false, [this] { projectOpen_=false;app_.requestFileManager(); });
     const std::string tn = "TRACK " + std::to_string(t + 1);
     row("SAVE LOOP OF " + tn, "into the sample library (USER)", hasClip, false, [this] { app_.loopSave(); });
     row("CLEAR LOOP OF " + tn, "the other tracks keep theirs", hasClip, false, [this] { app_.loopClearTrack(); });
@@ -1912,8 +1914,6 @@ void SamplerUI::projectSheet() {
     });
     row("OPEN THE EDITOR", "the older sample / page editor", true, false, [this] { app_.setEditor(true); projectOpen_ = false; });
     row("FIELD RECORDING", "examine, restore and extract one recording", true, false, [this] { app_.setFieldMode(true); projectOpen_ = false; });
-    row("SAVE PROJECT", "all tracks, loops and deck settings", true, false, [this] { projectOpen_=false;app_.requestProjectSave(); });
-    row("FILES / PROJECTS", "open, rename or delete saved items", true, false, [this] { projectOpen_=false;app_.requestFileManager(); });
     row(std::string("LOOP SOURCE: ") + app_.knobs(SamplerApp::P_SAVE)[1].value, "what a take records: the track's sound or the microphone", true, false,
         [this] { auto k = app_.knobs(SamplerApp::P_SAVE); k[1].step(k[1].norm > 0.5f ? -1 : 1); });
 }

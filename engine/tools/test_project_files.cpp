@@ -51,7 +51,7 @@ int main(){
         wait([&]{return s.status().sampleState==0&&app.genSourceState()==2&&s.status().track_has_clip[0];});
         assert(s.status().loopSamples==len&&!s.status().playing);
         assert(std::fabs(app.state(0).vol-.37f)<1e-6f&&std::fabs(app.state(0).pan-.23f)<1e-6f);
-        assert(app.state(0).lfoTarget==3&&app.state(0).lfoShape==4);
+        assert(app.state(0).lfoTarget==3&&app.state(0).lfoShape==3);
         assert(app.genPage()==2&&app.genMap()==1&&std::fabs(app.genConfig().cx-.4f)<1e-6f);
         assert(app.manageFile(2,renamed,"").empty()&&!fs::exists(renamed));
         assert(fs::exists(project/"t0"/"sample_Original.wav"));
