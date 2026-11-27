@@ -7,6 +7,7 @@
 //                      GLO key and scale | SAVE loop save (tap) / clear (hold) | PLAY | REC loop record / overdub
 #pragma once
 #include "../session/Session.h"
+#include "../../shared/surface_v2.h"
 #include <array>
 #include <algorithm>
 #include <cmath>
@@ -31,6 +32,7 @@ public:
         std::string name, value;
         float norm = 0;
         bool valid = false, isChoice = false;
+        float surfaceStep = 0; // normalized detent; zero = action/nonpredictable
         std::function<void(int)> step;       // encoder detents
         std::function<void(float)> set;      // absolute 0..1 (touch)
     };
@@ -246,7 +248,18 @@ private:
     int fieldTileCursor_=0;
     void drawField();
     std::vector<int> fieldEvents_; // pairs: encoder 0..6, button 100+Button, or 200 (theme)
-    std::array<std::string,19> fieldLines_{};
+    std::array<std::string,27> fieldLines_{};
+    std::array<uint8_t,36*21> fieldSpectrum_{};
+    bool surfaceV2_=false;
+    uint16_t surfaceAck_=0,surfaceDataGen_=0;
+    uint32_t surfaceAt_=0,surfaceDataAt_=0,surfaceCacheAt_=0;
+    int surfaceDataContext_=-1,surfaceCacheCursor_=0;
+    std::vector<uint8_t> surfaceLast_,surfaceData_;
+    std::array<uint64_t,3*8*SV_PAGES> surfaceCacheSig_{};
+    int surfaceContext() const;
+    void surfaceEdit(const uint8_t*,size_t);
+    void drawStateSurface(uint32_t);
+    void resetStateSurface();
     uint32_t fieldLeds_=0;
     void fieldEvent(int code,int value);
     struct GenTrack {

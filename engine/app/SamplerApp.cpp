@@ -328,6 +328,7 @@ void SamplerApp::gotoPage(Page p) { if (p >= P_HOME && p < kPages && pageAvailab
 SamplerApp::Knob SamplerApp::cont(const char* name, float* v, std::function<std::string(float)> f, std::function<void()> apply, float stepSize, bool commit) {
     Knob k; k.name = name; k.valid = true; k.norm = *v; k.value = f(*v);
     const int t = track_;
+    k.surfaceStep=stepSize;
     k.step = [=](int d) { *v = cl(*v + d * stepSize); apply(); if (commit) queueCommit(t); };
     k.set = [=](float n) { *v = cl(n); apply(); if (commit) queueCommit(t); };
     return k;
@@ -337,6 +338,7 @@ SamplerApp::Knob SamplerApp::choice(const char* name, int* v, std::vector<std::s
     const int n = (int)opts.size();
     *v = std::min(n - 1, std::max(0, *v));
     k.value = opts[(size_t)*v]; k.norm = n > 1 ? *v / (float)(n - 1) : 0.f;
+    k.surfaceStep=n>1?1.f/(n-1):0.f;
     k.step = [=](int d) { *v = std::min(n - 1, std::max(0, *v + d)); apply(); };
     k.set = [=](float x) { *v = std::min(n - 1, std::max(0, (int)std::lround(x * (n - 1)))); apply(); };
     return k;
@@ -358,7 +360,7 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
     case P_HOME:
         for(int i=0;i<2;++i){
             const float value=i?x.end:x.start;
-            k[i].name=i?"END":"START";k[i].valid=true;k[i].norm=value;k[i].value=pct(value);
+            k[i].name=i?"END":"START";k[i].valid=true;k[i].norm=value;k[i].value=pct(value);k[i].surfaceStep=.01f;
             k[i].step=[this,t,i](int d){editRange(t,i,(i?ts_[t].end:ts_[t].start)+d*.01f);};
             k[i].set=[this,t,i](float v){editRange(t,i,v);};
         }
@@ -461,7 +463,7 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
         auto mk = [this](const char* name, std::vector<std::string> opts, int cur, std::function<void(int)> setter) {
             Knob b; b.name = name; b.valid = true; b.isChoice = true;
             const int n = (int)opts.size(); cur = std::min(n - 1, std::max(0, cur));
-            b.value = opts[(size_t)cur]; b.norm = cur / (float)(n - 1);
+            b.value = opts[(size_t)cur]; b.norm = cur / (float)(n - 1);b.surfaceStep=1.f/(n-1);
             b.step = [=](int d) { setter(std::min(n - 1, std::max(0, cur + (d > 0 ? 1 : -1)))); };
             b.set = [=](float v) { setter(std::min(n - 1, std::max(0, (int)std::lround(v * (n - 1))))); };
             return b;
@@ -486,17 +488,17 @@ SamplerApp::Knobs SamplerApp::knobs(Page p) {
     case P_TEMPO: {
         if (st_.loopSamples <= 0 || recordingNow()) break;
         Knob bars; bars.name = "BARS"; bars.valid = true; bars.isChoice = true;
-        bars.value = std::to_string(st_.loopBars); bars.norm = (st_.loopBars - 1) / 31.f;
+        bars.value = std::to_string(st_.loopBars); bars.norm = (st_.loopBars - 1) / 31.f;bars.surfaceStep=1.f/31;
         bars.step = [this](int d) { s_.setLoopBars(d, true); };
         bars.set = [this](float v) { s_.setLoopBars(1 + (int)std::lround(cl(v) * 31)); };
         k[0] = bars;
         Knob bpm; bpm.name = "BPM"; bpm.valid = true;
-        bpm.value = fmt("%.0f", st_.bpm); bpm.norm = cl((st_.bpm - 30.f) / 270.f);
+        bpm.value = fmt("%.0f", st_.bpm); bpm.norm = cl((st_.bpm - 30.f) / 270.f);bpm.surfaceStep=1.f/270;
         bpm.step = [this](int d) { s_.setLoopBpm((float)d, true); };
         bpm.set = [this](float v) { s_.setLoopBpm(std::round(30.f + cl(v) * 270.f)); };
         k[1] = bpm;
         Knob mode; mode.name = "MODE"; mode.valid = true; mode.isChoice = true;
-        mode.value = st_.tempoStretch ? "STRETCH" : "TAPE"; mode.norm = st_.tempoStretch ? 1.f : 0.f;
+        mode.value = st_.tempoStretch ? "STRETCH" : "TAPE"; mode.norm = st_.tempoStretch ? 1.f : 0.f;mode.surfaceStep=1;
         mode.step = [this](int d) { s_.setTempoStretch(d > 0); };
         mode.set = [this](float v) { s_.setTempoStretch(v >= 0.5f); };
         k[2] = mode;
@@ -655,6 +657,12 @@ void SamplerApp::onMidi(const uint8_t* m, size_t n, uint32_t eventMs) {
 void SamplerApp::onSysex(const uint8_t* m, size_t n) {
     if (n < 8 || m[1] != 0x7d || m[2] != 'D' || m[3] != 'A' || m[4] != 'W') return;
     linkSeen_ = true;
+    if(m[6]==SV_HELLO&&n==9&&m[7]==2){
+        if(!surfaceV2_){resetStateSurface();surfaceV2_=true;pending_.clear();pendingBytes_=0;fwDirty_=true;lastLed_=~0ull;}
+        return;
+    }
+    if(surfaceV2_&&m[6]==SV_EDIT){surfaceEdit(m+7,n-8);return;}
+    if(surfaceV2_&&m[6]==SV_REQUEST){surfaceLast_.clear();surfaceDataAt_=0;return;}
     if (m[6] == 0x41 && n >= 12) {
         if(fieldMode_)return; // hardware octave/scale messages must not modify the previous deck
         if(genDeck_){
@@ -698,7 +706,7 @@ void SamplerApp::fieldFeedback(const std::string& summary,uint32_t leds,const st
         if(end==std::string::npos)start=summary.size();else start=end+1;
     }
     fieldLeds_=leds&0x3fff;
-    if(pixels.size()==fieldPixels_.size()){
+    if(pixels.size()==fieldPixels_.size()||pixels.size()==2*fieldPixels_.size()){
         std::array<uint8_t,36*21> decoded{};
         for(size_t i=0;i<pixels.size();++i){
             char q=pixels[i];
@@ -707,6 +715,9 @@ void SamplerApp::fieldFeedback(const std::string& summary,uint32_t leds,const st
             else return;
         }
         fieldPixels_=decoded;
+        if(pixels.size()==2*fieldPixels_.size()){
+            for(size_t i=0;i<fieldSpectrum_.size();++i){char q=pixels[i+fieldPixels_.size()];fieldSpectrum_[i]=q>='0'&&q<='9'?q-'0':q>='a'&&q<='f'?q-'a'+10:0;}
+        }else fieldSpectrum_=decoded;
     }
 }
 void SamplerApp::setFieldMode(bool on) {
@@ -720,7 +731,7 @@ void SamplerApp::setFieldMode(bool on) {
     auditionAt_=0;motion_={};fieldMode_=on;fieldHubSelected_=on;
     if(on)setEditor(true);
     fieldEvents_.clear();fieldLines_={};fieldLeds_=0;fieldPixels_.fill(0);
-    fieldTileSig_.fill(~0ull);fieldTileCursor_=0;
+    fieldTileSig_.fill(~0ull);fieldTileCursor_=0;fieldSpectrum_.fill(0);surfaceLast_.clear();surfaceDataContext_=-1;
     pending_.clear();pendingBytes_=0;needClear_=true;lastHeroLayout_=-1;
     lastLed_=~0ull;repaintAt_=0;fwDirty_=true;
     if(!on)refreshLibrary();
@@ -851,6 +862,7 @@ void SamplerApp::releaseSurfaceKeys() {
 }
 void SamplerApp::resetSurface() {
     releaseSurfaceKeys();
+    resetStateSurface();
     motion_={};
     pending_.clear(); pendingBytes_ = 0;
     haveDropBase_ = false; dropped_ = 0; linkSeen_ = false;
@@ -917,8 +929,8 @@ void SamplerApp::tick(uint32_t now) {
     if (mic_ == 3 && st_.sampleState == 0 && !st_.samplePending && now - micSaveAt_ > 1000) {mic_=0;endSaveNotice(false);}   // too short: nothing was kept
     if (now - lastDraw_ >= 33) {
         lastDraw_ = now;
-        if (now - healAt_ >= 150 && pending_.size() < 4) { healAt_ = now; if (!needClear_&&!fieldMode_&&(!genDeck_||editor_)) heal(); }
-        draw(now);
+        if (now - healAt_ >= 150 && pending_.size() < 4) { healAt_ = now; if (!surfaceV2_&&!needClear_&&!fieldMode_&&(!genDeck_||editor_)) heal(); }
+        if(surfaceV2_)drawStateSurface(now);else draw(now);
         leds();
     }
     flush(now);
@@ -967,7 +979,8 @@ void SamplerApp::drawText(int id, int x, int y, int scale, uint16_t fg, uint16_t
 }
 void SamplerApp::flush(uint32_t now) {
     // ONE frame per call, at least gap_ ms apart: the FM-1 has a 4-frame queue. Small commands are packed into one batch frame.
-    if (pending_.empty() || now - lastSend_ < gap_) return;
+    if (pending_.empty() || now - lastSend_ < (surfaceV2_?4u:gap_)) return;
+    if(surfaceV2_){auto& f=pending_.front().bytes;lastSend_=now;pendingBytes_-=f.size();send_(f.data(),f.size());pending_.pop_front();return;}
     lastSend_ = now;
     std::vector<uint8_t> batch = {0xf0, 0x7d, 'D', 'A', 'W', 1, 10};
     int n = 0;
@@ -1415,3 +1428,5 @@ void SamplerApp::hero(uint32_t now, const Knobs& k) {
 #include "GenerativeApp.inc"
 
 #include "ProjectFiles.inc"
+
+#include "SurfaceState.inc"

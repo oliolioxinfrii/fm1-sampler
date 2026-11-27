@@ -153,7 +153,7 @@ body.native-host .tag{cursor:pointer;touch-action:none}
    else {let stride=(key==='a'||key==='b'||key==='pos')?Math.max(step,(v1-v0)/240):step;v=cl(old+delta*stride,min,max);v=+v.toFixed(5);}
    setVal(key,v);
  }
- let pictureKey='',pictureSource=null,pictureHex='';
+ let pictureKey='',pictureSource=null,pictureHex='',rawSpectrumHex='0'.repeat(756);
  function surfacePicture(){
    const W=36,H=21;
    const key=focus?JSON.stringify([focus,p,profileVersion,sr,a,b]):JSON.stringify([SN,analysisWindow,v0,v1,Math.round((a-v0)/(v1-v0)*(W-1)),Math.round((b-v0)/(v1-v0)*(W-1)),Math.round((pos-v0)/(v1-v0)*(W-1))]);
@@ -176,6 +176,7 @@ body.native-host .tag{cursor:pointer;touch-action:none}
          put(x,y,Math.round(cl((10*Math.log10(Math.max(1e-12,power))+90)/90,0,1)*11));
        }
      }
+     rawSpectrumHex=Array.from(px,x=>x.toString(16)).join('');
      for(const [t,c] of [[a,12],[b,13],[pos,14]]){const x=Math.round((t-v0)/(v1-v0)*(W-1));if(x>=0&&x<W)for(let y=0;y<H;y+=2)put(x,y,c);}
    }else if(focus){
      // Mathematical curves where available; otherwise operation schematics.
@@ -224,7 +225,13 @@ body.native-host .tag{cursor:pointer;touch-action:none}
    }
    lines.push(String(Math.round(cl(pos,0,1)*1000)),focus?(p[focus]?'ACTIVE':'BYPASSED')+' / '+keymap[focus]+' TO CLOSE':'SEL SIGNAL  PRE FFT  ALG WINDOW');
    let leds=0;for(let [n,id] of Object.entries(buttonMap))if(focus===id||p[id]||id==='transport'&&playing||id==='record'&&recording)leds|=1<<Number(n);
-   const pixels=surfacePicture();
+   for(let q of Array.from({length:4},(_,i)=>ss[i])){
+     let step=q?(q[6]?1/Math.max(1,q[6].length-1):((['a','b','pos'].includes(q[0])?Math.max(q[4],(v1-v0)/240):q[4])/(q[3]-q[2]))):0;
+     lines.push(String(Math.round(cl(step,0,1)*16383)));
+   }
+   for(let t of [a,b,pos])lines.push(String(Math.round(cl((t-v0)/(v1-v0),0,1)*127)));
+   lines.push(String(Math.round(Math.max(.001,(b-a)*duration())*1000)));
+   const pixels=surfacePicture()+(!focus?rawSpectrumHex:'0'.repeat(756));
    let summary=lines.join('|'),sig=summary+'#'+leds+'#'+pixels;
    if(sig!==lastFeedback){lastFeedback=sig;FM1Native.feedback(summary,leds,pixels);}
  }

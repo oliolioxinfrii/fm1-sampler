@@ -146,7 +146,7 @@ void SamplerApp::genKey(int pitch){
 SamplerApp::Knobs SamplerApp::genKnobs(){
     Knobs k;
     auto f=[this](const char* name,float* value,float lo,float hi,float step,const char* format){
-        Knob z;z.name=name;z.valid=true;z.norm=cl((*value-lo)/(hi-lo));z.value=fmt(format,*value);
+        Knob z;z.name=name;z.valid=true;z.norm=cl((*value-lo)/(hi-lo));z.value=fmt(format,*value);z.surfaceStep=step/(hi-lo);
         z.set=[=,this](float n){*value=cl(lo+(hi-lo)*cl(n),lo,hi);if(step>=1.f)*value=std::round(*value);genChanged();};
         z.step=[=,this](int d){*value=cl(*value+step*d,lo,hi);if(step>=1.f)*value=std::round(*value);genChanged();};return z;
     };
@@ -154,7 +154,7 @@ SamplerApp::Knobs SamplerApp::genKnobs(){
         auto z=f(name,value,lo,hi,.01f,"%.2f");z.value=pct(*value);return z;
     };
     auto integer=[this](const char* name,int* value,int lo,int hi){
-        Knob z;z.name=name;z.valid=z.isChoice=true;z.norm=float(*value-lo)/(hi-lo);z.value=std::to_string(*value);
+        Knob z;z.name=name;z.valid=z.isChoice=true;z.norm=float(*value-lo)/(hi-lo);z.value=std::to_string(*value);z.surfaceStep=1.f/(hi-lo);
         z.set=[=,this](float n){*value=std::clamp(lo+int(std::lround(cl(n)*(hi-lo))),lo,hi);genChanged();};
         z.step=[=,this](int d){*value=std::clamp(*value+d,lo,hi);genChanged();};return z;
     };
@@ -237,7 +237,7 @@ SamplerApp::Knobs SamplerApp::genGlobalKnobs(){
     for(auto n:generative::applyNames)apply.push_back(n);
     k[0]=choice("ROOT",&c.root,roots,[this]{genChanged();});
     k[1]=choice("SCALE",&c.scale,scales,[this]{genChanged();});
-    Knob o;o.name="OCTAVE";o.valid=o.isChoice=true;o.value=std::to_string(c.octave);o.norm=(c.octave-2)/4.f;
+    Knob o;o.name="OCTAVE";o.valid=o.isChoice=true;o.value=std::to_string(c.octave);o.norm=(c.octave-2)/4.f;o.surfaceStep=.25f;
     o.step=[this](int d){genHarmonic(2,d);};o.set=[this](float v){genHarmonic(2,2+int(std::lround(cl(v)*4))-gen().config.octave);};k[2]=o;
     k[3]=choice("APPLY",&c.apply,apply,[this]{genChanged();});return k;
 }
