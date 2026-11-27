@@ -21,6 +21,8 @@ final class FileManager {
     private AlertDialog dialog, prompt;
     private boolean projects=false,busy=false,closed=false;
     private String selected="";
+    private ScrollView currentScroll;
+    private int scrollY=0;
     private int bg,surface,raised,ink,dim,blue,green,red,outline;
     private final ArrayList<File> rows=new ArrayList<>();
     FileManager(SamplerActivity a,Backend b){activity=a;backend=b;}
@@ -67,7 +69,7 @@ final class FileManager {
     void show(){
         if(closed||busy||activity.isFinishing()||activity.examining)return;
         if(dialog!=null&&dialog.isShowing())return;
-        colors();list();
+        colors();scrollY=0;currentScroll=null;list();
         dialog=new AlertDialog.Builder(activity).create();
         dialog.setOnDismissListener(x->{dialog=null;activity.hideSystemBars();});
         dialog.show();render();
@@ -77,8 +79,8 @@ final class FileManager {
         if(dialog==null)return;
         list();LinearLayout box=vertical();box.setPadding(dp(8),dp(8),dp(8),dp(8));box.setBackground(panel(bg));
         TextView head=label("FILES / PROJECTS",16,Native.lightTheme(backend.engine)?Color.WHITE:0xff10101a);head.setTypeface(Typeface.MONOSPACE,Typeface.BOLD);head.setBackgroundColor(blue);box.addView(head,new LinearLayout.LayoutParams(-1,dp(29)));
-        LinearLayout tabs=new LinearLayout(activity);addKey(tabs,key(projects?"USER SAMPLES":"● USER SAMPLES",projects?dim:blue,()->{projects=false;selected="";render();}));
-        addKey(tabs,key(projects?"● PROJECTS":"PROJECTS",projects?blue:dim,()->{projects=true;selected="";render();}));
+        LinearLayout tabs=new LinearLayout(activity);addKey(tabs,key(projects?"USER SAMPLES":"● USER SAMPLES",projects?dim:blue,()->{projects=false;selected="";scrollY=0;render();}));
+        addKey(tabs,key(projects?"● PROJECTS":"PROJECTS",projects?blue:dim,()->{projects=true;selected="";scrollY=0;render();}));
         addKey(tabs,key("CLOSE",ink,()->dialog.dismiss()));box.addView(tabs);
         ScrollView scroll=new ScrollView(activity);scroll.setBackground(panel(raised));LinearLayout list=vertical();
         if(rows.isEmpty())list.addView(label(projects?"NO SAVED PROJECTS":"NO USER SAMPLES",12,dim));
@@ -86,10 +88,10 @@ final class FileManager {
             boolean on=file.getAbsolutePath().equals(selected);
             TextView row=label(title(file),13,on?(Native.lightTheme(backend.engine)?Color.WHITE:0xff10101a):ink);
             row.setSingleLine(true);row.setEllipsize(android.text.TextUtils.TruncateAt.END);row.setBackgroundColor(on?blue:raised);
-            row.setOnClickListener(x->{selected=file.getAbsolutePath();render();});list.addView(row,new LinearLayout.LayoutParams(-1,dp(35)));
+            row.setOnClickListener(x->{selected=file.getAbsolutePath();scrollY=scroll.getScrollY();render();});list.addView(row,new LinearLayout.LayoutParams(-1,dp(35)));
             View sep=new View(activity);sep.setBackgroundColor(outline);list.addView(sep,new LinearLayout.LayoutParams(-1,dp(1)));
         }
-        scroll.addView(list);box.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+        scroll.addView(list);box.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));currentScroll=scroll;scroll.post(()->scroll.scrollTo(0,scrollY));
         LinearLayout actions=new LinearLayout(activity);
         Button open=key("OPEN",green,()->{File f=pick();if(f==null)return;if(projects)confirmOpen(f);else operation(0,f,"",true);});
         Button rename=key("RENAME",blue,()->{File f=pick();if(f!=null)namePrompt("RENAME",title(f),s->operation(1,f,s,false));});
@@ -130,7 +132,7 @@ final class FileManager {
             activity.runOnUiThread(()->{
                 busy=false;if(closed||activity.isFinishing())return;
                 if(result!=null&&!result.isEmpty())new AlertDialog.Builder(activity).setTitle("FILES").setMessage(result).setPositiveButton("OK",null).show();
-                if(dialog!=null&&dialog.isShowing()){selected="";render();}
+                if(dialog!=null&&dialog.isShowing()){selected="";if(currentScroll!=null)scrollY=currentScroll.getScrollY();render();}
             });
         },"fm1-files").start();
     }

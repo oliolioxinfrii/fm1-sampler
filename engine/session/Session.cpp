@@ -1026,6 +1026,9 @@ bool readLoops(const std::string& file,int sr,ProjectLoops& l){
        (l.stretch!=0&&l.stretch!=1))return false;
     for(auto& c:l.clips){
         uint32_t n;if(!readScalar(i,n)||(n&&n!=uint32_t(l.frames)*2u))return false;
+        auto offset=i.tellg();if(offset<0)return false;
+        i.seekg(0,std::ios::end);auto end=i.tellg();i.seekg(offset);
+        if(end<offset||uint64_t(end-offset)<uint64_t(n)*sizeof(float))return false;
         c.resize(n);if(n&&!i.read(reinterpret_cast<char*>(c.data()),size_t(n)*sizeof(float)))return false;
         if(std::any_of(c.begin(),c.end(),[](float v){return !std::isfinite(v);}))return false;
     }
@@ -1068,7 +1071,7 @@ bool Session::loadProjectLoops(const std::string& directory){
         d->loopSamples=l->frames;d->a_loop=l->frames;d->loopBars=l->bars;d->a_bars=l->bars;
         d->tempoRate=l->tempoRate;d->a_tempoRate=l->tempoRate;d->bpm=l->bpm;d->a_bpm=l->bpm;
         d->tapeSpeed=l->speed;d->masterVol=l->master;d->tempoStretch=l->stretch!=0;d->a_tempoStretch=d->tempoStretch;
-        d->pos=d->tapePos=0;d->stretchHeads.reset();d->stretchMix=0;
+        d->pos=d->tapePos=0;d->a_clipPos=0;d->stretchHeads.reset();d->stretchMix=0;
         for(int t=0;t<kTracks;++t){auto& tr=*d->tracks[t];d->releaseAll(tr);tr.clip.swap(l->clips[t]);tr.clipHas=!tr.clip.empty();tr.clipRec=tr.recPrevOk=false;}
         d->job([l]{}); // old clip allocations released on the worker
     });return true;

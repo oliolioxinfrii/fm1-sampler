@@ -39,7 +39,8 @@ public class Backend {
     };
     /** Set by the activity: opens the system file picker (the phone UI asked for LOAD FILE FROM DISK). */
     public volatile Runnable onFileRequest;
-    public volatile java.util.function.IntConsumer onFileAction;
+    interface FileActionListener {void accept(int action);}
+    public volatile FileActionListener onFileAction;
     interface FieldListener { void frame(boolean active,int[] events); }
     public volatile FieldListener onFieldFrame;
     volatile boolean fieldAudio=false;
@@ -95,7 +96,7 @@ public class Backend {
                     Native.uiLink(engine, toFm1 != null, usbAudioId != 0);
                     if (Native.wantFile(engine)) { Runnable r = onFileRequest; if (r != null) main.post(r); }
                     int action=Native.fileAction(engine);
-                    java.util.function.IntConsumer actionListener=onFileAction;
+                    FileActionListener actionListener=onFileAction;
                     if(action!=0&&actionListener!=null)main.post(()->{if(onFileAction==actionListener)actionListener.accept(action);});
                     boolean field=Native.fieldMode(engine);
                     int[] events=Native.fieldEvents(engine);

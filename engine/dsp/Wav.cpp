@@ -55,5 +55,6 @@ bool writeWav16(const std::string& path, const std::vector<float>& st, int sr) {
     f.write((const char*)&fmt, 2); f.write((const char*)&ch, 2); f.write((const char*)&rate, 4); f.write((const char*)&br, 4);
     f.write((const char*)&ba, 2); f.write((const char*)&bits, 2); f.write("data", 4); f.write((const char*)&n, 4);
     for (float v : st) { const int16_t q = (int16_t)std::lrintf(std::max(-1.f, std::min(1.f, v)) * 32767.f); f.write((const char*)&q, 2); }
+    f.close();
     return (bool)f;
 }

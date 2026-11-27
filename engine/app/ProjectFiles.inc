@@ -35,7 +35,7 @@ template<class A,class G> void generatorFields(A& a,G& g){
 template<class A,class E> void returnFields(A& a,E& p){a(p.time,p.feedback,p.size,p.damp,p.shimmer,p.ping);}
 bool between(double x,double a,double b){return std::isfinite(x)&&x>=a&&x<=b;}
 bool validTrack(const SamplerApp::TrackState& t){
-    if(!between(t.algo,0,5)||!between(t.lfoTarget,0,2)||!between(t.lfoShape,0,3)||!between(t.arpRate,0,11)||
+    if(!between(t.algo,0,5)||!between(t.lfoTarget,0,3)||!between(t.lfoShape,0,4)||!between(t.arpRate,0,11)||
        !between(t.arpPatt,0,4)||!between(t.arpOct,0,3)||!between(t.scSrc,0,8)||!between(t.root,0,127)||!between(t.echoLatch,0,1)||t.start>t.end)return false;
     const float vals[]={t.a,t.d,t.s,t.r,t.lfoRate,t.lfoDepth,t.start,t.end,t.speed,t.pitch,t.kitThr,t.paulStretch,t.paulWidth,
         t.echoDelay,t.echoRoom,t.arpLen,t.vol,t.pan,t.sendR,t.sendD,t.scThr,t.scRatio};
@@ -110,7 +110,7 @@ bool SamplerApp::saveProject(const std::string& name){
     nativeFileSaving_=true;beginSaveNotice("PROJECT / "+name);return true;
 }
 bool SamplerApp::loadProject(const std::string& dir){
-    if(!directProject(s_.dataDir(),dir)||nativeFileSaving_||recordingNow()||mic_||fieldMode_||outputRecordState()==1||outputRecordState()==2)return false;
+    if(!directProject(s_.dataDir(),dir)||nativeFileSaving_||recordingNow()||mic_||fieldMode_||st_.sampleState==2||outputRecordState()==1||outputRecordState()==2)return false;
     std::ifstream in(dir+"/state.txt");std::string magic;int version=0;
     if(!(in>>magic>>version)||magic!="FM1PROJECT"||version!=1)return false;
     ProjectRead r{in};int track=0,page=0,deck=0,editor=0,hub=0,loop=1;ScaleState scale;
@@ -168,13 +168,15 @@ std::string SamplerApp::manageFile(int op,const std::string& path,const std::str
     std::error_code ec;
     const bool project=directProject(s_.dataDir(),path);
     auto users=s_.sampleLibrary();
-    const bool user=std::find(users.begin(),users.end(),path)!=users.end()&&!fs::is_symlink(path,ec);
+    const bool user=std::find(users.begin(),users.end(),path)!=users.end()&&!fs::is_symlink(path,ec)&&fs::is_regular_file(path,ec);
     if(!project&&!user)return "FILE NOT FOUND";
     if(op==0&&user){
         refreshLibrary();for(int i=0;i<int(lib_.size());++i)if(lib_[i].path==path){loadEntry(i);return "";}
         return "FILE NOT FOUND";
     }
     if(op!=1&&op!=2)return "INVALID ACTION";
+    if(st_.sampleState==2)return "WAIT FOR SAMPLE LOAD";
+    for(int t=0;t<kTracks;++t)if(s_.generatorLoadState(t)==1)return "WAIT FOR SAMPLE LOAD";
     if(op==1&&!validName(name))return "INVALID NAME";
     auto used=[&](const std::string& p){return project?p.rfind(path+"/",0)==0:p==path;};
     bool active=false;for(int t=0;t<kTracks;++t)active|=used(samplePaths_[t])||used(genTracks_[t].path);
