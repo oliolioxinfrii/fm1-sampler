@@ -84,5 +84,16 @@ int main(){
     assert((app.takeFieldEvents()==std::vector<int>{302,33}));
     assert(sv_after(0,16383)&&!sv_after(16383,0));
     assert(sv_predict(16000,1000,1)==16383&&sv_predict(100,1000,-1)==0);
+    // GAUSS (choice 5/5) never overshoots or emits phantom increments.
+    assert(sv_limit_delta(SV_NORM,3277,1,SV_CHOICE)==0);
+    assert(sv_limit_delta(0,3277,-1,SV_CHOICE)==0);
+    assert(sv_parameter_predict(SV_NORM,3277,-1,SV_CHOICE)==13106);
+    assert(sv_parameter_predict(13106,3277,1,SV_CHOICE)==SV_NORM);
+    assert(sv_limit_delta(0,3277,63,SV_CHOICE)==5);
+    assert(sv_limit_delta(SV_NORM,164,10,0)==0);
+    assert(sv_limit_delta(0,164,-10,0)==0);
+    assert(sv_limit_delta(16000,164,10,0)==3);
+    assert(sv_limit_delta(SV_NORM,164,-1,0)==-1);
+    assert(sv_limit_delta(SV_NORM,0,1,SV_ACTION)==1);
     puts("surface v2 OK");
 }

@@ -248,7 +248,7 @@ private:
     int fieldTileCursor_=0;
     void drawField();
     std::vector<int> fieldEvents_; // pairs: encoder 0..6, button 100+Button, or 200 (theme)
-    std::array<std::string,29> fieldLines_{};
+    std::array<std::string,30> fieldLines_{};
     std::array<uint8_t,36*21> fieldSpectrum_{};
     bool surfaceV2_=false;
     uint16_t surfaceAck_=0,surfaceDataGen_=0;
@@ -256,7 +256,7 @@ private:
     int surfaceDataContext_=-1,surfaceCacheCursor_=0;
     std::vector<uint8_t> surfaceLast_,surfaceData_;
     struct SurfaceCacheBlob {int key=-1;uint16_t gen=0;std::vector<uint8_t> bytes;};
-    std::array<SurfaceCacheBlob,60> surfaceBlobs_{};
+    std::array<SurfaceCacheBlob,69> surfaceBlobs_{};
     uint16_t surfaceNextGen_=0;
     std::array<uint64_t,3*8*SV_PAGES> surfaceCacheSig_{};
     int surfaceContext() const;

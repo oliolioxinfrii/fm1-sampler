@@ -35,7 +35,8 @@ static void sg_path(const SGPoint *p,unsigned n,uint16_t c,float w){for(unsigned
 #define SG_PATH(col,width,...) do {const SGPoint pts[]={__VA_ARGS__};sg_path(pts,sizeof pts/sizeof pts[0],col,width);}while(0)
 static void sg_fill(float x,float y,float w,float h,uint16_t c){
     float l=sg_x(x),r=sg_x(x+w),t=sg_y(y),b=sg_y(y+h);
-    for(int j=54;j<89;j++)if(j+.5f>=t&&j+.5f<b)for(int i=12;i<228;i++)if(i+.5f>=l&&i+.5f<r)sg_put(i,j,c);
+    int x0=clamp((int)fm_floorf(l),12,228),x1=clamp((int)(r+1),12,228),y0=clamp((int)fm_floorf(t),54,89),y1=clamp((int)(b+1),54,89);
+    for(int j=y0;j<y1;j++)if(j+.5f>=t&&j+.5f<b)for(int i=x0;i<x1;i++)if(i+.5f>=l&&i+.5f<r)sg_put(i,j,c);
 }
 static void sg_rect(float x,float y,float w,float h,uint16_t c,uint16_t fill,int filled,float sw){
     if(w<=0||h<=0)return;if(filled)sg_fill(x,y,w,h,fill);
@@ -210,19 +211,34 @@ static void sg_tempo(float b){
     for(int i=0;i<=8;i++)sg_line(8+i*10,9,8+i*10,15,i%4==0?sg_b:sg_d,1.4f);
     sg_rect(8,20,80,8,sg_d,0,0,1.5f);sg_rect(8,33,35+45*(1-b),8,sg_b,0,0,1.7f);SG_PATH(sg_v,2,{43+45*(1-b),30},{50+45*(1-b),37},{43+45*(1-b),44});
 }
-static void sg_room(float x,float w,float size){
-    sg_rect(x,5,w,38,sg_d,0,0,1.5f);sg_rect(x+4,15,8,18,sg_d,sg_f,1,1.5f);
-    sg_ring(x+8,20,2,sg_w,sg_w,1,1);sg_ring(x+8,28,3,sg_v,sg_f,1,1);
-    float extent=(w-17)*(.23f+.63f*size);
-    for(int i=0;i<4;i++){float cx=x+16+extent*(i+.5f)/4,rr=4+8*(i+1)/4.f;uint16_t col=i<2?sv_rgb(0xffe16a):sg_v;
-        SG_PATH(col,1.6f,{cx+rr*.5f,24-rr*.86f},{cx+rr*.87f,24-rr*.5f},{cx+rr,24},{cx+rr*.87f,24+rr*.5f},{cx+rr*.5f,24+rr*.86f});}
+/* P_FX was the full-width fallback in surfaceGraphic(), not a 96x48
+ * compact symbol. Reproduce its original 432x70 working coordinates. */
+static void sg_speaker(float x,float y,float size,uint16_t ink){
+    sg_fill(x,y-size*.7f,size*.7f,size*1.4f,sg_d);sg_fill(x+2,y-size*.7f+2,size*.7f-4,size*1.4f-4,sg_f);
+    sg_ring(x+size*.35f,y-size*.35f,size*.13f,sg_w,sg_w,1,1);
+    sg_ring(x+size*.35f,y+size*.25f,size*.20f,ink,ink,1,1);
+    sg_ring(x+size*.35f,y+size*.25f,size*.08f,sv_well,sv_well,1,1);
+}
+static void sg_room(float x,float width,float size){
+    const float left=x+4,right=x+width-4,cy=57;
+    sg_rect(left,27,right-left,60,sg_d,0,0,3);
+    sg_speaker(left+7,cy,24,sg_v);
+    float sx=left+31,extent=(right-sx)*(.23f+.63f*size);
+    for(int i=0;i<4;i++){float xx=sx+extent*(i+.5f)/4,rr=8+17*(i+1)/4.f;uint16_t col=i<2?sv_rgb(0xffe16a):sg_v;
+        SG_PATH(col,3,{xx+rr*.50f,cy-rr*.86f},{xx+rr*.87f,cy-rr*.5f},{xx+rr,cy},{xx+rr*.87f,cy+rr*.5f},{xx+rr*.50f,cy+rr*.86f});}
 }
 static void sg_fx(float a,float b,float c,float d){
-    // Legacy FX summary: room on the left, echo speaker and repeated rings on the right.
-    sg_room(1,45,b);sg_rect(51,15,8,18,sg_d,sg_f,1,1.5f);sg_ring(55,20,2,sg_w,sg_w,1,1);sg_ring(55,28,3,sg_v,sg_f,1,1);
-    float spacing=fm_maxf(3,32*(.06f+.22f*d));
-    for(int i=0;i<14;i++){float x=62+(i+.5f)*spacing;if(x+2>95)break;float radius=fm_maxf(1.2f,fm_minf(4,spacing*.39f)*(.3f+.7f*fm_powf(.78f,i*.5f)));sg_ring(x,24,radius,c>.001f?sg_v:sg_d,sv_well,1,1.4f);}
-    (void)a;
+    sg_scale=.5f;sg_ox=12;sg_oy=43;
+    sg_room(0,208,b);
+    float x=220,width=212,cy=57;
+    sg_speaker(x+5,cy,25,sg_v);
+    float origin=x+36,span=fm_maxf(12,width-47),spacing=fm_maxf(12,span*(.06f+.22f*d));
+    for(int i=0;i<14;i++){float xx=origin+(i+.5f)*spacing;if(xx+8>x+width)break;
+        float radius=fm_maxf(3,fm_minf(12,spacing*.39f)*(.3f+.7f*fm_powf(.78f,i*.5f)));
+        uint16_t col=c>.001f?sg_v:sg_d;
+        sg_ring(xx,cy,radius,col,col,1,1);float inner=fm_maxf(1,radius-3);sg_ring(xx,cy,inner,sv_well,sv_well,1,1);
+        if(radius>=7)sg_line(xx,cy-radius-3,xx,cy-radius-7,sv_rgb(0xffe16a),2);
+    }(void)a;
 }
 static int sg_legacy(void){
     if(ss.mode==SV_FIELD||ss.mode==SV_GENERATOR)return 0;

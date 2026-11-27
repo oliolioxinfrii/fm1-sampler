@@ -57,6 +57,7 @@ void SamplerApp::drawStateSurface(uint32_t now){
         if(page==0){kind=SV_SPECTRUM;data.assign(fieldSpectrum_.begin(),fieldSpectrum_.end());cat(data,n14(num(27,SV_NORM)));cat(data,n14(num(28,SV_NORM)));}
         else if(page==4){kind=SV_NOISE;data.assign(fieldPixels_.begin(),fieldPixels_.end());}
         // Fade graph needs the selected duration, sent as a compact auxiliary value.
+        if(page==5){kind=SV_NOISE;auto hz=std::clamp(std::atoi(fieldLines_[29].c_str()),0,2097151);data={uint8_t(hz>>14&127),uint8_t(hz>>7&127),uint8_t(hz&127)};}
         if(page==9){kind=SV_NOISE;auto ms=std::clamp(std::atoi(fieldLines_[26].c_str()),1,2097151);data={uint8_t(ms>>14&127),uint8_t(ms>>7&127),uint8_t(ms&127)};}
     }else{
         k=mode==SV_GENERATOR?genKnobs():knobs();
@@ -73,12 +74,12 @@ void SamplerApp::drawStateSurface(uint32_t now){
             if(mode==SV_GENERATOR)mask=1u<<page;else mask=1;
         }else{
             for(int i=0;i<kPrimaryMenus;++i)if(menuParent(page_)==primaryMenuPage(i))mask|=1u<<i;
-            progress=svNorm(st_.clipPos[track_]);
+            progress=svNorm(st_.track_has_clip[track_]?st_.clipPos[track_]:st_.loopSamples>0?float(st_.pos/st_.loopSamples):0.f);
             ma=unsigned(std::lround(cl(ts_[track_].start)*127));mb=unsigned(std::lround(cl(ts_[track_].end)*127));
             mp=st_.voiceN[track_]>0?unsigned(std::lround(cl(st_.voicePos[track_][0])*127)):ma;
             if((page_==P_HOME||page_==P_ECHO)&&!genDeck_){
-                kind=SV_WAVE;auto pk=peaks(track_,216);for(float v:pk)data.push_back(uint8_t(std::lround(cl(v)*127)));
-                if(page_==P_ECHO)mp=unsigned(std::lround(cl(ts_[track_].start+(ts_[track_].end-ts_[track_].start)*ts_[track_].echo.position)*127));
+                kind=SV_WAVE;auto pk=peaks(track_,page_==P_ECHO?120:54);for(float v:pk)data.push_back(uint8_t(std::lround(cl(v)*127)));
+                if(page_==P_ECHO||algo()==4)mp=unsigned(std::lround(cl(ts_[track_].start+(ts_[track_].end-ts_[track_].start)*ts_[track_].echo.position)*127));
             }else if(page_==P_LEN){
                 kind=SV_WAVE;float pk[Session::kLoopBins];int n=s_.loopPeaks(track_,pk,Session::kLoopBins);
                 if(n>0&&st_.track_has_clip[track_]){float mx=.08f;for(int i=0;i<n;i++)mx=std::max(mx,pk[i]);for(int i=0;i<40;i++)data.push_back(uint8_t(std::lround(cl(pk[i*n/40]/mx)*127)));}
@@ -94,10 +95,11 @@ void SamplerApp::drawStateSurface(uint32_t now){
         }
     }
     if(data.size()>SV_DATA_MAX)data.resize(SV_DATA_MAX);
+    if(data.empty())kind=0;
     // Each track waveform and each field-map selection retains a stable data
     // generation when revisiting pages. Parameter/marker/theme changes do not
     // invalidate an unchanged signal. IDs are scoped to the USB session.
-    const int key=kind==SV_WAVE?(page==P_LEN?36+track:page==P_KEY?44+track:page==P_ARP?52+track:track):kind==SV_SPECTRUM?8:kind==SV_NOISE?(page==9?10:9):kind==SV_FIELD_MAP?11+3*track+gen().map:35;
+    const int key=kind==SV_WAVE?(page==P_LEN?36+track:page==P_KEY?44+track:page==P_ARP?52+track:page==P_ECHO?60+track:track):kind==SV_SPECTRUM?8:kind==SV_NOISE?(page==9?10:page==5?68:9):kind==SV_FIELD_MAP?11+3*track+gen().map:35;
     auto& blob=surfaceBlobs_[key];
     if(blob.key!=key||blob.bytes!=data){blob.key=key;blob.bytes=data;blob.gen=(++surfaceNextGen_)&16383;if(!blob.gen)blob.gen=(++surfaceNextGen_)&16383;}
     const bool dataChanged=surfaceDataContext_!=ctx||blob.gen!=surfaceDataGen_;

@@ -32,10 +32,11 @@ static float sv_curve(float t){
         switch(ss.page){
         case 2:return .70f+.055f*fm_sinf(t*25.f)+.24f*fm_expf(-fm_powf((t-.5f)/.018f,2.f)); // declick schematic
         case 3:return .9f-.75f*(sv_mod(t*6,1.f)<.07f); // harmonic rejection schematic
-        case 5:{float f=20.f*fm_powf(1200.f,t),hp=20+1980*a,lp=500+23500*b;
+        case 5:{float sr=24000;if(sv_has_data(SV_NOISE)&&sv_data_len==3){unsigned hz=(sv_data[0]<<14)|(sv_data[1]<<7)|sv_data[2];if(hz>=8000)sr=hz;}
+            float f=20.f*fm_powf(fm_minf(24000,sr*.5f)/20,t),hp=20+1980*a,lp=500+23500*b;
             const float slopes[]={6,12,24,48};int hi=clamp((int)(c*3+.5f),0,3),lo=clamp((int)(d*3+.5f),0,3);
-            float db=-10*sv_log10(1+fm_powf(hp/f,slopes[hi]/3))-10*sv_log10(1+fm_powf(f/lp,slopes[lo]/3));return 1+db/48;}
-        case 6:{float threshold=65*a/75;return t-fm_minf(b*48/75,fm_maxf(0,threshold-t));}
+            float db=(hp<=20?0:-10*sv_log10(1+fm_powf(hp/f,slopes[hi]/3)))+(lp>=sr*.48f?0:-10*sv_log10(1+fm_powf(f/lp,slopes[lo]/3)));return 1+db/48;}
+        case 6:{float threshold=65*a/75;return fm_maxf(0,t-fm_minf(b*48/75,fm_maxf(0,threshold-t)));}
         case 7:{float threshold=60*a-60,x=t*60-60,ratio=1+15*b,over=x-threshold;
             float y=over<=-3?x:over>=3?threshold+over/ratio:x+(1/ratio-1)*(over+3)*(over+3)/12;return (y+60)/60;}
         case 8:return .28f+fm_minf(.24f,.10f*fm_powf(10,(48*a-24)/20))*fm_sinf(t*31)*fm_sinf(t*3.141593f);
@@ -70,17 +71,10 @@ static uint16_t sv_gen_color(unsigned v);
 static void sv_phrase_plot(void){
     if(!sv_has_data(SV_FIELD_MAP)||sv_data_len<401){sv_text(50,63,170,&FONT_XS,"WAITING FOR FIELD",sv_trace[0]);return;}
     int n=sv_data[400];if(n>16||401+6*n>sv_data_len)return;
-    if(ss.page==0||ss.page==18){
-        for(int y=0;y<35;y++)for(int x=0;x<20;x++)cv_rect(12+x*10,54+y,10,1,sv_gen_color(sv_data[(y*20/35)*20+x]));
-        for(int i=0;i<n;i++){int x=12+sv_data[401+6*i]*199/127,y=54+sv_data[402+6*i]*34/127;
-            if(i)cv_line(12+sv_data[395+6*i]*199/127,54+sv_data[396+6*i]*34/127,x,y,C_WHITE);
-            cv_rect(x-1,y-1,3,3,i<ss.mark[2]||sv_data[403+6*i]?sv_trace[3]:C_WHITE);}
-    }else{
-        int lo=127,hi=0;for(int i=0;i<n;i++){int m=sv_data[404+6*i];if(m<lo)lo=m;if(m>hi)hi=m;}
-        for(int i=0;i<n;i++){
-            int x=12+sv_data[405+6*i]*215/127,end=12+sv_data[406+6*i]*215/127,y=86-(sv_data[404+6*i]-lo)*28/(hi>lo?hi-lo:1);
-            cv_rect(x,y,end>x?end-x:2,3,i<ss.mark[2]||sv_data[403+6*i]?sv_trace[3]:sv_trace[0]);
-        }
+    for(int y=0;y<35;y++)for(int x=0;x<216;x+=3)cv_rect(12+x,54+y,3,1,sv_gen_color(sv_data[(y*20/35)*20+x*20/216]));
+    for(int i=1;i<n;i++){
+        int x=12+sv_data[401+6*i]*215/127,y=54+sv_data[402+6*i]*34/127;
+        cv_line(12+sv_data[395+6*i]*215/127,54+sv_data[396+6*i]*34/127,x,y,i<ss.mark[2]?sv_trace[3]:sv_rgb(ss.light?0xecf4fa:0xe7f5ff));
     }
 }
 /* Original compact pictograph grammar, rendered entirely on the controller. */
@@ -104,39 +98,41 @@ static void sv_plot(void){
     }else if(ss.mode==SV_FIELD&&ss.page==4){
         if(sv_has_data(SV_NOISE)&&sv_data_len==756){
             for(int y=0;y<35;y++)for(int x=0;x<36;x++){
-                unsigned v=sv_data[(y*21/35)*36+x];if(v>=12)cv_rect(12+6*x,54+y,6,1,sv_trace[(v-12)&3]);
+                unsigned v=sv_data[(y*21/35)*36+x];cv_rect(12+6*x,54+y,6,1,v>=12?sv_trace[(v-12)&3]:sv_heat(v));
             }
         }else sv_text(58,63,150,&FONT_XS,"LEARN NOISE PROFILE",sv_trace[2]);
     }else if(ss.mode==SV_TAPE&&ss.page==0){
-        if(sv_has_data(SV_WAVE)){
-            for(int x=0;x<216;x++){int h=sv_data[x*sv_data_len/216]*16/127;cv_line(x+12,71-h,x+12,71+h,sv_trace[0]);}
+        unsigned center=ss.mark[2]*54/128;
+        // The original 54 three-pixel-wide peak columns and window colors.
+        for(unsigned i=0;i<54;i++){
+            unsigned pos=(2*i+1)*127/108;
+            unsigned level=sv_has_data(SV_WAVE)?sv_data[i*sv_data_len/54]:0;
+            int h=clamp((int)(level*1.1f*35/127)+1,1,35);
+            int active=(ss.algo==4||ss.transport)&&i==center;
+            if(active)h=35;
+            cv_rect(12+i*4,54+(35-h)/2,3,h,active?sv_trace[3]:(pos>=ss.mark[0]&&pos<=ss.mark[1])?sv_trace[1]:sv_grid);
         }
-        cv_line(12+(int)(sv_n(0)*215),54,12+(int)(sv_n(0)*215),88,sv_trace[0]);
-        cv_line(12+(int)(sv_n(1)*215),54,12+(int)(sv_n(1)*215),88,sv_trace[1]);
-        if(ss.transport)cv_line(12+ss.mark[2]*215/127,54,12+ss.mark[2]*215/127,88,sv_trace[3]);
-    }else if(ss.mode!=SV_FIELD&&ss.page==6){
-        cv_rect(12,59,215,9,sv_grid);cv_rect(12,59,ss.mark[2]*215/127,9,sv_trace[1]);
-        cv_rect(12,75,(int)(sv_n(0)*215),8,sv_trace[0]);
-    }else if(ss.mode!=SV_FIELD&&ss.page==8){
-        cv_rect(12,65,215,12,sv_grid);cv_rect(12,65,ss.mark[2]*215/127,12,sv_trace[1]);cv_line(12+(int)(sv_n(3)*215),58,12+(int)(sv_n(3)*215),84,sv_trace[3]);
-    }else if(ss.mode!=SV_FIELD&&(ss.page==9||ss.page==10)){
-        for(int i=0;i<8;i++)cv_rect(12+i*27,60,24,19,sv_grid);
-        cv_line(12+ss.progress*215/SV_NORM,54,12+ss.progress*215/SV_NORM,88,sv_trace[3]);
-    }else if(ss.mode!=SV_FIELD&&ss.page==7){
-        static const uint16_t masks[]={4095,1717,2741,1453,2477,1451,3501,1};
-        unsigned mask=masks[ss.mark[1]<8?ss.mark[1]:0];
-        for(int i=0;i<24;i++){int x=12+i*9,pc=(i+12-ss.mark[0])%12;cv_rect(x,58,8,28,(mask>>pc)&1?(pc==0?sv_trace[3]:sv_trace[1]):sv_grid);}
-    }else if(ss.mode!=SV_FIELD&&ss.page==4){
-        int pattern=(int)(sv_n(1)*4+.5f),oct=1+(int)(sv_n(2)*3+.5f);
-        for(int i=0;i<8;i++){int x=12+i*27,j=pattern==1?7-i:pattern==2?(i<4?i:7-i):pattern==3?(i%2?7-i/2:i/2):i;int y=84-(j*28/7)*oct/4;cv_rect(x,y,4+(int)(sv_n(3)*20),3,sv_trace[2]);}
-    }else{
+    }else if(ss.mode==SV_FIELD){
+        // Native versions of the original WebView's 36x21 process raster.
+        // Drawing at the same sampling density preserves its original silhouette.
         sv_grid_plot();
-        if(ss.mode==SV_FIELD&&(ss.page==6||ss.page==7))sv_plot_line(0,0,215,1,sv_grid);
-        if(ss.mode==SV_FIELD&&(ss.page==2||ss.page==8||ss.page==10)){
-            float old=.72f;for(int x=1;x<216;x++){float t=x/215.f,v=.72f+.055f*fm_sinf(t*31)*fm_sinf(t*3.141593f);sv_plot_line(x-1,old,x,v,sv_trace[1]);old=v;}
+        if(ss.page==2){
+            float last=.72f+.25f*fm_expf(-.25f/(.018f*.018f)),low=.28f;
+            for(int x=1;x<36;x++){float t=x/35.f,u=(t-.5f)/.018f,high=.72f+.055f*fm_sinf(t*25)+.25f*fm_expf(-u*u),v=.28f+.055f*fm_sinf(t*25);
+                sv_plot_line((x-1)*215/35,last,x*215/35,high,sv_trace[3]);sv_plot_line((x-1)*215/35,low,x*215/35,v,sv_trace[1]);last=high;low=v;}
+            cv_line(123,54,123,88,sv_rgb(ss.light?0x365e79:0x47376b));
+        }else if(ss.page==3){
+            cv_line(12,59,227,59,sv_trace[3]);for(int x=4;x<36;x+=6){int l=12+x*215/35,u=12+(x+1)*215/35;cv_line(l,59,l,81,sv_trace[3]);cv_line(l,81,u,81,sv_trace[3]);cv_line(u,81,u,59,sv_trace[3]);}
+        }else if(ss.page==8||ss.page==10){
+            float prev=.72f,low=.27f,scale=ss.page==8?fm_powf(10,(48*sv_n(0)-24)/20):2;
+            for(int x=1;x<36;x++){float t=x/35.f,base=fm_sinf(t*31)*fm_sinf(t*3.14159265f),a=.72f+.10f*base,b=.27f+fm_minf(.24f,.10f*scale)*base;
+                sv_plot_line((x-1)*215/35,prev,x*215/35,a,sv_trace[0]);sv_plot_line((x-1)*215/35,low,x*215/35,b,sv_trace[1]);prev=a;low=b;}
+            if(ss.page==10){cv_line(12,71,227,71,sv_trace[3]);cv_line(12,86,227,86,sv_trace[3]);}
+        }else if(ss.page!=1){
+            if(ss.page==6||ss.page==7)sv_plot_line(0,0,215,1,sv_rgb(ss.light?0x365e79:0x47376b));
+            uint16_t col=ss.page==5||ss.page==9?sv_trace[3]:sv_trace[0];float old=sv_curve(0);
+            for(int x=1;x<36;x++){float v=sv_curve(x/35.f);sv_plot_line((x-1)*215/35,old,x*215/35,v,col);old=v;}
         }
-        float old=sv_curve(0);for(int x=1;x<216;x++){float v=sv_curve(x/215.f);sv_plot_line(x-1,old,x,v,sv_trace[0]);old=v;}
-        if(ss.mode!=SV_FIELD&&ss.page==3)cv_line(12+ss.mark[2]*215/127,54,12+ss.mark[2]*215/127,88,sv_trace[3]);
     }
     for(unsigned i=0;i<4;i++){int x=12+i*54;cv_rect(x,93,50,5,sv_grid);if(ss.k[i].flags&SV_VALID)cv_rect(x,93,(int)(sv_n(i)*50),5,sv_trace[i]);}
 }

@@ -159,7 +159,8 @@ static void sv_send_edits(void){
     for(unsigned i=0;i<4&&sv_count<32;i++){
         int d=sv_pending_delta[i];if(!d)continue;
         d=sv_limit_delta(sv_sent_norm(i),ss.k[i].step,d,ss.k[i].flags);
-        if(!d){sv_pending_delta[i]=0;continue;}
+        sv_pending_delta[i]=d;
+        if(!d)continue;
         d=clamp(d,-63,63);
         uint16_t seq=(sv_seq+1)&16383;uint8_t p[7];
         sv_write14(p,ss.context);sv_write14(p+2,seq);p[4]=i;p[5]=d+63;p[6]=0;
