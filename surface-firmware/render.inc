@@ -66,9 +66,27 @@ static uint16_t sv_heat(unsigned v){
     static const uint32_t d[]={0x090815,0x201735,0x33244f,0x47376b,0x4f538b,0x506f99,0x568f9f,0x64afa5,0x8bc4ad,0xbccab0,0xe0bd83,0xffd5a0};
     return sv_rgb((ss.light?l:d)[v>11?11:v]);
 }
+static uint16_t sv_gen_color(unsigned v);
+static void sv_phrase_plot(void){
+    if(!sv_has_data(SV_FIELD_MAP)||sv_data_len<401){sv_text(50,63,170,&FONT_XS,"WAITING FOR FIELD",sv_trace[0]);return;}
+    int n=sv_data[400];if(n>16||401+6*n>sv_data_len)return;
+    if(ss.page==0||ss.page==18){
+        for(int y=0;y<35;y++)for(int x=0;x<20;x++)cv_rect(12+x*10,54+y,10,1,sv_gen_color(sv_data[(y*20/35)*20+x]));
+        for(int i=0;i<n;i++){int x=12+sv_data[401+6*i]*199/127,y=54+sv_data[402+6*i]*34/127;
+            if(i)cv_line(12+sv_data[395+6*i]*199/127,54+sv_data[396+6*i]*34/127,x,y,C_WHITE);
+            cv_rect(x-1,y-1,3,3,i<ss.mark[2]||sv_data[403+6*i]?sv_trace[3]:C_WHITE);}
+    }else{
+        int lo=127,hi=0;for(int i=0;i<n;i++){int m=sv_data[404+6*i];if(m<lo)lo=m;if(m>hi)hi=m;}
+        for(int i=0;i<n;i++){
+            int x=12+sv_data[405+6*i]*215/127,end=12+sv_data[406+6*i]*215/127,y=86-(sv_data[404+6*i]-lo)*28/(hi>lo?hi-lo:1);
+            cv_rect(x,y,end>x?end-x:2,3,i<ss.mark[2]||sv_data[403+6*i]?sv_trace[3]:sv_trace[0]);
+        }
+    }
+}
 static void sv_plot(void){
     sv_grid_plot();
-    if(ss.mode==SV_FIELD&&ss.page==0){
+    if(ss.mode==SV_GEN_HUB&&ss.kind==SV_FIELD_MAP){sv_phrase_plot();}
+    else if(ss.mode==SV_FIELD&&ss.page==0){
         if(sv_has_data(SV_SPECTRUM)&&sv_data_len==760){
             for(int y=0;y<35;y++)for(int x=0;x<36;x++)cv_rect(12+6*x,54+y,6,1,sv_heat(sv_data[(y*21/35)*36+x]));
         }else sv_text(56,63,150,&FONT_XS,"WAITING FOR SPECTRUM",sv_trace[0]);
@@ -102,9 +120,12 @@ static void sv_plot(void){
         for(int i=0;i<8;i++)cv_rect(12+i*27,60,24,19,sv_grid);
         cv_line(12+ss.progress*215/SV_NORM,54,12+ss.progress*215/SV_NORM,88,sv_trace[3]);
     }else if(ss.mode!=SV_FIELD&&ss.page==7){
-        for(int i=0;i<14;i++){int x=12+15*i;cv_rect(x,58,13,28,sv_trace[0]);if(i%7!=2&&i%7!=6)cv_rect(x+9,58,8,17,sv_well);}
+        static const uint16_t masks[]={4095,1717,2741,1453,2477,1451,3501,1};
+        unsigned mask=masks[ss.mark[1]<8?ss.mark[1]:0];
+        for(int i=0;i<24;i++){int x=12+i*9,pc=(i+12-ss.mark[0])%12;cv_rect(x,58,8,28,(mask>>pc)&1?(pc==0?sv_trace[3]:sv_trace[1]):sv_grid);}
     }else if(ss.mode!=SV_FIELD&&ss.page==4){
-        for(int i=0;i<8;i++){int x=12+i*27;int y=83-(int)(18*sv_mod(i*(.4f+sv_n(1)),1));cv_rect(x,y,14+(int)(sv_n(3)*9),3,sv_trace[2]);}
+        int pattern=(int)(sv_n(1)*4+.5f),oct=1+(int)(sv_n(2)*3+.5f);
+        for(int i=0;i<8;i++){int x=12+i*27,j=pattern==1?7-i:pattern==2?(i<4?i:7-i):pattern==3?(i%2?7-i/2:i/2):i;int y=84-(j*28/7)*oct/4;cv_rect(x,y,4+(int)(sv_n(3)*20),3,sv_trace[2]);}
     }else{
         if(ss.mode==SV_FIELD&&(ss.page==6||ss.page==7))sv_plot_line(0,0,215,1,sv_grid);
         if(ss.mode==SV_FIELD&&(ss.page==2||ss.page==8||ss.page==10)){
@@ -116,7 +137,7 @@ static void sv_plot(void){
     for(unsigned i=0;i<4;i++){int x=12+i*54;cv_rect(x,93,50,5,sv_grid);if(ss.k[i].flags&SV_VALID)cv_rect(x,93,(int)(sv_n(i)*50),5,sv_trace[i]);}
 }
 static uint16_t sv_gen_color(unsigned v){
-    static const uint32_t col[]={0x182e55,0x294d79,0x396b99,0x4989b6,0x67a6cb,0x9bc3d8,0xd0e0db,0xe5e4ce,0xe6d5ac,0xe4be85,0xdca260,0xca8151,0xa95b47,0x793945};
+    static const uint32_t col[]={0x20304d,0x253b59,0x294666,0x2e5072,0x3a617e,0x49748b,0x588798,0x6d9a9f,0x89aba0,0xa5bca1,0xbec99e,0xcec890,0xdfc882,0xefc774};
     return sv_rgb(col[v>13?13:v]);
 }
 static void sv_generator(void){
@@ -124,11 +145,11 @@ static void sv_generator(void){
     // occupying the entire physical screen, with local route/cursor overlay.
     if(sv_has_data(SV_FIELD_MAP)&&sv_data_len>=401){
         for(int y=0;y<20;y++)for(int x=0;x<20;x++)cv_rect(x*12,y*12,12,12,sv_gen_color(sv_data[20*y+x]));
-        int n=sv_data[400];if(n>16||401+3*n>sv_data_len)n=0;
+        int n=sv_data[400];if(n>16||401+6*n>sv_data_len)n=0;
         for(int i=0;i<n;i++){
-            int x=sv_data[401+3*i]*239/127,y=sv_data[402+3*i]*239/127;
-            uint16_t c=sv_data[403+3*i]||i<ss.mark[2]?sv_trace[3]:C_WHITE;
-            if(i){int px=sv_data[398+3*i]*239/127,py=sv_data[399+3*i]*239/127;cv_line(px,py,x,y,c);}
+            int x=sv_data[401+6*i]*239/127,y=sv_data[402+6*i]*239/127;
+            uint16_t c=sv_data[403+6*i]||i<ss.mark[2]?sv_trace[3]:C_WHITE;
+            if(i){int px=sv_data[395+6*i]*239/127,py=sv_data[396+6*i]*239/127;cv_line(px,py,x,y,c);}
             cv_rect(x-2,y-2,5,5,c);
         }
     }else {cv_rect(0,0,240,240,sv_well);sv_text(60,110,150,&FONT_XS,"WAITING FOR FIELD",sv_trace[0]);}
@@ -163,8 +184,8 @@ static void sv_draw(void){
         if(sv_pending(0)||sv_pending(1)||sv_pending(2)||sv_pending(3)){sv_controls(144,48);}
     }else{
         uint16_t accent=sv_ac[0];if(ss.mode==SV_FIELD){static const uint8_t color[]={0,0,3,2,2,3,1,0,1,3,1};accent=sv_ac[color[ss.page]];}
-        else {static const uint8_t color[]={0,2,1,2,3,3,1,0,3,3,3,2,2,2,2,3,3,2,2};accent=sv_ac[color[ss.page<19?ss.page:0]];}
-        cv_rect(6,5,228,30,sv_panel);cv_rect(8,7,22,26,sv_ac[ss.track%4]);
+        else {static const uint8_t color[]={0,2,1,2,1,3,1,1,3,3,3,2,2,2,2,3,3,2,2};accent=ss.page==8?sv_red:ss.page==6?sv_rgb(ss.light?0xb51b79:0xffff64df):sv_ac[color[ss.page<19?ss.page:0]];}
+        cv_rect(6,5,228,30,sv_panel);static const uint8_t tc[]={0,1,2,0,3,0,1,2};cv_rect(8,7,22,26,ss.mode!=SV_FIELD&&ss.track==3?sv_rgb(ss.light?0xb51b79:0xffff64df):sv_ac[tc[ss.track]]);
         char num[4];if(ss.mode==SV_FIELD)strcpy(num,"F");else sv_uint(num,ss.track+1);
         sv_text(12,8,20,&FONT_B,num,ss.light?C_WHITE:sv_well);
         cv_rect(33,7,174,26,ss.mode==SV_FIELD?sv_ac[0]:sv_raised);

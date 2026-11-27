@@ -60,7 +60,7 @@ void SamplerApp::drawStateSurface(uint32_t now){
         if(page==9){kind=SV_NOISE;auto ms=std::clamp(std::atoi(fieldLines_[26].c_str()),1,2097151);data={uint8_t(ms>>14&127),uint8_t(ms>>7&127),uint8_t(ms&127)};}
     }else{
         k=mode==SV_GENERATOR?genKnobs():knobs();
-        if(mode==SV_GENERATOR){
+        if(mode==SV_GENERATOR||(mode==SV_GEN_HUB&&(page==P_HOME||page==P_ECHO||page==P_GRAIN||page==P_MOTION))){
             kind=SV_FIELD_MAP;
             if(genMapVersion_!=gen().version||genDrawMap_!=gen().map||genDrawTrack_!=track_){
                 genMapVersion_=gen().version;genDrawMap_=gen().map;genDrawTrack_=track_;
@@ -68,9 +68,9 @@ void SamplerApp::drawStateSurface(uint32_t now){
             }
             data.assign(genCells_.begin(),genCells_.end());
             data.push_back(uint8_t(gen().phrase.n));
-            for(int i=0;i<gen().phrase.n;++i){const auto& e=gen().phrase.event[i];data.push_back(uint8_t(std::lround(cl(e.point.x)*127)));data.push_back(uint8_t(std::lround(cl(1-e.point.y)*127)));data.push_back(uint8_t(gen().config.pins[i]>=0));}
+            for(int i=0;i<gen().phrase.n;++i){const auto& e=gen().phrase.event[i];data.push_back(uint8_t(std::lround(cl(e.point.x)*127)));data.push_back(uint8_t(std::lround(cl(1-e.point.y)*127)));data.push_back(uint8_t(gen().config.pins[i]>=0));data.push_back(uint8_t(std::clamp(e.midi,0,127)));data.push_back(uint8_t(std::lround(cl(gen().phrase.total>0?e.on/gen().phrase.total:0)*127)));data.push_back(uint8_t(std::lround(cl(gen().phrase.total>0?e.off/gen().phrase.total:0)*127)));}
             mp=unsigned(std::clamp(gen().cursor+1,0,127));progress=svNorm(gen().phrase.total>0?gen().seconds/gen().phrase.total:0);
-            mask=1u<<page;
+            if(mode==SV_GENERATOR)mask=1u<<page;else mask=1;
         }else{
             for(int i=0;i<kPrimaryMenus;++i)if(menuParent(page_)==primaryMenuPage(i))mask|=1u<<i;
             progress=svNorm(st_.clipPos[track_]);
@@ -79,6 +79,7 @@ void SamplerApp::drawStateSurface(uint32_t now){
             if(page_==P_HOME&&!genDeck_){kind=SV_WAVE;auto pk=peaks(track_,216);for(float v:pk)data.push_back(uint8_t(std::lround(cl(v)*127)));}
             else if(page_==P_MIX||page_==P_SAVE){mp=unsigned(std::lround(cl(page_==P_SAVE?st_.inputPeak:st_.track_peak[track_])*127));}
             else if(page_==P_LFO){mp=unsigned(std::lround(cl(st_.lfoPhase[track_])*127));}
+            else if(page_==P_KEY||page_==P_ARP){ma=unsigned(genDeck_?gen().config.root:scale_.root);mb=unsigned(genDeck_?gen().config.scale:scale_.scale);}
         }
     }
     if(data.size()>SV_DATA_MAX)data.resize(SV_DATA_MAX);

@@ -119,7 +119,7 @@ final class FieldRecordingView extends WebView {
     }
     public final class Bridge{
         @JavascriptInterface public void exit(){activity.runOnUiThread(()->{Native.setFieldMode(backend.engine,false);activity.fieldFrame(false,new int[0]);});}
-        @JavascriptInterface public void feedback(String summary,int leds,String pixels){if(active&&summary!=null&&summary.length()<512&&pixels!=null&&pixels.length()==756)Native.fieldFeedback(backend.engine,summary,leds,pixels);}
+        @JavascriptInterface public void feedback(String summary,int leds,String pixels){if(active&&summary!=null&&summary.length()<4096&&pixels!=null&&(pixels.length()==756||pixels.length()==1512))Native.fieldFeedback(backend.engine,summary,leds,pixels);}
         @JavascriptInterface public boolean beginSave(String name){
             synchronized(FieldRecordingView.this){
                 abortSave();if(!active||name==null)return false;
