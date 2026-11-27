@@ -248,11 +248,20 @@ int app_expect(const char *what,int *got){
         for(int p=0;p<5;p++)for(int n=3;n<=12;n+=3)for(int rate=0;rate<=12;rate++){
             int count=rate?clamp(3+rate*2,1,24):0;
             sg_arp_preview(p,n,count,pitch,color);
+            // At slow rates, UP with four octaves cannot reach its high
+            // endpoint in five events; DOWN cannot reach its low endpoint.
+            if(n==12&&rate==1&&p<2){
+                for(int i=0;i<count;i++)if(color[i]!=(i==0?(p==0?1:2):0))ok=0;
+            }
+            // At a fast rate, every repeated endpoint receives its color.
+            if(n==3&&rate==12&&p==2){
+                for(int i=0;i<count;i++)if(color[i]!=(i%4==0?1:i%4==2?2:0))ok=0;
+            }
             for(int i=0;i<count;i++){
                 if(n==3&&p<4&&i<8&&pitch[i]!=expected[p][i])ok=0;
                 if(pitch[i]<0||pitch[i]>=n)ok=0;
                 if(p<4&&i>0&&pitch[i]==pitch[i-1])ok=0;
-                if(color[i]!=(i==0?1:i==count-1?2:0))ok=0;
+                if(color[i]!=(pitch[i]==0?1:pitch[i]==n-1?2:0))ok=0;
             }
         }
         *got=ok;

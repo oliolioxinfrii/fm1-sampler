@@ -248,11 +248,11 @@ static int sg_arp_note(int pattern,int n,int i){
     }
 }
 static int sg_arp_preview(int pattern,int levels,int count,int *pitch,int *color){
-    // Accents identify the first and last displayed events, not pitch extrema.
-    // Every interior note remains neutral regardless of pitch or pattern.
+    // Accents identify the extrema of the complete octave-dependent pitch
+    // domain, not the extrema of the visible excerpt or its event order.
     for(int i=0;i<count;i++){
         pitch[i]=sg_arp_note(pattern,levels,i);
-        color[i]=i==0?1:i==count-1?2:0;
+        color[i]=pitch[i]==0?1:pitch[i]==levels-1?2:0;
     }
     return count;
 }
