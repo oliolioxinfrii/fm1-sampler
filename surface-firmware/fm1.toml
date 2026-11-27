@@ -1,0 +1,17 @@
+name = "SAMPLER"
+# Local experimental identity. Coordinate permanent allocation before distribution.
+id_prefix = "FM-1_941"
+usb_manufacturer = "FM-1 Sampler"
+usb_product = "SAMPLER FM-1"
+ble = false
+wifi = false
+usb_audio_in = true
+usb_audio_out = true
+companion = true
+licence = "GPL-3.0-only"
+author = "FM-1 Sampler contributors"
+repo = "https://github.com/oliolioxinfrii/fm1-sampler"
+tagline = "Native control surface for the phone sampler"
+description = "USB MIDI and audio control surface for the FM-1 Sampler application. Local parameter state, native graphics and analytical caches; all audio processing and projects reside on the phone."
+tags = ["sampler", "controller", "midi", "experimental"]
+credits = "Built on fm1-base and felucca-bsp."

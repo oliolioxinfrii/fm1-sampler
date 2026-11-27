@@ -15,3 +15,5 @@ __pycache__/
 firmware/FM1-DAW-Workbench.html
 android/app/.cxx/
 android/**/.cxx/
+
+.fm1-base/
