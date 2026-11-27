@@ -18,7 +18,8 @@ final class FieldRecordingView extends WebView {
     private static final String PAGE="https://fm1.local/field.html";
     private final SamplerActivity activity;
     private final Backend backend;
-    private boolean ready=false,active=false;
+    private boolean ready=false;
+    private volatile boolean active=false;
     private final ArrayList<Integer> pending=new ArrayList<>();
     private ValueCallback<Uri[]> picker;
     private PermissionRequest micRequest;
@@ -71,7 +72,13 @@ final class FieldRecordingView extends WebView {
                 android.util.Log.d("FM1Field",msg.message()+" : "+msg.lineNumber());return true;
             }
         });
-        loadUrl(PAGE);
+        try(InputStream in=activity.getAssets().open("field-recording.html");ByteArrayOutputStream bytes=new ByteArrayOutputStream()){
+            byte[] buf=new byte[8192];int n;while((n=in.read(buf))!=-1)bytes.write(buf,0,n);
+            loadDataWithBaseURL(PAGE,bytes.toString("UTF-8"),"text/html","UTF-8",PAGE);
+        }catch(IOException e){
+            android.util.Log.e("FM1Field","Cannot open field recording asset",e);
+            activity.runOnUiThread(()->{Native.setFieldMode(backend.engine,false);activity.fieldFrame(false,new int[0]);});
+        }
     }
     void permissionResult(boolean granted){
         if(micRequest==null)return;
@@ -83,9 +90,16 @@ final class FieldRecordingView extends WebView {
         if(cb!=null)cb.onReceiveValue(active&&result==Activity.RESULT_OK&&data!=null&&data.getData()!=null?new Uri[]{data.getData()}:null);
     }
     void enter(){active=true;setVisibility(View.VISIBLE);onResume();syncActive();}
-    void leave(){active=false;pending.clear();syncActive();setVisibility(View.GONE);onPause();abortSave();}
+    void leave(Runnable after){
+        active=false;pending.clear();setVisibility(View.GONE);abortSave();
+        if(micRequest!=null){micRequest.deny();micRequest=null;}
+        final boolean[] completed={false};
+        Runnable done=()->{if(completed[0])return;completed[0]=true;if(!active)onPause();after.run();};
+        if(ready){evaluateJavascript("window.fm1Host&&fm1Host.active(false,"+Native.lightTheme(backend.engine)+")",v->done.run());postDelayed(done,750);}
+        else done.run();
+    }
     void suspendCapture(){if(ready)evaluateJavascript("window.fm1Host&&fm1Host.suspend()",null);}
-    void dispose(){leave();if(picker!=null){picker.onReceiveValue(null);picker=null;}if(micRequest!=null){micRequest.deny();micRequest=null;}removeJavascriptInterface("FM1Native");}
+    void dispose(){leave(()->{});if(picker!=null){picker.onReceiveValue(null);picker=null;}if(micRequest!=null){micRequest.deny();micRequest=null;}removeJavascriptInterface("FM1Native");}
     private void syncActive(){
         if(ready)evaluateJavascript("window.fm1Host&&fm1Host.active("+active+","+Native.lightTheme(backend.engine)+")",null);
     }
@@ -103,7 +117,7 @@ final class FieldRecordingView extends WebView {
         if(output!=null)try{output.close();}catch(IOException ignored){}
         output=null;if(temp!=null)temp.delete();temp=target=null;written=0;
     }
-    private final class Bridge{
+    public final class Bridge{
         @JavascriptInterface public void exit(){activity.runOnUiThread(()->{Native.setFieldMode(backend.engine,false);activity.fieldFrame(false,new int[0]);});}
         @JavascriptInterface public void feedback(String summary,int leds){if(active&&summary!=null&&summary.length()<512)Native.fieldFeedback(backend.engine,summary,leds);}
         @JavascriptInterface public boolean beginSave(String name){

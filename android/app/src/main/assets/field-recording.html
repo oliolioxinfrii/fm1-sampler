@@ -81,17 +81,17 @@ function wav(ch,meta){let n=ch[0].length,c=ch.length,dataBytes=2*n*c,json=new Te
 function saveKind(kind){try{ensure();let lo=cl(Math.round(a*src[0].length),0,src[0].length-1),hi=cl(Math.round(b*src[0].length),lo+1,src[0].length),ch=kind==='output'?finalCached():getResidue()?.map(x=>x.slice(lo,hi));if(!ch){status('NO RESIDUE');return}let url=URL.createObjectURL(wav(ch,editMetadata(kind))),link=document.createElement('a');link.href=url;link.download=sourceName.replace(/\.[^.]+$/,'').replace(/[^\w -]/g,'-')+'-'+kind+'.wav';link.click();setTimeout(()=>URL.revokeObjectURL(url),1500);status(kind.toUpperCase()+' SAVED')}catch(e){status('EXPORT ERROR');console.error(e)}}$('saveOutput').onclick=()=>saveKind('output');$('saveResidue').onclick=()=>saveKind('residue');
 async function decode(ab,name){let buf=await audio().decodeAudioData(ab);setSource(Array.from({length:buf.numberOfChannels},(_,i)=>new Float32Array(buf.getChannelData(i))),buf.sampleRate,name)}$('load').onclick=()=>$('file').click();$('file').onchange=async()=>{let file=$('file').files[0];if(!file)return;try{status('DECODING');await decode(await file.arrayBuffer(),file.name)}catch(e){status('FILE ERROR');console.error(e)}$('file').value=''};
 $('record').onclick=async()=>{if(recording){recording.stop();return}try{if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){status('MIC UNAVAILABLE');return}let stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}}),rec=new MediaRecorder(stream),chunks=[];recording=rec;rec.ondataavailable=e=>chunks.push(e.data);rec.onstop=async()=>{stream.getTracks().forEach(t=>t.stop());recording=null;$('record').setAttribute('aria-pressed','false');try{await decode(await new Blob(chunks,{type:rec.mimeType}).arrayBuffer(),'Microphone / '+new Date().toLocaleTimeString())}catch(e){status('REC DECODE ERROR')}};rec.start();$('record').setAttribute('aria-pressed','true');status('RECORDING')}catch(e){status('MIC DENIED / UNAVAILABLE')}};
-const monitorOrder=['source','residue','retained'],windowOrder=[null,...[...restoration,...transform].filter(id=>Object.hasOwn(specs,id))];
-function cycle(arr,current,dir){let i=arr.indexOf(current);return arr[(i+dir+arr.length)%arr.length]}
+const monitorOrder=['source','residue','retained'],windowOrder=[null,...[...restoration,...transform].filter(id=>Object.prototype.hasOwnProperty.call(specs,id))];
+function cycle(arr,current,dir){let i=arr.indexOf(current);return arr[((i+dir)%arr.length+arr.length)%arr.length]}
 function syncLeft(){if(!$('selectRead'))return;$('selectRead').textContent=monitor==='retained'?'OUTPUT':monitor.toUpperCase();$('presetRead').textContent=SN+' / '+(1000*SN/sr).toFixed(1)+' ms';$('algorithmRead').textContent=focus?names[focus]:'NONE'}
-function leftStep(id,dir){if(id==='select'){if(finalMode)setFinal(false);setMonitor(cycle(monitorOrder,monitor,dir))}else if(id==='preset')setResolution(cycle(sizes,SN,dir));else if(id==='algorithm'){let target=cycle(windowOrder,focus,dir);if(target)openWindow(target);else closeWindow()}syncLeft()}
+function leftStep(id,dir){if(id==='select'){if(finalMode)setFinal(false);setMonitor(cycle(monitorOrder,monitor,dir))}else if(id==='preset')setResolution(cycle(sizes,SN,dir));else if(id==='algorithm'){let target=cycle(windowOrder,focus,dir);if(target&&target!==focus)openWindow(target);else if(!target)closeWindow()}syncLeft()}
 $('simLeft').innerHTML=[['select','SELECT / MATERIAL'],['preset','PRESETS / RESOLUTION'],['algorithm','ALGORITHM / PROCESS']].map(([id,label])=>`<div class="simencoder"><label>${label}</label><button data-left="${id}" data-dir="-1" aria-label="${label} previous">−</button><output id="${id}Read">—</output><button data-left="${id}" data-dir="1" aria-label="${label} next">+</button></div>`).join('');
 for(let e of $('simLeft').querySelectorAll('button'))e.onclick=()=>leftStep(e.dataset.left,+e.dataset.dir);
 window.addEventListener('message',e=>{if(e.source===parent&&e.data==='fm1:stop'){stop();if(recording&&recording.state==='recording')recording.stop()}});
 function resize(){let s=$('wrap').clientWidth/960;$('stage').style.transform=`scale(${s})`;$('wrap').style.height=450*s+'px'}new ResizeObserver(resize).observe($('wrap'));window.addEventListener('keydown',e=>{if(e.key==='Escape'&&focus)closeWindow()});window.fm1Study={get state(){return {a,b,pos,cursor,v0,v1,focus,monitor,finalMode,spectralMode,analysisFFT:SN,params:{...p},profile:!!profile}},get source(){return src},get retained(){ensure();return processed.retained},get residue(){ensure();return processed.residue},get final(){return finalCached()},get exportMetadata(){return editMetadata('output')}};demo();resize();syncLeft();
 </script><script>(()=>{if(parent===window)return;const main=document.querySelector('main'),report=()=>parent.postMessage({fm1Height:Math.ceil(main.getBoundingClientRect().height)},'*');new ResizeObserver(report).observe(main);addEventListener('resize',report);report()})();</script>
 <style>
-body.native-host{overflow:hidden;background:var(--shell)}
+body.native-host{overflow:hidden;background:var(--shell);display:flex;align-items:center;min-height:100vh}
 body.native-host main{padding:0;max-width:none;width:min(100vw, calc(100vh * 960 / 450));margin:auto}
 body.native-host header,body.native-host .sim,body.native-host .notes{display:none!important}
 body.native-host #wrap{max-width:none;width:100%;margin:0}
@@ -106,8 +106,8 @@ body.native-host .tag{cursor:pointer;touch-action:none}
  function encoder(idx,delta){
    if(idx===0||idx===1||idx===6){
      const id=idx===0?'select':idx===1?'algorithm':'preset';
-     const dir=Math.sign(delta);
-     for(let i=0;i<Math.min(32,Math.abs(delta));i++)leftStep(id,dir);
+     // A batched MIDI detent packet must not repeatedly render intermediate FFT sizes.
+     leftStep(id,delta);
      return;
    }
    const q=(specs[focus]||specs.base)[idx-2];if(!q)return;
@@ -140,7 +140,7 @@ body.native-host .tag{cursor:pointer;touch-action:none}
  $('record').onclick=async()=>{
    if(recording){recording.stop();return;}
    if(!hostActive)return;
-   const ticket=++recordEpoch;
+   stop();const ticket=++recordEpoch;
    let stream,source,node,muted;
    try{
      stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:1}});

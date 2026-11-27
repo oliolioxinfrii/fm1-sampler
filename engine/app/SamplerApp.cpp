@@ -646,6 +646,7 @@ void SamplerApp::onSysex(const uint8_t* m, size_t n) {
     if (n < 8 || m[1] != 0x7d || m[2] != 'D' || m[3] != 'A' || m[4] != 'W') return;
     linkSeen_ = true;
     if (m[6] == 0x41 && n >= 12) {
+        if(fieldMode_)return; // hardware octave/scale messages must not modify the previous deck
         if(genDeck_){
             if((m[7]&7)!=7){fwDirty_=true;return;}
             const int oct=std::clamp(int(m[9])+1,2,6);
@@ -658,8 +659,8 @@ void SamplerApp::onSysex(const uint8_t* m, size_t n) {
     }
     else if (m[6] == 0x40 && n >= 30) {   // PONG: frames the FM-1 had to drop
         uint32_t d = 0; for (int i = 0; i < 5; i++) d = d << 7 | (m[24 + i] & 127);
-        if (haveDropBase_ && d != dropped_) { gap_ = std::min<uint32_t>(250, gap_ * 16 / 10 + 1); lastLoss_ = nowMs_; if(genDeck_&&!editor_){discardPending(3000,3079);genTileSig_.fill(~0ull);genPalette();}else{needClear_=true;pending_.clear();pendingBytes_=0;} }
-        if (!haveDropBase_) { needClear_ = true; repaintAt_ = genDeck_&&!editor_?0:nowMs_ + 1500; }   // first contact: whatever the firmware drew (its splash) goes
+        if (haveDropBase_ && d != dropped_) { gap_ = std::min<uint32_t>(250, gap_ * 16 / 10 + 1); lastLoss_ = nowMs_; if(genDeck_&&!editor_&&!fieldMode_){discardPending(3000,3079);genTileSig_.fill(~0ull);genPalette();}else{needClear_=true;pending_.clear();pendingBytes_=0;} }
+        if (!haveDropBase_) { needClear_ = true; repaintAt_ = genDeck_&&!editor_&&!fieldMode_?0:nowMs_ + 1500; }   // first contact: whatever the firmware drew (its splash) goes
         if (!haveDropBase_) fwDirty_ = true;
         dropped_ = d; haveDropBase_ = true;
     }

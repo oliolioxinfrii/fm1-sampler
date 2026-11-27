@@ -50,9 +50,9 @@ public class SamplerActivity extends Activity {
                 sampler.setVisibility(View.GONE);
                 field.enter();
             }else{
-                if(field!=null)field.leave();
                 sampler.setVisibility(View.VISIBLE);
-                backend.setFieldAudio(false);
+                if(field!=null)field.leave(()->{if(!examining)backend.setFieldAudio(false);});
+                else backend.setFieldAudio(false);
             }
         }
         if(active&&field!=null)field.events(events);
