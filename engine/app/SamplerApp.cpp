@@ -9,6 +9,13 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <iomanip>
+#include <chrono>
+#include <type_traits>
+#include <limits>
 
 namespace {
 constexpr uint16_t rgb(int r, int g, int b) { return (uint16_t)((r >> 3) << 11 | (g >> 2) << 5 | (b >> 3)); }
@@ -84,11 +91,11 @@ SamplerApp::SamplerApp(Session& s, Send send) : s_(s), send_(std::move(send)) {
     s_.setLoopSource(loopSrc_);
     // a first session to play with: keys on 1, a drum kit on 2, bass on 3
     auto first = [&](const char* group, int track) {
-        for (size_t i = 0; i < lib_.size(); i++) if (lib_[i].group == group) { ts_[track].entry = (int)i; if (group == std::string("Drums")) ts_[track].algo = 3; s_.loadSamplePath(lib_[i].path, lib_[i].kit, track); return; }
+        for (size_t i = 0; i < lib_.size(); i++) if (lib_[i].group == group) { ts_[track].entry = (int)i; samplePaths_[track]=lib_[i].path; if (group == std::string("Drums")) ts_[track].algo = 3; s_.loadSamplePath(lib_[i].path, lib_[i].kit, track); return; }
     };
     // the default project: Tape Key, Acoustic bass, Shiny, Trap Kit
     auto byLabel = [&](const char* label, int track) {
-        for (size_t i = 0; i < lib_.size(); i++) if (lib_[i].label == label) { ts_[track].entry = (int)i; if (lib_[i].kit) ts_[track].algo = 3; s_.loadSamplePath(lib_[i].path, lib_[i].kit, track); return; }
+        for (size_t i = 0; i < lib_.size(); i++) if (lib_[i].label == label) { ts_[track].entry = (int)i; samplePaths_[track]=lib_[i].path; if (lib_[i].kit) ts_[track].algo = 3; s_.loadSamplePath(lib_[i].path, lib_[i].kit, track); return; }
     };
     byLabel("Tape Key", 0); byLabel("Acoustic", 1); byLabel("Shiny", 2); byLabel("TrapKit", 3); (void)first;
     for (int t = 0; t < kTracks; t++) { applyMix(t); editEchoFx(t); }
@@ -98,6 +105,7 @@ SamplerApp::SamplerApp(Session& s, Send send) : s_(s), send_(std::move(send)) {
 
 // ---- library ----
 void SamplerApp::refreshLibrary() {
+    const std::string oldCursor=libCursor_>=0&&libCursor_<int(lib_.size())?lib_[libCursor_].path:"";
     lib_.clear();
     const std::string dir = s_.sampleDir();
     for (auto& f : s_.sampleFolders())
@@ -110,7 +118,9 @@ void SamplerApp::refreshLibrary() {
         if (nm.rfind("sample_", 0) == 0) nm = nm.substr(7);
         lib_.push_back({nm, "User", p, false});
     }
-    if (libCursor_ >= (int)lib_.size()) libCursor_ = 0;
+    libCursor_=0;
+    for(int t=0;t<kTracks;++t){ts_[t].entry=-1;for(int i=0;i<int(lib_.size());++i)if(lib_[i].path==samplePaths_[t]){ts_[t].entry=i;break;}}
+    for(int i=0;i<int(lib_.size());++i)if(lib_[i].path==oldCursor){libCursor_=i;break;}
     for(auto& g:genTracks_){g.entry=-1;for(int i=0;i<int(lib_.size());i++)if(lib_[i].path==g.path){g.entry=i;break;}}
 }
 void SamplerApp::browse(int d) {
@@ -124,7 +134,7 @@ void SamplerApp::loadEntry(int i) {
     libCursor_ = i; auditionAt_ = 0;
     const Entry& e = lib_[(size_t)i];
     TrackState& t = ts_[track_];
-    t.entry = i; t.start = 0.f; t.end = 1.f;
+    t.entry = i; samplePaths_[track_]=e.path; t.tuned=false; t.start = 0.f; t.end = 1.f;
     if (e.kit) t.algo = 3; else if (t.algo == 3) t.algo = 0;
     if (!pageAvailable(page_)) page_ = P_HOME;
     previewAfterLoad_ = true;
@@ -552,13 +562,12 @@ void SamplerApp::lenAction(bool dbl) {   // loop x2 (the content repeats) or /2;
     if (dbl) { s_.loopDouble(); say("LOOP DOUBLED"); } else { s_.loopHalve(); say("LOOP HALVED"); }
 }
 void SamplerApp::loopSave() {
-    if(genDeck_){if(outputRecordState()==1)outputRecordToggle();else say("RESAMPLING AUTOSAVES");return;}
-    if (!s_.saveClip(track_)) { say("NO LOOP TO SAVE"); return; }
-    say("LOOP SAVED TO LIBRARY");
-    previewAfterLoad_ = false;
-    auditionAt_ = 0;
-    commitAt_ = nowMs_ + 1;   // refresh the library shortly, once the file is written
-    commitTrack_ = -2;
+    if(saveNoticeState()!=0||nativeFileSaving_)return;
+    if(genDeck_){if(outputRecordState()==1)outputRecordToggle();else requestProjectSave();return;}
+    if(recordingNow()){say("STOP RECORDING FIRST");return;}
+    if(!s_.saveClip(track_)){beginSaveNotice("LOOP / TRACK "+std::to_string(track_+1));endSaveNotice(false);return;}
+    nativeFileSaving_=true;beginSaveNotice("LOOP / TRACK "+std::to_string(track_+1));
+    previewAfterLoad_=false;auditionAt_=0;
 }
 void SamplerApp::loopClearTrack() {
     if (!st_.track_has_clip[track_]) { say("NO LOOP ON THIS TRACK"); return; }
@@ -575,7 +584,7 @@ void SamplerApp::micSample() {
         s_.recorderWait(true); s_.recorderStart();
         mic_ = 1; micTrack_ = track_; say("SAMPLING: MAKE A SOUND");
     } else if (mic_ == 1) { s_.recorderStop(); mic_ = 0; say("SAMPLING CANCELLED"); }
-    else if (mic_ == 2) { s_.recorderStop(); mic_ = 3; say("SAVING"); }
+    else if (mic_ == 2) { s_.recorderStop(); mic_ = 3; micSaveAt_=nowMs_;beginSaveNotice("MICROPHONE SAMPLE");say("SAVING"); }
 }
 std::string SamplerApp::loopText() const {
     if(genDeck_)return outputRecordState()==1?"REC "+fmt("%.1fS",outputRecordSeconds()):outputRecordState()==2?"SAVING":gen().running?"GENERATING":"GENERATOR READY";
@@ -702,7 +711,7 @@ void SamplerApp::fieldFeedback(const std::string& summary,uint32_t leds,const st
 }
 void SamplerApp::setFieldMode(bool on) {
     if(on==fieldMode_)return;
-    if(on&&(recordingNow()||mic_!=0||outputRecordState()==1||outputRecordState()==2)){
+    if(on&&(nativeFileSaving_||recordingNow()||mic_!=0||outputRecordState()==1||outputRecordState()==2)){
         say("STOP RECORDING FIRST");return;
     }
     // Preserve the held button and consumed-long state across view transitions.
@@ -854,6 +863,7 @@ void SamplerApp::resetSurface() {
 }
 void SamplerApp::tick(uint32_t now) {
     nowMs_ = now;
+    if(nativeFileSaving_&&s_.fileSaveState()!=1){nativeFileSaving_=false;bool ok=s_.fileSaveState()==2;if(ok)refreshLibrary();endSaveNotice(ok);}
     if (echoSaveAt_ && now >= echoSaveAt_) { echoSaveAt_ = 0; saveEcho(); }
     if((held_&(1u<<REC))&&!recLong_&&now-recAt_>=700){
         recLong_=true;
@@ -863,7 +873,7 @@ void SamplerApp::tick(uint32_t now) {
     }
     if(genDeck_)genRefresh();
     const int os=outputRecordState();
-    if(os!=lastOutputState_){lastOutputState_=os;if(os==3){latestTake_=s_.outputRecordPath();refreshLibrary();say("RESAMPLE SAVED");if(!genDeck_)selectSavedTake();}else if(os==4)say("RESAMPLE SAVE FAILED");}
+    if(os!=lastOutputState_){lastOutputState_=os;if(os==2)beginSaveNotice("MASTER OUTPUT");else if(os==3){latestTake_=s_.outputRecordPath();refreshLibrary();beginSaveNotice("MASTER OUTPUT");endSaveNotice(true);if(!genDeck_)selectSavedTake();}else if(os==4){beginSaveNotice("MASTER OUTPUT");endSaveNotice(false);}}
     if ((held_ & (1u << HOME)) && !homeLong_ && now - homeAt_ >= 600) {
         homeLong_=true;
         if(fieldMode_)setFieldMode(false);
@@ -884,7 +894,7 @@ void SamplerApp::tick(uint32_t now) {
     if (auditionAt_ && now >= auditionAt_) loadEntry(libCursor_);
     if (st_.sampleVersion != lastSampleVersion_) {   // a sample landed on a track: give it this track's settings
         lastSampleVersion_ = st_.sampleVersion;
-        if (st_.sampleTrack >= 0 && st_.sampleTrack < kTracks) ts_[st_.sampleTrack].tuned = false;   // a new sample: its pitch is unknown again
+        // loadEntry resets tuning for newly chosen samples; project restores retain saved tuning.
         for (int i = 0; i < kTracks; i++) if (hasSample(i)) applyAll(i);   // several samples can land between two ticks (start-up): every track gets its settings, not only the last
         if (previewAfterLoad_ && st_.sampleTrack == track_) { previewAfterLoad_ = false; previewNote_ = 60; previewTrack_ = track_; s_.noteOn(track_, 60, 100); previewOffAt_ = now + 900; }
     }
@@ -902,9 +912,9 @@ void SamplerApp::tick(uint32_t now) {
         s_.recorderDismiss();
         refreshLibrary();
         for (size_t i = 0; i < lib_.size(); i++) if (lib_[i].path == path) { const int keep = track_; track_ = micTrack_; loadEntry((int)i); track_ = keep; break; }
-        mic_ = 0; say("SAMPLE LOADED");
+        mic_ = 0; endSaveNotice(true); say("SAMPLE LOADED");
     }
-    if (mic_ == 3 && st_.sampleState == 0 && !st_.samplePending && now - lastDraw_ > 3000) mic_ = 0;   // too short: nothing was kept
+    if (mic_ == 3 && st_.sampleState == 0 && !st_.samplePending && now - micSaveAt_ > 1000) {mic_=0;endSaveNotice(false);}   // too short: nothing was kept
     if (now - lastDraw_ >= 33) {
         lastDraw_ = now;
         if (now - healAt_ >= 150 && pending_.size() < 4) { healAt_ = now; if (!needClear_&&!fieldMode_&&(!genDeck_||editor_)) heal(); }
@@ -1403,3 +1413,5 @@ void SamplerApp::hero(uint32_t now, const Knobs& k) {
 }
 
 #include "GenerativeApp.inc"
+
+#include "ProjectFiles.inc"

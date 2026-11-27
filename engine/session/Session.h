@@ -12,6 +12,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <utility>
 struct SampleBuf;
 
 class Session {
@@ -127,6 +128,11 @@ public:
     void setTempoStretch(bool on);
     void setLoopSpeed(float speed);       // 0.25..2, tape speed of all loops together; 1 = locked to the transport
     void setLoopSource(int src);          // what the loop records: 0 microphone, 1 the track's sound
+    int fileSaveState() const; // 0 idle, 1 working, 2 saved, 3 failed
+    bool saveProject(const std::string& directory,const std::string& name,const std::string& manifest,const std::vector<std::pair<std::string,std::string>>& sources);
+    bool loadProjectLoops(const std::string& directory);
+    void clearSample(int track);
+    void generatorClear(int track);
     bool saveClip(int track);             // the loop of `track` as sample_*.wav in the data dir
     int loopPeaks(int track /* -1 = all tracks mixed */, float* out, int maxBins) const;
 

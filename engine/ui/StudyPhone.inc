@@ -308,8 +308,8 @@ void SamplerUI::studyDeck(){
         if(i==0)tri(x-4,y-6,x-4,y+6,x+6,y,fg);else if(i==1)rrect({x-5,y-5,10,10},0,fg);else if(i==2)circle(x,y,5.5f,active?fg:RED);else {line(x-5,y-5,x+5,y+5,fg,2);line(x-5,y+5,x+5,y-5,fg,2);}
         const char* names[]={"PLAY","STOP","REC","CLEAR"};text(z.x+27,y,10,fg,names[i],0,true);tap(z,[this,i]{if(i==0)app_.transportSet(true);else if(i==1)app_.transportSet(false);else if(i==2)app_.loopRecord();else app_.loopClearTrack();});}
     line(20,299,335,299,OUTLINE);rrect({21,308,7,7},0,linkMidi_?GREEN:DIM);text(32,312,10,DIM,fit(app_.toast().empty()?(linkMidi_?"FM-1 LINK":"LOOP READY"):app_.toast(),230,10));button({281,302,54,21},theme::light?"DARK":"LIGHT",false,[this]{setLight(!theme::light);},10);
-    const char* tools[]={"GRAIN","MIC","FILE","PROJ","EDIT"};for(int i=0;i<5;i++){float yy=13+i*52.f+(i==4?16.f:0.f);Rect z{349,yy,54,46};bevel(z,SURFACE);if(i==4){line(368,yy+10,385,yy+10,TEXT,2);line(368,yy+16,385,yy+16,TEXT,2);line(368,yy+22,381,yy+22,TEXT,2);}else icon(4+i,376,yy+16,i==0?VIOLET:i==1?RED:ACCENT);text(376,yy+36,9,TEXT,tools[i],1,true);
-        tap(z,[this,i]{if(i==0){if(app_.algo()!=4){app_.say("SELECT GRANULAR FIRST");return;}app_.gotoPage(app_.page()==P::P_ECHO?P::P_GRAIN:app_.page()==P::P_GRAIN?P::P_MOTION:P::P_ECHO);}else if(i==1)app_.micSample();else if(i==2)app_.requestFile();else if(i==3)projectOpen_=true;else app_.setEditor(true);});}
+    const char* tools[]={"FOLDER","MIC","FILE","PROJ","EDIT"};for(int i=0;i<5;i++){float yy=13+i*52.f+(i==4?16.f:0.f);Rect z{349,yy,54,46};bevel(z,SURFACE);if(i==4){line(368,yy+10,385,yy+10,TEXT,2);line(368,yy+16,385,yy+16,TEXT,2);line(368,yy+22,381,yy+22,TEXT,2);}else icon(i==0?6:4+i,376,yy+16,i==1?RED:ACCENT);text(376,yy+36,9,TEXT,tools[i],1,true);
+        tap(z,[this,i]{if(i==0){app_.requestFileManager();}else if(i==1)app_.micSample();else if(i==2)app_.requestFile();else if(i==3)projectOpen_=true;else app_.setEditor(true);});}
     line(349,226,403,226,OUTLINE);
     const uint32_t pageAccent=pageColor(pg);
     bevel({418,13,522,23},SURFACE);rrect({426,20,6,10},0,pageAccent);text(439,25,12,pageAccent,P::pageName(pg),0,true);

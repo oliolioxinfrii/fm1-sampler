@@ -8,3 +8,6 @@ SAVE OUTPUT and SAVE RESIDUE write the selected interval into the native USER sa
 
 Host: make -j1 and make "$PWD/build/test_field_controls" && ./build/test_field_controls from engine/.
 Android: gradle :app:assembleDebug from android/.
+
+## Files and projects (experimental.8)
+FOLDER replaces the tape deck's Grain shortcut; Grain remains available through the Sample submenu. PROJECT offers SAVE PROJECT and FILES / PROJECTS; loop doubling/halving are removed from this menu only. The file manager supports opening, renaming, deleting USER WAVs and projects, with deletion confirmation and protection for sources in active use. Project snapshots copy source WAVs for both decks and store all eight track settings, generative configurations, mixer/effect settings, loop transport settings, and exact float loop PCM. Loading restores a stopped session; transient voices, effect tails, active recording, and the unsaved field examination workspace are not serialized. The file format is version 1, same-device sample-rate/byte-order dependent. Saves use a staging directory and rename only after writes succeed; save feedback is determinate for field WAV exports and indeterminate for native disk work. Large audio snapshots copy loop PCM at an audio-block boundary and may momentarily affect playback.

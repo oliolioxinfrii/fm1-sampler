@@ -92,6 +92,7 @@ private:
     void propertyTab(Rect r, const std::string& label, bool on, uint32_t col, float font);
     void librarySheet();
     void projectSheet();
+    void saveNotice();
 
     SamplerApp& app_;
     float W_ = 860, H_ = 400, top_ = 0, bottom_ = 0;

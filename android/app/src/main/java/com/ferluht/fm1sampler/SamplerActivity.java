@@ -18,6 +18,7 @@ public class SamplerActivity extends Activity {
     FieldRecordingView field;
     android.widget.FrameLayout root;
     boolean examining;
+    FileManager files;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -33,6 +34,8 @@ public class SamplerActivity extends Activity {
         root.addView(sampler,new android.widget.FrameLayout.LayoutParams(-1,-1));
         setContentView(root);
         backend.onFieldFrame=this::fieldFrame;
+        files=new FileManager(this,backend);
+        backend.onFileAction=action->{if(!examining){if(action==1)files.show();else if(action==2)files.saveProject();}};
         hideSystemBars();
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) backend.startMic();
         else requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 1);
@@ -68,6 +71,8 @@ public class SamplerActivity extends Activity {
     @Override protected void onDestroy(){
         backend.onFieldFrame=null;
         backend.onFileRequest=null;
+        backend.onFileAction=null;
+        if(files!=null)files.close();
         if(field!=null){field.dispose();root.removeView(field);field.destroy();}
         Native.setFieldMode(backend.engine,false);backend.setFieldAudio(false);
         super.onDestroy();

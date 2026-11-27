@@ -20,6 +20,8 @@ public final class Native {
     public static native int[] fieldEvents(long h);
     public static native void fieldFeedback(long h, String summary, int leds, String pixels);
     public static native void refreshLibrary(long h);
+    public static native int fileAction(long h);
+    public static native String manageFile(long h,int op,String path,String name);
     public static native boolean wantFile(long h);
     public static native void importFile(long h, String path);
     public static native void say(long h, String message);

@@ -134,6 +134,14 @@ public:
     void importFile(const std::string& wavPath);  // a file picked from the disk (already copied into the data dir as a WAV)
     bool wantFile() { bool w = wantFile_; wantFile_ = false; return w; }   // the UI asked for the disk picker: Java polls this
     void requestFile() { wantFile_ = true; }
+    void requestFileManager() { fileAction_=1; }
+    void requestProjectSave() { fileAction_=2; }
+    int takeFileAction(){int a=fileAction_;fileAction_=0;return a;}
+    std::string manageFile(int op,const std::string& path,const std::string& name);
+    bool saveProject(const std::string& name);
+    bool loadProject(const std::string& directory);
+    int saveNoticeState() const { return saveNotice_==1||nowMs_<saveNoticeUntil_?saveNotice_:0; }
+    const std::string& saveNoticeLabel()const{return saveNoticeLabel_;}
     // looper and recorder
     void transportPlay();
     void transportSet(bool play);                 // phone PLAY / STOP keys
@@ -189,7 +197,7 @@ public:
     void keyEvent(int rawNote, bool down);        // FM-1 key: chromatic note from the firmware
     bool linkSeen() const { return linkSeen_; }
     std::vector<float> peaks(int t, int bins);    // waveform of a track's sample, cached
-    std::string sampleLabel(int t) const { return s_.trackLabel(t); }
+    std::string sampleLabel(int t) const;
     Session& session() { return s_; }
 
 private:
@@ -278,6 +286,13 @@ private:
     int libCursor_ = 0, loadedCursor_ = -1;
     uint32_t auditionAt_ = 0, previewOffAt_ = 0; int previewNote_ = -1, previewTrack_ = -1;
     bool wantFile_ = false, previewAfterLoad_ = false;
+    int fileAction_=0,saveNotice_=0;
+    uint32_t saveNoticeUntil_=0,micSaveAt_=0;
+    bool nativeFileSaving_=false;
+    std::string saveNoticeLabel_;
+    std::array<std::string,kTracks> samplePaths_{};
+    void beginSaveNotice(const std::string& label);
+    void endSaveNotice(bool ok);
     // loop / recorder
     Session::Status st_{};
     bool loopAny_ = false;

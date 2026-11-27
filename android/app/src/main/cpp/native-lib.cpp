@@ -200,6 +200,13 @@ FN(void, fieldFeedback)(JNIEnv* env,jclass,jlong h,jstring str,jint leds,jstring
     env->ReleaseStringUTFChars(str,c);
 }
 FN(void, refreshLibrary)(JNIEnv*,jclass,jlong h){auto& e=*E(h);std::lock_guard<std::mutex> l(e.surfaceMtx);e.app->refreshLibrary();}
+FN(jint, fileAction)(JNIEnv*,jclass,jlong h){auto& e=*E(h);std::lock_guard<std::mutex> l(e.surfaceMtx);return e.app->takeFileAction();}
+FN(jstring, manageFile)(JNIEnv* env,jclass,jlong h,jint op,jstring path,jstring name){
+    auto asString=[&](jstring s){if(!s)return std::string();const char* p=env->GetStringUTFChars(s,nullptr);if(!p)return std::string();std::string out(p);env->ReleaseStringUTFChars(s,p);return out;};
+    auto p=asString(path),n=asString(name);auto& e=*E(h);std::string result;
+    try{std::lock_guard<std::mutex> l(e.surfaceMtx);result=e.app->manageFile(op,p,n);}catch(...){result="FILE OPERATION FAILED";}
+    return env->NewStringUTF(result.c_str());
+}
 FN(jboolean, wantFile)(JNIEnv*, jclass, jlong h) { auto& e = *E(h); std::lock_guard<std::mutex> l(e.surfaceMtx); return e.app->wantFile(); }
 // a picked file, already converted to a 16-bit WAV in the data dir: load it on the selected track
 FN(void, importFile)(JNIEnv* env, jclass, jlong h, jstring path) {

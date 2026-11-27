@@ -18,6 +18,10 @@
 #include <deque>
 #include <filesystem>
 #include <functional>
+#include <fstream>
+#include <array>
+#include <limits>
+#include <stdexcept>
 #include <mutex>
 #include <thread>
 
@@ -38,6 +42,7 @@ struct Session::Impl {
         TapeInsert tape;
         EchoInsert echoInsert;
         int mode = 0;
+        std::atomic<uint32_t> loadTicket{0};
         float envA=.012f,envD=.12f,envS=.85f,envR=.09f;
         bool latch = false;
         std::array<bool,128> latchNotes{}, latchHeld{};
@@ -101,6 +106,7 @@ struct Session::Impl {
     bool genEnabled=false;
     std::shared_ptr<std::vector<float>> outputTake;
     std::atomic<int> outputState{0};
+    std::atomic<int> fileSave{0};
     std::atomic<float> outputSeconds{0};
     mutable std::mutex outputMutex;
     std::string outputPath;
@@ -333,12 +339,13 @@ struct Session::Impl {
 
     // ---- samples ----
     static std::string baseName(const std::string& p) { size_t s = p.find_last_of("/\\"); return p.substr(s == std::string::npos ? 0 : s + 1); }
-    void installNew(const std::string& path, int track, bool kit) {
+    void installNew(const std::string& path, int track, bool kit,uint32_t ticket) {
         auto sm = std::make_unique<Sampler>(sr);
-        if (!sm->load(path)) { a_sampleFails++; a_sampleState = 0; return; }
+        if (!sm->load(path)) { if(tracks[track]->loadTicket==ticket){a_sampleFails++; a_sampleState = 0;} return; }
         auto holder = std::make_shared<std::unique_ptr<Sampler>>(std::move(sm));
-        post([this, holder, track, kit] {
+        post([this, holder, track, kit,ticket] {
             Track& t = *tracks[track];
+            if(t.loadTicket!=ticket){bury(std::move(*holder));return;}
             releaseAll(t);
             std::swap(t.sampler, *holder);
             applyModeParams(t);
@@ -410,7 +417,7 @@ struct Session::Impl {
         for (size_t i = 0; i < fade; i += 2) { const float k = (float)i / fade; o[i] *= k; o[i + 1] *= k; o[o.size() - 2 - i] *= k; o[o.size() - 1 - i] *= k; }
         char name[64]; snprintf(name, sizeof name, "/sample_%lld.wav", (long long)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
         const std::string path = (dataDir.empty() ? "." : dataDir) + name;
-        writeWav16(path, o, sr);
+        if(!writeWav16(path, o, sr)){a_sampleState=0;return;}
         { std::lock_guard<std::mutex> l(sampleMtx); samplePath = path; pending = true; a_pending = true; }
         a_sampleState = 0;
     }
@@ -757,6 +764,20 @@ void Session::generatorLoad(const std::string& path,int t){
         });
     });
 }
+void Session::generatorClear(int t){
+    if(t<0||t>=kTracks)return;
+    auto& g=d->generators[t];const uint32_t ticket=++g.ticket;
+    {std::lock_guard<std::mutex> l(g.peaksMutex);g.peaks.clear();g.source.reset();}
+    g.loadState=0;
+    d->post([this,t,ticket]{auto& g=d->generators[t];if(g.ticket!=ticket)return;d->genStop(g);d->bury(std::move(g.sampler));d->genPublish(g);});
+}
+void Session::clearSample(int t){
+    if(t<0||t>=kTracks)return;
+    auto& tr=*d->tracks[t];const uint32_t ticket=++tr.loadTicket;
+    d->post([this,t,ticket]{auto& tr=*d->tracks[t];if(tr.loadTicket!=ticket)return;d->releaseAll(tr);++tr.gen;d->bury(std::move(tr.sampler));
+        std::lock_guard<std::mutex> l(tr.infoMtx);tr.label.clear();tr.peaks.clear();tr.orig.reset();tr.slices.clear();
+    });
+}
 int Session::generatorLoadState(int t)const{return t>=0&&t<kTracks?d->generators[t].loadState.load():0;}
 std::vector<float> Session::generatorPeaks(int t)const{if(t<0||t>=kTracks)return {};auto& g=d->generators[t];std::lock_guard<std::mutex> lock(g.peaksMutex);return g.peaks;}
 void Session::generatorConfigure(const generative::Config& c,int t){if(t>=0&&t<kTracks)d->post([this,c,t]{d->generators[t].next=c;});}
@@ -821,7 +842,8 @@ void Session::noteOff(int t, int note) { if (t >= 0 && t < kTracks) d->post([=] 
 void Session::loadSamplePath(const std::string& path, bool kit, int track) {
     if (track < 0 || track >= kTracks || !std::filesystem::exists(path)) return;
     d->a_sampleState = 2;
-    d->job([this, path, track, kit] { d->installNew(path, track, kit); });
+    const uint32_t ticket=++d->tracks[track]->loadTicket;
+    d->job([this, path, track, kit,ticket] { d->installNew(path, track, kit,ticket); });
 }
 void Session::setMode(int t, int m) { if (t >= 0 && t < kTracks) d->post([=] { auto& tr=*d->tracks[t]; if(tr.mode==4 && m!=4) d->releaseLatch(tr); tr.mode=m; if(tr.sampler) tr.sampler->setMode(m); }); }
 void Session::setEchoLatch(int t, bool on) { if(t>=0 && t<kTracks) d->post([=]{auto& tr=*d->tracks[t]; if(tr.latch && !on) d->releaseLatch(tr); tr.latch=on;}); }
@@ -976,10 +998,99 @@ void Session::setTempoStretch(bool on) {
 }
 void Session::setLoopSpeed(float v) { d->tapeSpeed.store(clampf(v, 0.25f, 2.f)); }
 void Session::setLoopSource(int src) { d->post([=] { d->loopSrc = src ? 1 : 0; }); }
+namespace {
+struct ProjectLoops {
+    int32_t rate=0,frames=0,bars=4;
+    double tempoRate=1;
+    float bpm=120,speed=1,master=.9f;
+    int32_t stretch=0;
+    std::array<std::vector<float>,Session::kTracks> clips;
+};
+template<class T> bool writeScalar(std::ostream& o,const T& v){return bool(o.write(reinterpret_cast<const char*>(&v),sizeof v));}
+template<class T> bool readScalar(std::istream& i,T& v){return bool(i.read(reinterpret_cast<char*>(&v),sizeof v));}
+bool writeLoops(const std::string& file,const ProjectLoops& l){
+    std::ofstream o(file,std::ios::binary);o.write("FM1LOOP1",8);
+    if(!writeScalar(o,l.rate)||!writeScalar(o,l.frames)||!writeScalar(o,l.bars)||!writeScalar(o,l.tempoRate)||!writeScalar(o,l.bpm)||!writeScalar(o,l.speed)||!writeScalar(o,l.master)||!writeScalar(o,l.stretch))return false;
+    for(auto& c:l.clips){
+        uint32_t n=uint32_t(c.size());if(!writeScalar(o,n))return false;
+        if(n&&!o.write(reinterpret_cast<const char*>(c.data()),size_t(n)*sizeof(float)))return false;
+    }
+    o.close();return bool(o);
+}
+bool readLoops(const std::string& file,int sr,ProjectLoops& l){
+    std::ifstream i(file,std::ios::binary);char magic[8];if(!i.read(magic,8)||std::memcmp(magic,"FM1LOOP1",8))return false;
+    if(!readScalar(i,l.rate)||!readScalar(i,l.frames)||!readScalar(i,l.bars)||!readScalar(i,l.tempoRate)||!readScalar(i,l.bpm)||!readScalar(i,l.speed)||!readScalar(i,l.master)||!readScalar(i,l.stretch))return false;
+    if(l.rate!=sr||l.frames<0||int64_t(l.frames)>int64_t(sr)*180||l.bars<1||l.bars>32||
+       !std::isfinite(l.tempoRate)||l.tempoRate<.25||l.tempoRate>4||!std::isfinite(l.bpm)||l.bpm<=0||
+       !std::isfinite(l.speed)||l.speed<.25f||l.speed>2||!std::isfinite(l.master)||l.master<0||l.master>1.5f||
+       (l.stretch!=0&&l.stretch!=1))return false;
+    for(auto& c:l.clips){
+        uint32_t n;if(!readScalar(i,n)||(n&&n!=uint32_t(l.frames)*2u))return false;
+        c.resize(n);if(n&&!i.read(reinterpret_cast<char*>(c.data()),size_t(n)*sizeof(float)))return false;
+        if(std::any_of(c.begin(),c.end(),[](float v){return !std::isfinite(v);}))return false;
+    }
+    return i.peek()==std::char_traits<char>::eof();
+}
+}
+int Session::fileSaveState()const{return d->fileSave.load();}
+bool Session::saveProject(const std::string& directory,const std::string& name,const std::string& manifest,const std::vector<std::pair<std::string,std::string>>& sources){
+    if(directory.empty()||d->fileSave.exchange(1)==1)return false;
+    d->post([this,directory,name,manifest,sources]{
+        if(d->freeRec||d->freeArmed||std::any_of(d->tracks.begin(),d->tracks.end(),[](const auto& t){return t->clipRec;})){d->fileSave=3;return;}
+        auto l=std::make_shared<ProjectLoops>();l->rate=d->sr;l->frames=d->loopSamples;l->bars=d->loopBars;l->tempoRate=d->tempoRate;
+        l->bpm=d->bpm;l->speed=d->tapeSpeed.load();l->master=d->masterVol;l->stretch=d->tempoStretch?1:0;
+        // The command boundary supplies one coherent snapshot of every clip.
+        // Disk writes/copying source files never run in the audio callback.
+        try{for(int t=0;t<kTracks;++t)if(d->tracks[t]->clipHas)l->clips[t]=d->tracks[t]->clip;}
+        catch(...){d->fileSave=3;return;}
+        d->job([this,directory,name,manifest,sources,l]{
+            namespace fs=std::filesystem;const auto tmp=directory+".tmp";std::error_code ec;
+            bool ok=false;
+            try{
+                if(fs::exists(directory)||fs::exists(tmp))throw std::runtime_error("project exists");
+                fs::create_directories(tmp);
+                for(auto& q:sources){fs::path dst=fs::path(tmp)/q.second;fs::create_directories(dst.parent_path());fs::copy_file(q.first,dst);}
+                std::ofstream meta(tmp+"/state.txt");meta<<manifest;meta.close();
+                std::ofstream title(tmp+"/name.txt");title<<name;title.close();
+                if(!meta||!title||!writeLoops(tmp+"/loops.bin",*l))throw std::runtime_error("write failed");
+                fs::rename(tmp,directory);ok=true;
+            }catch(...){fs::remove_all(tmp,ec);}
+            d->fileSave=ok?2:3;
+        });
+    });return true;
+}
+bool Session::loadProjectLoops(const std::string& directory){
+    auto l=std::make_shared<ProjectLoops>();
+    try{if(!readLoops(directory+"/loops.bin",d->sr,*l))return false;}catch(...){return false;}
+    d->post([this,l]{
+        d->playing=d->stopping=d->digitalStop=false;d->rate=1;d->transportGain=1;
+        d->scrubActive=d->scrubTail=false;d->freeRec=d->freeArmed=false;d->a_free=d->a_freeArmed=false;
+        d->loopSamples=l->frames;d->a_loop=l->frames;d->loopBars=l->bars;d->a_bars=l->bars;
+        d->tempoRate=l->tempoRate;d->a_tempoRate=l->tempoRate;d->bpm=l->bpm;d->a_bpm=l->bpm;
+        d->tapeSpeed=l->speed;d->masterVol=l->master;d->tempoStretch=l->stretch!=0;d->a_tempoStretch=d->tempoStretch;
+        d->pos=d->tapePos=0;d->stretchHeads.reset();d->stretchMix=0;
+        for(int t=0;t<kTracks;++t){auto& tr=*d->tracks[t];d->releaseAll(tr);tr.clip.swap(l->clips[t]);tr.clipHas=!tr.clip.empty();tr.clipRec=tr.recPrevOk=false;}
+        d->job([l]{}); // old clip allocations released on the worker
+    });return true;
+}
 bool Session::saveClip(int t) {
-    if (t < 0 || t >= kTracks || !d->tracks[(size_t)t]->clipHas) return false;
-    std::vector<float> c = d->tracks[(size_t)t]->clip;   // a copy, written on the worker
-    d->job([this, c = std::move(c)]() mutable { d->finishSample(std::move(c)); d->a_pending = false; });
+    if(t<0||t>=kTracks||!(d->a_clip_mask.load()&(1u<<t))||d->fileSave.exchange(1)==1)return false;
+    d->post([this,t]{
+        auto& tr=*d->tracks[t];
+        if(!tr.clipHas||tr.clipRec){d->fileSave=3;return;}
+        try{
+            auto pcm=std::make_shared<std::vector<float>>(tr.clip);
+            d->job([this,pcm]{
+                namespace fs=std::filesystem;std::error_code ec;
+                auto ms=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                const std::string file=d->dataDir+"/sample_Loop_"+std::to_string(ms)+".wav",tmp=file+".tmp";
+                bool ok=false;
+                try{if(!d->dataDir.empty()&&!fs::exists(file)&&writeWav16(tmp,*pcm,d->sr)){fs::rename(tmp,file);ok=true;}}catch(...){}
+                if(!ok)fs::remove(tmp,ec);
+                d->fileSave=ok?2:3;
+            });
+        }catch(...){d->fileSave=3;}
+    });
     return true;
 }
 int Session::loopPeaks(int track, float* out, int maxBins) const {

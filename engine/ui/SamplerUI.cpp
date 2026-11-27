@@ -426,7 +426,7 @@ void SamplerUI::frame(uint32_t now) {
         if(sheetOpen_||genSelector_>=0)fieldRect_={};
         if(sheetOpen_)librarySheet();
         if(genSelector_>=0)generativeSelector();
-        return;
+        saveNotice();return;
     }
     genSelector_=-1;
     const float tb = 44, left = 176, right = 252;
@@ -439,13 +439,14 @@ void SamplerUI::frame(uint32_t now) {
         scaleStudy(scale,ox,oy,first);
         if (sheetOpen_) librarySheet();
         if (projectOpen_) projectSheet();
-        return;
+        saveNotice();return;
     }
     topBar({0, 0, W_, tb});
     trackList({MARGIN, tb + MARGIN, left - MARGIN, H_ - tb - 2 * MARGIN});
     sampleArea({left + MARGIN, tb + MARGIN, W_ - left - right - 2 * MARGIN, H_ - tb - 2 * MARGIN});
     pagePanel({W_ - right, tb + MARGIN, right - MARGIN, H_ - tb - 2 * MARGIN});
     if (sheetOpen_) {librarySheet();waveRect_={};}
+    saveNotice();
 }
 
 void SamplerUI::topBar(Rect r) {
@@ -1855,6 +1856,27 @@ void SamplerUI::librarySheet() {
         });
 }
 
+void SamplerUI::saveNotice(){
+    const int state=app_.saveNoticeState();if(!state)return;
+    waveRect_={};fieldRect_={};
+    const float w=std::min(340.f,W_-32),h=100;
+    Rect r{(W_-w)/2,(H_-h)/2,w,h};
+    // Consume taps during the brief save feedback; repeated presses cannot
+    // enqueue another save while the writer is busy or the notice is visible.
+    rrect({0,0,W_,H_},0,theme::withAlpha(BG,155));
+    hits_.clear();tap({0,0,W_,H_},[]{});
+    bevel(r,SURFACE);
+    const uint32_t col=state==3?RED:state==2?GREEN:ACCENT;
+    strip({r.x+6,r.y+6,r.w-12,25},col,state==1?"SAVING":state==2?"SAVED":"SAVE FAILED",14);
+    text(r.x+10,r.y+47,11,TEXT,fit(app_.saveNoticeLabel(),r.w-20,11),0,true);
+    Rect bar{r.x+10,r.y+63,r.w-20,14};bevel(bar,WELL,true);
+    if(state==1){
+        float span=bar.w*.27f,x=bar.x+2+(bar.w-span-4)*float(now_%850)/850.f;
+        rrect({x,bar.y+2,span,bar.h-4},0,col);
+    }else if(state==2)rrect({bar.x+2,bar.y+2,bar.w-4,bar.h-4},0,col);
+    text(r.x+10,r.y+88,9,DIM,state==1?"WRITING TO STORAGE":state==2?"FILE WRITTEN":"CHECK STORAGE / RECORDING");
+}
+
 // PROJECT menu: what used to be the SAVE / CLEAR buttons of the FM-1 (and more) on the screen.
 void SamplerUI::projectSheet() {
     rrect({0, 0, W_, H_}, 0, theme::withAlpha(kBg, 235));
@@ -1890,8 +1912,8 @@ void SamplerUI::projectSheet() {
     });
     row("OPEN THE EDITOR", "the older sample / page editor", true, false, [this] { app_.setEditor(true); projectOpen_ = false; });
     row("FIELD RECORDING", "examine, restore and extract one recording", true, false, [this] { app_.setFieldMode(true); projectOpen_ = false; });
-    row("LOOP LENGTH x2", "the loop doubled, its content repeated", any, false, [this] { app_.lenAction(true); });
-    row("LOOP LENGTH /2", "half as long, the second half is dropped", any, false, [this] { app_.lenAction(false); });
+    row("SAVE PROJECT", "all tracks, loops and deck settings", true, false, [this] { projectOpen_=false;app_.requestProjectSave(); });
+    row("FILES / PROJECTS", "open, rename or delete saved items", true, false, [this] { projectOpen_=false;app_.requestFileManager(); });
     row(std::string("LOOP SOURCE: ") + app_.knobs(SamplerApp::P_SAVE)[1].value, "what a take records: the track's sound or the microphone", true, false,
         [this] { auto k = app_.knobs(SamplerApp::P_SAVE); k[1].step(k[1].norm > 0.5f ? -1 : 1); });
 }
