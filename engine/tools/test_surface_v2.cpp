@@ -63,6 +63,13 @@ int main(){
         for(size_t i=1;i+1<f.size();++i)assert(f[i]<128);
     }
     assert(received==760);
+    // Each half must be independently bounded and validated.
+    for(const auto& frame:frames)if(frame[6]==SV_DATA&&sv_read14(frame.data()+14)<756){
+        const size_t off=sv_read14(frame.data()+14);
+        for(size_t i=0;i<frame.size()-17&&off+i<756;++i)assert(frame[16+i]==3);
+    }
+    app.fieldFeedback("",0,std::string(756,'4')+std::string(755,'5')+"z");
+    feedback("25");run(100);assert(sv_read14(state().data()+15)==gen);
     feedback("40");run(300);
     assert(sv_read14(state().data()+15)==gen);
     edit(ctx,3,0,2);

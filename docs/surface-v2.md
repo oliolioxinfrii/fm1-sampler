@@ -32,3 +32,7 @@ State is not persisted to hardware flash. Background page snapshots populate the
 ## Tests and release gate
 
 The engine regression checks negotiation, edit acknowledgements, stale/duplicate edits, field event routing and analysis generations. The firmware host script checks native prediction, acknowledgements, incomplete analysis transfers, palette changes and USB reconnection. Run the existing engine suite as well. Before distributing, complete the device build, inspect reported memory use, check input and USB playback on FM-1, and compare native pages with the app in both themes. Slipway installation and rollback are integration checks, not changes to the community bootloader. The existing firmware remains the fallback.
+
+## Installer discovery
+
+Slipway Web requires Chrome Web MIDI with SysEx permission, matching input/output port names and a successful OTA identity handshake. A native USB backup utility detecting the unit does not establish OTA compatibility. Close other MIDI/USB apps, reconnect the cable and verify detection in Chrome; if legacy firmware does not answer the standard OTA handshake, use the existing workbench to restore a verified stock image before retrying. Do not flash a raw backup as a .fwsc package or assume a backup utility accepts arbitrary .fwsc files.

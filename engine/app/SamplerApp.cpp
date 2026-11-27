@@ -707,17 +707,22 @@ void SamplerApp::fieldFeedback(const std::string& summary,uint32_t leds,const st
     }
     fieldLeds_=leds&0x3fff;
     if(pixels.size()==fieldPixels_.size()||pixels.size()==2*fieldPixels_.size()){
-        std::array<uint8_t,36*21> decoded{};
-        for(size_t i=0;i<pixels.size();++i){
-            char q=pixels[i];
-            if(q>='0'&&q<='9')decoded[i]=uint8_t(q-'0');
-            else if(q>='a'&&q<='f')decoded[i]=uint8_t(q-'a'+10);
-            else return;
-        }
-        fieldPixels_=decoded;
+        std::array<uint8_t,36*21> decoded{},spectrum{};
+        auto decode=[&](auto& dest,size_t offset){
+            for(size_t i=0;i<dest.size();++i){
+                char q=pixels[offset+i];
+                if(q>='0'&&q<='9')dest[i]=uint8_t(q-'0');
+                else if(q>='a'&&q<='f')dest[i]=uint8_t(q-'a'+10);
+                else return false;
+            }
+            return true;
+        };
+        if(!decode(decoded,0))return;
         if(pixels.size()==2*fieldPixels_.size()){
-            for(size_t i=0;i<fieldSpectrum_.size();++i){char q=pixels[i+fieldPixels_.size()];fieldSpectrum_[i]=q>='0'&&q<='9'?q-'0':q>='a'&&q<='f'?q-'a'+10:0;}
-        }else fieldSpectrum_=decoded;
+            if(!decode(spectrum,fieldPixels_.size()))return;
+        }else spectrum=decoded;
+        fieldPixels_=decoded;
+        fieldSpectrum_=spectrum;
     }
 }
 void SamplerApp::setFieldMode(bool on) {
