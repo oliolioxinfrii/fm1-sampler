@@ -248,15 +248,11 @@ static int sg_arp_note(int pattern,int n,int i){
     }
 }
 static int sg_arp_preview(int pattern,int levels,int count,int *pitch,int *color){
-    int low=levels,high=-1;
-    for(int i=0;i<count;i++){int v=sg_arp_note(pattern,levels,i);pitch[i]=v;if(v<low)low=v;if(v>high)high=v;}
-    // The two accents identify the first occurrence of the pitch extrema;
-    // subsequent occurrences remain neutral, even at the same height.
-    int seenLow=0,seenHigh=0;
+    // Accents identify the first and last displayed events, not pitch extrema.
+    // Every interior note remains neutral regardless of pitch or pattern.
     for(int i=0;i<count;i++){
-        color[i]=0;
-        if(pitch[i]==low&&!seenLow){color[i]=1;seenLow=1;}
-        else if(pitch[i]==high&&high!=low&&!seenHigh){color[i]=2;seenHigh=1;}
+        pitch[i]=sg_arp_note(pattern,levels,i);
+        color[i]=i==0?1:i==count-1?2:0;
     }
     return count;
 }
