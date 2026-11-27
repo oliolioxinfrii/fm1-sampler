@@ -244,6 +244,13 @@ int app_expect(const char *what,int *got){
         const unsigned at=54*240+12;uint16_t old=cv_px[at],color=sv_rgb(0x51b8ff);
         sg_put(12,54,color);*got=cv_px[at]==swap16(color);cv_px[at]=old;
     }
+    else if(!strcmp(what,"surface_key_left")||!strcmp(what,"surface_key_right")){
+        int lo=228,hi=11;uint16_t bg=swap16(sv_well);
+        // Restrict measurement to the keys, excluding the full-width octave rail.
+        for(int y=65;y<79;y++)for(int x=12;x<228;x++)if(cv_px[y*240+x]!=bg){if(x<lo)lo=x;if(x>hi)hi=x;}
+        int width=hi-lo+1;
+        *got=width>=58&&width<=64&&(!strcmp(what,"surface_key_left")?(lo>=20&&lo<=26):(hi>=212&&hi<=219));
+    }
     else if(!strcmp(what,"surface_plot_wide")){
         int lo=228,hi=11;uint16_t bg=swap16(sv_well);
         for(int y=54;y<89;y++)for(int x=12;x<228;x++)if(cv_px[y*240+x]!=bg){if(x<lo)lo=x;if(x>hi)hi=x;}

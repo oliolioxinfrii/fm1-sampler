@@ -58,6 +58,8 @@ lines = [
     # Verify direct pixel byte order and wide reverb coverage in both themes.
     state(page=14, ack=2, value=0), "wait 30", "expect surface_plot_color 1", "expect surface_plot_wide 1",
     state(page=14, ack=2, value=0, light=0), "wait 30", "expect surface_plot_color 1", "expect surface_plot_wide 1",
+    state(page=7, ack=2, value=0, flags=3), "wait 30", "expect surface_key_left 1",
+    state(page=7, ack=2, value=16383, flags=3), "wait 30", "expect surface_key_right 1",
     "usb unplug", "wait 100", "expect surface_ready 0",
     "usb plug", "wait 100", "sysex " + message(5, [0, 2]),
     "expect_sysex " + message(68, [2]), state(), "wait 30", "expect surface_ready 1",

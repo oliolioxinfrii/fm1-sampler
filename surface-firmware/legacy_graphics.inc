@@ -17,7 +17,10 @@ static uint16_t sg_mix(uint16_t x,uint16_t y,float v){
       g=(unsigned)(((x>>5)&63)*(1-v)+((y>>5)&63)*v+.5f),b=(unsigned)((x&31)*(1-v)+(y&31)*v+.5f);
     return (uint16_t)((r<<11)|(g<<5)|b);
 }
-static void sg_put(int x,int y,uint16_t c){if(x>=12&&x<228&&y>=54&&y<89)cv_px[y*240+x]=swap16(c); // canvas stores panel-order RGB565, not CPU-order}
+static void sg_put(int x,int y,uint16_t c){
+    // Canvas stores panel-order RGB565, not CPU-order.
+    if(x>=12&&x<228&&y>=54&&y<89)cv_px[y*240+x]=swap16(c);
+}
 static float sg_x(float x){return sg_ox+x*sg_scale;}
 static float sg_y(float y){return sg_oy+y*sg_scale;}
 /* Raster convention matches SurfaceArt.h: pixel centres, round line ends,
